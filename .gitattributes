@@ -1,0 +1,11 @@
+# Normalize line endings so the repo is identical on Windows, macOS and Linux.
+# Without this, Git warns on every add and cross-platform diffs are noisy.
+* text=auto eol=lf
+
+# Shell scripts must keep LF or they will not run inside Linux containers.
+*.sh text eol=lf
+
+# Explicitly binary.
+*.png binary
+*.jpg binary
+*.pdf binary
