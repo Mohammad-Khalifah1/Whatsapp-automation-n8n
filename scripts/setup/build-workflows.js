@@ -24,6 +24,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const ROOT = path.join(__dirname, '..', '..');
 const LIB_DIR = path.join(ROOT, 'scripts', 'lib');
@@ -175,7 +176,21 @@ function codeNode(name, id, position, libFiles, body, opts) {
   };
 }
 
+/**
+ * Sticky note factory.
+ *
+ * The id and name are DERIVED FROM THE CONTENT, not random. A random id would
+ * make every build produce a different file, which:
+ *   - defeats `--check` (it could never tell a real change from noise),
+ *   - creates a spurious git diff on every rebuild,
+ *   - makes re-imports look like edits.
+ * Hashing the content keeps the build deterministic: same input, same bytes.
+ */
 function stickyNote(content, position, height, width, color) {
+  const hash = crypto
+    .createHash('sha256')
+    .update(content + '|' + position.join(','))
+    .digest('hex');
   return {
     parameters: {
       content,
@@ -183,8 +198,8 @@ function stickyNote(content, position, height, width, color) {
       width: width || 400,
       color: color || 4,
     },
-    id: 'sticky-' + Math.random().toString(36).slice(2, 10),
-    name: 'Note ' + Math.random().toString(36).slice(2, 6),
+    id: 'sticky-' + hash.slice(0, 8),
+    name: 'Note ' + hash.slice(8, 12),
     type: 'n8n-nodes-base.stickyNote',
     typeVersion: 1,
     position,

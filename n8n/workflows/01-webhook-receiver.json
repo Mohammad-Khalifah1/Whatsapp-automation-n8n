@@ -184,8 +184,8 @@
         "width": 620,
         "color": 4
       },
-      "id": "sticky-2xb5v52w",
-      "name": "Note npyc",
+      "id": "sticky-cb7efd85",
+      "name": "Note 56f3",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
@@ -275,6 +275,5 @@
     "saveExecutionProgress": true,
     "errorWorkflow": ""
   },
-  "tags": [],
-  "active": true
+  "tags": []
 }
