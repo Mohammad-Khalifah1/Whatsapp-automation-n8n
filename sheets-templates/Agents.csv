@@ -1,0 +1,4 @@
+agent_id,name,phone,active,available,max_open_conversations,open_conversations,last_assigned_at,role,working_hours,timezone,created_at,updated_at
+A1,Ahmed,962790000001,TRUE,TRUE,5,0,,agent,09:00-17:00,Asia/Amman,2026-09-10T08:00:00.000Z,2026-09-10T08:00:00.000Z
+A2,Mohammad,962790000002,TRUE,TRUE,5,0,,agent,09:00-17:00,Asia/Amman,2026-09-10T08:00:00.000Z,2026-09-10T08:00:00.000Z
+A3,Sara,962790000003,TRUE,TRUE,5,0,,agent,09:00-17:00,Asia/Amman,2026-09-10T08:00:00.000Z,2026-09-10T08:00:00.000Z
