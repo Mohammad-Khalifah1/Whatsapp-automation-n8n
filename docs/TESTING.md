@@ -7,9 +7,10 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **162 passing** |
-| 2 — Workflow validation | No | **303 checks passing** |
+| 1 — Unit tests (business logic) | No | **169 passing** |
+| 2 — Workflow validation | No | **414 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
+| 3b — Schema consistency | No | **10 checks passing** |
 | 4 — Google Sheets persistence | Yes (Google) | **Not executed** — no service account available |
 | 5 — Outgoing messages | Yes (Meta) | **Not executed** — no access token available |
 | 6 — Real Meta end-to-end | Yes (both) | **Not executed** |
@@ -29,14 +30,14 @@ node tests/run-tests.js assignment    # one area
 No npm install, no credentials, ~15 ms.
 
 ```
-162 passed, 0 failed, 162 total
+169 passed, 0 failed, 169 total
 ```
 
 | Suite | Tests | Covers |
 |---|---|---|
 | `conversations/phone.test.js` | 17 | E.164 normalization, Arabic digits, ambiguity |
 | `assignment/assignment.test.js` | 26 | Selection, tie-breaks, capacity, race exposure |
-| `webhook/parser.test.js` | 29 | Real Meta payloads, malformed input, all message types |
+| `webhook/parser.test.js` | 36 | Real Meta payloads, malformed input, all message types, Coexistence echoes |
 | `webhook/security.test.js` | 22 | Handshake, HMAC, redaction |
 | `webhook/idempotency.test.js` | 29 | Dedupe keys, status ladder, locks |
 | `conversations/conversation.test.js` | 39 | State machine, identity, row building, inactivity |
@@ -52,7 +53,7 @@ inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
 node scripts/validation/validate-workflows.js
 ```
 
-303 checks across the 6 workflows:
+414 checks across the 8 workflows:
 
 - every Code node body **parses as JavaScript** (`vm.Script` compile)
 - no leftover `module.exports` or relative `require()` from inlining
@@ -91,7 +92,7 @@ Requires: n8n running, workflow 1 published, `WEBHOOK_VERIFY_TOKEN` and
 | Signed POST | `send-fixture.js text-message.json` | 200 | **200 `EVENT_RECEIVED`** |
 | Bad signature | `--bad-signature` | 401 | **401 `invalid signature`** |
 | No signature | `--no-signature` | 401 | **401 `invalid signature`** |
-| All 8 fixtures signed | `send-fixture.js` | 200 each | **200 × 8** |
+| All 10 fixtures signed | `send-fixture.js` | 200 each | **200 × 10** |
 | Handoff to processor | check logs | no "not active" | **no errors** |
 
 ```bash
@@ -118,6 +119,8 @@ node scripts/testing/send-fixture.js text-message.json --twice   # duplicate
 | `status-delivered.json` | Delivery receipt with pricing/billability |
 | `status-failed.json` | Failure with error 131047 (24-hour window) |
 | `malformed-payload.json` | Change with neither messages nor statuses |
+| `echo-agent-reply.json` | An agent reply sent from the WhatsApp Business App (Coexistence) |
+| `echo-revoke.json` | An agent deleting a message from the app |
 
 ---
 
@@ -150,6 +153,18 @@ node scripts/testing/send-fixture.js text-message.json --twice   # duplicate
 | 23 | n8n restart | Performed repeatedly during development | **Tested** |
 | 24 | Persistent data after Docker restart | Workflows survived several restarts | **Tested** |
 | 25 | Credentials not exposed in logs | Unit — redaction; validator scans workflows | **Tested** |
+
+### Scenarios added after the original list
+
+| Scenario | How it is tested | Status |
+|---|---|---|
+| Agent replies from the WhatsApp Business App | Unit (7 tests) + live fixture | **Tested** |
+| Echo direction is not reversed | Unit — asserts customer is `to`, not `from` | **Tested** |
+| Agent deletes a message from the app (`revoke`) | Unit — recorded, does not advance state | **Tested** |
+| Reply typed into the sheet | Built (workflow 7) | **Not executed** — needs credentials |
+| Double-send guard on sheet replies | `reply_status` interlock | **Not executed** — needs credentials |
+| Nightly archiving | Built (workflow 8) | **Not executed** — needs credentials |
+| Sheet schema drift | `check-schema-consistency.js`, verified against a planted mismatch | **Tested** |
 
 ### On scenario 4
 
@@ -221,11 +236,11 @@ intend to lose everything.
 ## Regression check before any change
 
 ```bash
-node tests/run-tests.js                          # 162 passed
+node tests/run-tests.js                          # 169 passed
 node scripts/setup/build-workflows.js            # regenerate
-node scripts/validation/validate-workflows.js    # 303 passed
+node scripts/validation/validate-workflows.js    # 414 passed
 node scripts/setup/import-workflows.js           # 6/6 [ok]
-node scripts/testing/send-fixture.js             # 200 × 8
+node scripts/testing/send-fixture.js             # 200 × 10
 ```
 
 If you changed anything in `scripts/lib/`, the rebuild step is mandatory —

@@ -162,10 +162,15 @@ for the inbox when it is built. Every one of those is recorded in the same
 ## Effect on the architecture
 
 The "agent access model" section of
-[ARCHITECTURE.md](ARCHITECTURE.md#agent-access-model) described path C —
-external replies — as permanently invisible. With Coexistence enabled, **path C
-becomes visible**, and the strongest argument for building the agent inbox
-weakens considerably.
+[ARCHITECTURE.md](ARCHITECTURE.md#agent-access-model) originally described
+replies from the WhatsApp app as permanently invisible. With Coexistence
+enabled, replies from the **Business App on the business number** (path D in
+that document) become visible, and the strongest argument for building the
+agent inbox weakens considerably.
+
+Only path E — an agent using their **personal** WhatsApp account — remains
+untracked, and no product can track that, because the message never touches
+your WABA.
 
 The inbox is still worth building for queueing, search, internal notes, SLA and
 analytics. But "we cannot see agent replies" is no longer a reason to rush it.

@@ -7,7 +7,7 @@ are never tested).
 
 ```bash
 node scripts/setup/build-workflows.js         # generate
-node scripts/validation/validate-workflows.js # 303 checks
+node scripts/validation/validate-workflows.js # 414 checks
 node scripts/setup/import-workflows.js        # import (idempotent)
 ```
 
@@ -37,6 +37,8 @@ are pinned in the builder. Re-verify after an n8n upgrade:
 | `whatsappSend0004` | 4 Outgoing Agent Message |
 | `whatsappQueu0005` | 5 Unassigned Queue Retry |
 | `whatsappErrH0006` | 6 Error Handler |
+| `whatsappShRp0007` | 7 Reply From Sheet |
+| `whatsappArch0008` | 8 Archive Old Conversations |
 
 Ids are fixed so `import:workflow` **updates** rather than creating duplicates,
 and so Execute Workflow cross-references are correct at build time.
@@ -91,7 +93,7 @@ outcome but never the token or signature value.
 |---|---|
 | **Trigger** | Execute Workflow (from workflow 1) |
 | **Input** | Raw webhook body |
-| **Output** | One item per event, routed three ways |
+| **Output** | One item per event, routed four ways |
 | **Must be published** | Yes — sub-workflows must be published or the caller errors |
 
 **Flow**
@@ -105,8 +107,30 @@ Parse & Normalize Events
         ├── status_update    → Find Outbound Message → Apply Status Ladder
         │                        ├── apply → Update Message Status
         │                        └── stale → Skip Stale Status
+        ├── app_reply_echo   → Find Conversation For Echo → Apply App Reply
+        │                        ├── update → Update Conversation From App Reply
+        │                        │             → Record App Reply Message
+        │                        └── skip   → Record App Reply Message
         └── other_event      → Log Unhandled Event
 ```
+
+**The echo branch** handles `smb_message_echoes` — replies an agent typed in
+the WhatsApp Business App, available when Coexistence is enabled. It applies
+them through the same `buildAgentMessageUpdate()` used for API replies, so an
+app reply advances the conversation to `REPLIED` exactly like a workflow-4
+reply would.
+
+Two things this branch gets right and a naive implementation would not:
+
+- **Direction is reversed.** In an echo, `from` is the **business** and `to` is
+  the **customer**. Reading `from` as the customer would file the agent's own
+  reply under the business number and flip the real conversation to
+  `UNANSWERED`.
+- **`revoke` and `edit` do not advance state.** Deleting a message is not
+  answering a customer, so control events are recorded without moving the
+  conversation.
+
+See [COEXISTENCE.md](COEXISTENCE.md).
 
 **Parsing.** Iterates **every** `entry` × `change` × `message`/`status`. A
 single POST can legitimately contain many messages across multiple business
@@ -256,7 +280,7 @@ Stops as soon as no agent is eligible, rather than looping pointlessly.
 | **Input** | n8n's error payload |
 | **Output** | A row in the Events sheet |
 
-Set this as the **Error Workflow** in workflows 1–5 (*Settings → Error
+Set this as the **Error Workflow** in workflows 1–5, 7 and 8 (*Settings → Error
 Workflow*).
 
 **Redacts before writing anything.** n8n error payloads can contain the failing
@@ -266,6 +290,104 @@ spreadsheet would put a live token in a document people share.
 **Known limitation.** If Google Sheets is the failing dependency, this handler
 cannot log to Sheets either. n8n's execution log is then the source of truth.
 This is stated rather than pretended away.
+
+---
+
+## Workflow 7 — Reply From Sheet
+
+**Trigger:** Schedule, every 1 minute.
+**Purpose:** Let a human send a WhatsApp reply by typing into the sheet.
+
+| | |
+|---|---|
+| **Input** | The `Conversations` tab |
+| **Output** | A sent WhatsApp message; `Messages` row with `sent_via = google_sheet` |
+| **Selects** | Rows where `reply_text` is non-empty AND `reply_status` is not `SENT`/`SENDING`/`FAILED` |
+
+### Flow
+
+```
+Every Minute
+   └─> Read Conversations
+        └─> Find Pending Replies        (validate phone + length)
+             └─> Sendable?
+                  ├─ yes ─> Send Reply Via Cloud API
+                  │           └─> Interpret Sheet Send
+                  │                └─> Clear Cell And Record Outcome
+                  │                     └─> Record Sent Reply
+                  └─ no  ─> Mark Invalid Reply
+```
+
+### Idempotency
+
+`reply_status` is the interlock. Without it, every one-minute poll would resend
+the same text until a human cleared the cell — the customer would receive the
+message repeatedly.
+
+On success `reply_text` is cleared and `reply_status` becomes `SENT`.
+On failure `reply_text` is **kept** so the author can see and correct it, and
+`reply_error` explains why.
+
+### Error handling
+
+| Failure | Handling |
+|---|---|
+| Unnormalizable phone | `reply_status = FAILED`, never sent — strict normalization refuses ambiguous numbers |
+| Text over 4096 chars | `FAILED` before any API call |
+| Meta API error | 3 retries with backoff, then `FAILED` with the Meta error code |
+| Sheets read fails | `continueRegularOutput`; the next tick retries |
+
+### Why one minute
+
+Polling faster burns the Google Sheets read quota (60/min/user) for no
+perceptible benefit. Instant replies come from the WhatsApp Business App or the
+API, not from a poller.
+
+---
+
+## Workflow 8 — Archive Old Conversations
+
+**Trigger:** Schedule, daily at 03:00 (in `GENERIC_TIMEZONE`).
+**Purpose:** Keep the working sheet small and fast.
+
+| | |
+|---|---|
+| **Input** | The `Conversations` tab |
+| **Output** | Rows moved to `Conversations_Archive`; an audit row per move |
+| **Selects** | `status = CLOSED` **and** closed longer ago than `ARCHIVE_AFTER_DAYS` |
+
+### Flow
+
+```
+Daily At 03:00
+   └─> Read Conversations
+        └─> Select Archivable      (CLOSED only, sorted row_number DESC)
+             └─> Copy To Archive          [stopWorkflow on error]
+                  └─> Remove From Conversations
+                       └─> Audit Archive
+```
+
+### The three safety rules
+
+1. **Only `CLOSED` rows.** An open conversation is live work; archiving one
+   would hide a waiting customer.
+2. **Copy before delete, and halt if the copy fails.** The archive-append node
+   is `onError: stopWorkflow` — the only node in the project that is. If the
+   copy fails and the delete still ran, the data would be gone.
+3. **Delete bottom-up.** Rows are sorted by `row_number` **descending** before
+   deletion, because deleting a row shifts every row beneath it. Top-down
+   deletion would corrupt the indices of rows still queued and delete the wrong
+   conversations.
+
+A row whose `closed_at` cannot be parsed is **skipped**, not archived on a
+guess.
+
+### Configuration
+
+| Variable | Default | Effect |
+|---|---|---|
+| `ARCHIVE_AFTER_DAYS` | `30` | Age after closing. `0` disables the workflow entirely |
+| `ARCHIVE_BATCH_SIZE` | `200` | Rows per run — keeps a first large run inside the write quota |
 
 ---
 

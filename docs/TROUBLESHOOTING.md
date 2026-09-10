@@ -19,8 +19,8 @@ docker logs --tail 50 n8n-whatsapp
 node scripts/validation/check-env.js
 
 # Is the code sound?
-node tests/run-tests.js                         # 162 passed
-node scripts/validation/validate-workflows.js   # 303 passed
+node tests/run-tests.js                         # 169 passed
+node scripts/validation/validate-workflows.js   # 414 passed
 
 # Are the workflows imported?
 node scripts/setup/import-workflows.js --list   # 6/6 [ok]

@@ -80,7 +80,7 @@ running quietly diverges. Inlining at build time makes the tested code and the
 running code byte-identical by construction.
 
 It also makes the logic testable without Meta or Google credentials — which is
-why there are 162 passing tests on a machine with no API keys.
+why there are 169 passing tests on a machine with no API keys.
 
 **Trade-off accepted.** Editing logic requires a rebuild and re-import; you
 cannot fix business logic by typing into the n8n UI. That is a feature: a fix
@@ -298,7 +298,7 @@ archives.
 
 **Why.** The tests are the evidence that this system works. Making them
 dependent on a successful `npm install` means a proxy, a lockfile conflict, or
-an offline machine becomes a reason nobody runs them. 162 tests run with nothing
+an offline machine becomes a reason nobody runs them. 169 tests run with nothing
 but Node.
 
 **Trade-off accepted.** No watch mode, no coverage report, no parallelism. The

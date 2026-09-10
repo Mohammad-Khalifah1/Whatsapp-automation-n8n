@@ -334,40 +334,51 @@ rather than papered over.
 
 ## Agent access model
 
-The MVP gives agents a Google Sheet plus a `wa.me` link. This works, but it has
-a limitation that must not be misrepresented.
+Agents can reply four ways. Three of them are tracked; one is not, and the
+difference is about **which phone number** sends the message, not which app.
 
-### Three distinct message paths
+### Four distinct message paths
 
 | | Path | Visible to this system? |
 |---|---|---|
 | **A** | Customer → Cloud API → webhook | **Yes.** Fully tracked. |
-| **B** | Agent → workflow 4 → Cloud API → customer | **Yes.** Tracked, with delivery status. |
-| **C** | Agent → WhatsApp app on their phone → customer | **No. Completely invisible.** |
+| **B** | Agent → workflow 4 (API) → customer | **Yes.** Tracked, with delivery status. |
+| **C** | Manager types in the sheet → workflow 7 → customer | **Yes.** Tracked, `sent_via = google_sheet`. |
+| **D** | Agent → **WhatsApp Business App on the business number** → customer | **Yes, if Coexistence is enabled** — `sent_via = whatsapp_business_app`. |
+| **E** | Agent → **their own personal WhatsApp** → customer | **No. Invisible.** |
 
-### What this means in practice
+### What changed
 
-If an agent clicks the `wa.me` link and replies from their personal WhatsApp,
-the customer receives an answer but **this system never learns about it**. The
-conversation stays `UNANSWERED`, `last_agent_message_at` stays empty, and
-reporting will show a response time that never ends.
+This section previously described path D as permanently invisible, on the
+grounds that Meta only emits webhooks for API-sent messages. That was true
+until Meta shipped **Coexistence** (May 2025), which runs the Business App and
+the Cloud API on the same number and mirrors app-sent messages to the webhook
+as `smb_message_echoes`.
 
-This is not a defect in the implementation — Meta only emits webhooks for
-messages sent through the Cloud API. Any product claiming otherwise is either
-using an unofficial client or is wrong.
+With Coexistence enabled, an agent replying from the WhatsApp Business App
+produces an echo event, and workflow 2 applies it through the same
+`buildAgentMessageUpdate()` used for API replies — so the conversation moves to
+`REPLIED`, `last_agent_message_at` is set, and `unread` clears. Full detail:
+[COEXISTENCE.md](COEXISTENCE.md).
 
-**Consequences accepted for the MVP:**
+### The path that is still invisible
 
-- The `wa.me` link is useful for *seeing* the customer, and for informal
-  replies where tracking genuinely does not matter.
-- Reply tracking is only accurate for messages sent via workflow 4.
-- The system must not be described as providing "complete reply tracking" while
-  path C is in use.
+Path **E** — an agent replying from a *personal* WhatsApp account. Coexistence
+tracks the **business number**, not the person. The `wa.me` link in the sheet
+opens a chat from whatever account the clicker is signed into, so if that is a
+personal account the reply is not recorded. The Apps Script warns about this
+whenever someone opens a chat from the sheet.
 
-**The fix** is the agent inbox in [FUTURE_AGENT_INBOX.md](FUTURE_AGENT_INBOX.md),
-which sends every reply through the Cloud API. The architecture is already
-shaped for it: workflow 4 is a complete, working reply API, so the inbox is a
-user interface over an endpoint that already exists.
+**What must not be claimed:** that reply tracking is complete while path E is in
+use. It is complete for A–D.
+
+### Consequence for the agent inbox
+
+The strongest argument for building the inbox was "we cannot otherwise see
+agent replies". Coexistence removes that argument. The inbox remains worth
+building for queueing, search, internal notes, SLA timers and analytics — see
+[FUTURE_AGENT_INBOX.md](FUTURE_AGENT_INBOX.md) — but it is no longer required
+for basic reply tracking.
 
 ---
 

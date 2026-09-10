@@ -78,7 +78,7 @@ These need no credentials and prove the core logic works:
 
 ```bash
 node tests/run-tests.js
-# 162 passed, 0 failed
+# 169 passed, 0 failed
 ```
 
 ---
@@ -87,12 +87,12 @@ node tests/run-tests.js
 
 ```bash
 node scripts/setup/build-workflows.js       # generates n8n/workflows/*.json
-node scripts/validation/validate-workflows.js   # 303 checks
+node scripts/validation/validate-workflows.js   # 414 checks
 node scripts/setup/import-workflows.js      # imports into the container
 ```
 
 The import is idempotent — workflow ids are pinned, so running it repeatedly
-updates the same six workflows instead of creating duplicates.
+updates the same eight workflows instead of creating duplicates.
 
 ---
 
@@ -163,7 +163,7 @@ docker compose up -d
 
 In the n8n UI:
 
-1. **Error workflow** — open workflows 1–5, *Settings → Error Workflow* →
+1. **Error workflow** — open workflows 1–5, 7 and 8, *Settings → Error Workflow* →
    `WhatsApp — 6 Error Handler`.
 2. **Concurrency** — open `WhatsApp — 3 Conversation & Assignment`,
    *Settings → Concurrency* → **1**.
@@ -171,7 +171,9 @@ In the n8n UI:
    same agent. Do not skip it —
    [ASSIGNMENT_ALGORITHM.md](ASSIGNMENT_ALGORITHM.md#concurrency-and-race-conditions)
    explains why.
-3. **Publish** workflows 1, 2, 3, 4 and 5.
+3. **Publish** workflows 1, 2 and 3 (always required). Publish 4, 5, 7 and 8
+   only once their credentials are configured — a scheduled workflow with no
+   credential fails on every tick and fills the execution log with noise.
 
 > **n8n 2.x uses a draft/published model.** A workflow only runs once
 > *published*, and a sub-workflow called by Execute Workflow must be published
@@ -271,8 +273,8 @@ the phone number id and token, and register the callback URL and verify token.
 | Check | Command | Expected |
 |---|---|---|
 | n8n healthy | `curl localhost:5678/healthz` | `{"status":"ok"}` |
-| Unit tests | `node tests/run-tests.js` | 162 passed |
-| Workflows valid | `node scripts/validation/validate-workflows.js` | 303 passed |
+| Unit tests | `node tests/run-tests.js` | 169 passed |
+| Workflows valid | `node scripts/validation/validate-workflows.js` | 414 passed |
 | Workflows imported | `node scripts/setup/import-workflows.js --list` | 6/6 `[ok]` |
 | Verification handshake | curl in step 8 | challenge echoed |
 | Signed delivery | `node scripts/testing/send-fixture.js` | `200 EVENT_RECEIVED` |

@@ -216,7 +216,7 @@ cell cannot cause a wrongful close.
 
 ## The error workflow
 
-Workflow 6 catches failures from workflows 1–5 and writes a redacted row to
+Workflow 6 catches failures from workflows 1–5, 7 and 8 and writes a redacted row to
 Events.
 
 **Redaction first.** n8n error payloads can include the failing request's
