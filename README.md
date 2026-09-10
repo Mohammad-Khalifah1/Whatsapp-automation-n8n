@@ -15,9 +15,12 @@ is waiting and for how long.
 | Area | State |
 |---|---|
 | Docker + n8n environment | **Working, verified** — n8n 2.38.5, healthy, persistent volume |
-| Core business logic | **Working, 162 unit tests passing** |
+| Core business logic | **Working, 169 unit tests passing** |
 | Webhook receiver (verify + signature + ack) | **Working, verified live with real HTTP calls** |
-| n8n workflows (6) | **Built, validated, imported into n8n** |
+| n8n workflows (8) | **Built, validated, imported and published** |
+| Reply from the sheet (workflow 7) | **Built, NOT yet verified** — needs credentials |
+| Nightly archiving (workflow 8) | **Built, NOT yet verified** — needs credentials |
+| Business App echo tracking (Coexistence) | **Built and unit-tested**; live behaviour needs Coexistence enabled |
 | Google Sheets persistence | **Built, NOT yet verified** — needs a Google service account |
 | Outgoing messages via Cloud API | **Built, NOT yet verified** — needs Meta credentials |
 | Production deployment | **Documented, not performed** |
@@ -47,7 +50,7 @@ node scripts/setup/build-workflows.js
 node scripts/setup/import-workflows.js
 
 # 5. Run the tests
-node tests/run-tests.js                   # 162 unit tests, no credentials needed
+node tests/run-tests.js                   # 169 unit tests, no credentials needed
 node scripts/validation/validate-workflows.js
 ```
 
@@ -81,6 +84,8 @@ Google Sheets  (Agents · Conversations · Messages · Events)
 [4] Outgoing Agent Message ── the ONLY supported reply path
 [5] Unassigned Queue Retry ── re-tries conversations nobody could take
 [6] Error Handler ─────────── records failures, redacts secrets
+[7] Reply From Sheet ──────── type in a cell, customer gets a WhatsApp message
+[8] Archive Conversations ─── nightly, keeps the working sheet small
 ```
 
 Full detail: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
@@ -98,13 +103,13 @@ analysis is in [docs/ASSIGNMENT_ALGORITHM.md](docs/ASSIGNMENT_ALGORITHM.md),
 and the migration path is in
 [docs/GOOGLE_SHEETS_TO_POSTGRES.md](docs/GOOGLE_SHEETS_TO_POSTGRES.md).
 
-**2. Replies sent from the normal WhatsApp app are invisible to this system.**
-Meta only generates webhooks for messages sent *through the Cloud API*. If an
-agent replies from the WhatsApp app on their phone, no event is produced, and
-the conversation will keep showing as `UNANSWERED` even though the customer got
-an answer. Agent replies must go through workflow 4. This is a platform
-constraint, not a bug — see
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#agent-access-model).
+**2. Replies must come from the business number, not a personal account.**
+Meta only emits webhooks for messages involving your WABA number. With
+**Coexistence** enabled, replies typed in the WhatsApp Business App *are*
+mirrored to the webhook and tracked — see
+[docs/COEXISTENCE.md](docs/COEXISTENCE.md). Without it, only replies sent
+through the API or the sheet are visible. Either way, an agent replying from
+their **personal** WhatsApp is invisible to the system.
 
 ---
 
@@ -131,16 +136,16 @@ replying *after* 24 hours requires a paid template message. Full breakdown:
 │
 ├── n8n/
 │   ├── workflows/              GENERATED — do not hand-edit
-│   └── fixtures/               8 real-shape Meta webhook payloads
+│   └── fixtures/               10 real-shape Meta webhook payloads
 │
 ├── scripts/
 │   ├── lib/                    canonical business logic (unit-tested)
 │   ├── setup/                  build + import workflows
-│   ├── validation/             workflow and config validators
+│   ├── validation/             workflow, config and schema validators
 │   └── testing/                fixture sender, live webhook tests
 │
-├── sheets-templates/           Google Sheets headers + sample data
-└── tests/                      162 tests, zero npm dependencies
+├── sheets-templates/           CSV headers + one-click Apps Script setup
+└── tests/                      169 tests, zero npm dependencies
 ```
 
 **`scripts/lib/` is the single source of truth for business logic.** n8n Code
@@ -155,6 +160,8 @@ code and the running code identical.
 
 | Document | What it covers |
 |---|---|
+| [OPERATING_GUIDE.md](docs/OPERATING_GUIDE.md) | **Start here for daily use** — the three reply paths, filtering, speed, archiving |
+| [COEXISTENCE.md](docs/COEXISTENCE.md) | Making WhatsApp Business App replies visible to the system |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, data flow, state machine, phone normalization |
 | [SETUP.md](docs/SETUP.md) | Step-by-step local setup, credentials, tunnels |
 | [ENVIRONMENT.md](docs/ENVIRONMENT.md) | Every environment variable and where it is read |
