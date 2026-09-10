@@ -1,0 +1,540 @@
+{
+  "id": "whatsappProc0002",
+  "name": "WhatsApp — 2 Incoming Message Processor",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "proc-trigger",
+      "name": "When Called By Receiver",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/webhook-parser.js, scripts/lib/phone.js, scripts/lib/idempotency.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\nconst crypto = require('crypto');\n\n// ----- scripts/lib/webhook-parser.js -----\n/**\n * Meta WhatsApp Cloud API webhook payload parser.\n *\n * CANONICAL SOURCE. Unit-tested (tests/webhook/parser.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * Payload shape verified against official documentation on 2026-09-09:\n *   https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/components\n *\n * A single webhook POST can legitimately contain MULTIPLE entries, each with\n * multiple changes, each with multiple messages and/or statuses. Flattening\n * that correctly matters: a naive `body.entry[0].changes[0].value.messages[0]`\n * silently drops messages under load, which looks exactly like \"we lost a\n * customer's message\".\n *\n * This parser NEVER throws. Malformed input produces `ok:false` plus a reason,\n * because a parser exception inside a webhook handler turns into a non-200\n * response, which makes Meta retry, which amplifies the failure.\n */\n\n\n/** Message types this system explicitly understands. */\nconst SUPPORTED_MESSAGE_TYPES = [\n  'text',\n  'image',\n  'audio',\n  'video',\n  'document',\n  'sticker',\n  'location',\n  'contacts',\n  'interactive',\n  'button',\n  'reaction',\n  'order',\n  'system',\n];\n\n/** Types for which we can extract human-readable text for the Sheets preview. */\nconst TEXT_BEARING_TYPES = ['text', 'button', 'interactive', 'reaction'];\n\nconst EVENT_KIND = {\n  MESSAGE: 'message',\n  STATUS: 'status',\n  ERROR: 'error',\n  UNKNOWN: 'unknown',\n};\n\n/**\n * Extract a short human-readable preview for the `last_message` column.\n * Media messages have no text, so we synthesize a stable placeholder rather\n * than writing \"undefined\" into a spreadsheet a manager will read.\n *\n * @returns {{text: string|null, preview: string, has_text: boolean}}\n */\nfunction extractMessageText(message) {\n  if (!message || typeof message !== 'object') {\n    return { text: null, preview: '[unparseable message]', has_text: false };\n  }\n\n  const type = message.type;\n\n  if (type === 'text' && message.text && typeof message.text.body === 'string') {\n    return { text: message.text.body, preview: message.text.body, has_text: true };\n  }\n\n  // Quick-reply / CTA button taps.\n  if (type === 'button' && message.button) {\n    const t = message.button.text || message.button.payload || '';\n    return { text: t || null, preview: t ? '[button] ' + t : '[button]', has_text: !!t };\n  }\n\n  // Interactive replies: list_reply / button_reply.\n  if (type === 'interactive' && message.interactive) {\n    const i = message.interactive;\n    const reply = i.button_reply || i.list_reply || null;\n    if (reply) {\n      const t = reply.title || reply.id || '';\n      return { text: t || null, preview: t ? '[interactive] ' + t : '[interactive]', has_text: !!t };\n    }\n    return { text: null, preview: '[interactive]', has_text: false };\n  }\n\n  if (type === 'reaction' && message.reaction) {\n    const emoji = message.reaction.emoji || '';\n    return { text: emoji || null, preview: '[reaction] ' + emoji, has_text: !!emoji };\n  }\n\n  // Media types may carry an optional caption.\n  const mediaTypes = ['image', 'video', 'document', 'audio', 'sticker'];\n  if (mediaTypes.indexOf(type) !== -1) {\n    const media = message[type] || {};\n    const caption = typeof media.caption === 'string' ? media.caption : null;\n    const filename = typeof media.filename === 'string' ? media.filename : null;\n    let preview = '[' + type + ']';\n    if (filename) preview += ' ' + filename;\n    if (caption) preview += ' ' + caption;\n    return { text: caption, preview, has_text: !!caption };\n  }\n\n  if (type === 'location' && message.location) {\n    const loc = message.location;\n    const label = loc.name || loc.address || '';\n    const coords =\n      loc.latitude !== undefined && loc.longitude !== undefined\n        ? loc.latitude + ',' + loc.longitude\n        : '';\n    return {\n      text: null,\n      preview: '[location] ' + (label || coords),\n      has_text: false,\n    };\n  }\n\n  if (type === 'contacts') {\n    const n = Array.isArray(message.contacts) ? message.contacts.length : 0;\n    return { text: null, preview: '[contacts x' + n + ']', has_text: false };\n  }\n\n  if (type === 'order') {\n    return { text: null, preview: '[order]', has_text: false };\n  }\n\n  if (type === 'system' && message.system) {\n    const body = message.system.body || '';\n    return { text: body || null, preview: '[system] ' + body, has_text: !!body };\n  }\n\n  // Unknown/unsupported type — preserve the type name for debugging.\n  return {\n    text: null,\n    preview: '[' + (type || 'unknown') + ']',\n    has_text: false,\n  };\n}\n\n/**\n * Convert Meta's Unix-seconds timestamp string to an ISO-8601 UTC string.\n * Returns null on garbage rather than \"Invalid Date\", which would poison\n * every downstream date comparison.\n */\nfunction metaTimestampToIso(ts) {\n  if (ts === undefined || ts === null || String(ts).trim() === '') return null;\n  const seconds = Number(String(ts).trim());\n  if (!isFinite(seconds) || seconds <= 0) return null;\n  const d = new Date(seconds * 1000);\n  if (isNaN(d.getTime())) return null;\n  return d.toISOString();\n}\n\n/**\n * Parse a full webhook POST body into a flat list of normalized events.\n *\n * @param {object} body  Parsed JSON body of the webhook request.\n * @returns {{\n *   ok: boolean,\n *   reason: string|null,\n *   object: string|null,\n *   events: Array<object>,\n *   counts: {messages: number, statuses: number, errors: number, unknown: number}\n * }}\n */\nfunction parseWebhook(body) {\n  const out = {\n    ok: false,\n    reason: null,\n    object: null,\n    events: [],\n    counts: { messages: 0, statuses: 0, errors: 0, unknown: 0 },\n  };\n\n  if (!body || typeof body !== 'object' || Array.isArray(body)) {\n    out.reason = 'BODY_NOT_OBJECT';\n    return out;\n  }\n\n  out.object = typeof body.object === 'string' ? body.object : null;\n\n  // Meta always sets object='whatsapp_business_account' for WABA webhooks.\n  // We accept but flag anything else instead of hard-failing, so a\n  // misconfigured subscription is visible in the audit log.\n  if (out.object !== 'whatsapp_business_account') {\n    out.reason = 'UNEXPECTED_OBJECT_TYPE';\n  }\n\n  if (!Array.isArray(body.entry)) {\n    out.reason = out.reason || 'MISSING_ENTRY_ARRAY';\n    return out;\n  }\n\n  for (const entry of body.entry) {\n    if (!entry || typeof entry !== 'object') continue;\n    const wabaId = entry.id !== undefined ? String(entry.id) : null;\n    const changes = Array.isArray(entry.changes) ? entry.changes : [];\n\n    for (const change of changes) {\n      if (!change || typeof change !== 'object') continue;\n      const field = change.field !== undefined ? String(change.field) : null;\n      const value = change.value && typeof change.value === 'object' ? change.value : {};\n      const metadata = value.metadata && typeof value.metadata === 'object' ? value.metadata : {};\n\n      // The business phone number that received the event. Critical for\n      // multi-number WABAs: routing must be scoped per business number.\n      const businessPhoneNumberId =\n        metadata.phone_number_id !== undefined ? String(metadata.phone_number_id) : null;\n      const businessDisplayPhone =\n        metadata.display_phone_number !== undefined\n          ? String(metadata.display_phone_number)\n          : null;\n\n      // contacts[] carries the customer's WhatsApp profile name, keyed by wa_id.\n      const contactsByWaId = {};\n      if (Array.isArray(value.contacts)) {\n        for (const c of value.contacts) {\n          if (c && c.wa_id !== undefined) {\n            contactsByWaId[String(c.wa_id)] =\n              c.profile && typeof c.profile.name === 'string' ? c.profile.name : null;\n          }\n        }\n      }\n\n      const base = {\n        waba_id: wabaId,\n        field,\n        business_phone_number_id: businessPhoneNumberId,\n        business_display_phone_number: businessDisplayPhone,\n      };\n\n      // ---- Inbound customer messages ----\n      if (Array.isArray(value.messages)) {\n        for (const m of value.messages) {\n          if (!m || typeof m !== 'object') {\n            out.counts.unknown += 1;\n            out.events.push(Object.assign({}, base, {\n              kind: EVENT_KIND.UNKNOWN,\n              reason: 'MESSAGE_NOT_OBJECT',\n            }));\n            continue;\n          }\n          const type = m.type !== undefined ? String(m.type) : null;\n          const supported = SUPPORTED_MESSAGE_TYPES.indexOf(type) !== -1;\n          const textInfo = extractMessageText(m);\n          const customerPhone = m.from !== undefined ? String(m.from) : null;\n\n          out.counts.messages += 1;\n          out.events.push(Object.assign({}, base, {\n            kind: EVENT_KIND.MESSAGE,\n            direction: 'inbound',\n            message_id: m.id !== undefined ? String(m.id) : null,\n            customer_phone: customerPhone,\n            customer_name: customerPhone ? contactsByWaId[customerPhone] || null : null,\n            message_type: type,\n            supported,\n            processing_status: supported ? 'parsed' : 'unsupported',\n            text: textInfo.text,\n            preview: textInfo.preview,\n            has_text: textInfo.has_text,\n            timestamp_unix: m.timestamp !== undefined ? String(m.timestamp) : null,\n            timestamp_iso: metaTimestampToIso(m.timestamp),\n            // Reply-to context, when the customer replies to a specific message.\n            context_message_id: m.context && m.context.id ? String(m.context.id) : null,\n            // Referral data present when the user arrived via a Click-to-WhatsApp ad.\n            has_referral: !!m.referral,\n            // Media id retained so the file can be fetched later if needed.\n            media_id:\n              m[type] && typeof m[type] === 'object' && m[type].id ? String(m[type].id) : null,\n            mime_type:\n              m[type] && typeof m[type] === 'object' && m[type].mime_type\n                ? String(m[type].mime_type)\n                : null,\n            errors: Array.isArray(m.errors) ? m.errors : null,\n          }));\n        }\n      }\n\n      // ---- Outbound message status callbacks ----\n      if (Array.isArray(value.statuses)) {\n        for (const s of value.statuses) {\n          if (!s || typeof s !== 'object') {\n            out.counts.unknown += 1;\n            out.events.push(Object.assign({}, base, {\n              kind: EVENT_KIND.UNKNOWN,\n              reason: 'STATUS_NOT_OBJECT',\n            }));\n            continue;\n          }\n          out.counts.statuses += 1;\n          out.events.push(Object.assign({}, base, {\n            kind: EVENT_KIND.STATUS,\n            direction: 'outbound',\n            // NOTE: this id refers to a message WE sent, so it matches a\n            // previously stored outbound message_id.\n            message_id: s.id !== undefined ? String(s.id) : null,\n            status: s.status !== undefined ? String(s.status).toUpperCase() : null,\n            recipient_phone: s.recipient_id !== undefined ? String(s.recipient_id) : null,\n            timestamp_unix: s.timestamp !== undefined ? String(s.timestamp) : null,\n            timestamp_iso: metaTimestampToIso(s.timestamp),\n            conversation_id_meta:\n              s.conversation && s.conversation.id ? String(s.conversation.id) : null,\n            pricing_category:\n              s.pricing && s.pricing.category ? String(s.pricing.category) : null,\n            billable: s.pricing && s.pricing.billable !== undefined ? !!s.pricing.billable : null,\n            errors: Array.isArray(s.errors) ? s.errors : null,\n          }));\n        }\n      }\n\n      // ---- Account-level errors delivered on the webhook ----\n      if (Array.isArray(value.errors) && value.errors.length > 0) {\n        for (const e of value.errors) {\n          out.counts.errors += 1;\n          out.events.push(Object.assign({}, base, {\n            kind: EVENT_KIND.ERROR,\n            error_code: e && e.code !== undefined ? String(e.code) : null,\n            error_title: e && e.title ? String(e.title) : null,\n            error_message: e && e.message ? String(e.message) : null,\n          }));\n        }\n      }\n\n      // A change with none of the above is a subscription field we don't\n      // handle yet (e.g. account_update, template status). Record it.\n      const producedSomething =\n        (Array.isArray(value.messages) && value.messages.length > 0) ||\n        (Array.isArray(value.statuses) && value.statuses.length > 0) ||\n        (Array.isArray(value.errors) && value.errors.length > 0);\n\n      if (!producedSomething) {\n        out.counts.unknown += 1;\n        out.events.push(Object.assign({}, base, {\n          kind: EVENT_KIND.UNKNOWN,\n          reason: 'NO_RECOGNISED_PAYLOAD',\n          raw_value_keys: Object.keys(value),\n        }));\n      }\n    }\n  }\n\n  // ok=true means \"structurally parseable\", independent of whether the\n  // contents were all recognised.\n  out.ok = out.reason === null || out.reason === 'UNEXPECTED_OBJECT_TYPE';\n  return out;\n}\n\n// ----- scripts/lib/phone.js -----\n/**\n * Phone number normalization to E.164.\n *\n * CANONICAL SOURCE. This file is unit-tested (tests/conversations/phone.test.js)\n * and injected verbatim into n8n Code nodes by scripts/setup/build-workflows.js.\n * Do not fork this logic inside a workflow — edit here and re-run the build.\n *\n * Storage rule: phone numbers are stored as E.164 WITHOUT the leading '+'\n * (digits only), matching the format Meta uses for `wa_id` / `from`.\n * The '+' form and the wa.me link are derived, never stored separately.\n *\n * Normalization rules (docs/ARCHITECTURE.md \"Phone Number Normalization\"):\n *   1. Strip all formatting: spaces, '-', '(', ')', '.', non-breaking spaces,\n *      and Arabic-Indic digits are transliterated to ASCII.\n *   2. '00' international prefix  -> dropped (00962... -> 962...)\n *   3. Leading '+'                -> dropped (+962... -> 962...)\n *   4. Leading '0' national form  -> '0' replaced with defaultCountryCode\n *                                    (0791234567 -> 962791234567)\n *   5. Already-E.164 digits       -> passed through unchanged\n *   6. Anything else is flagged AMBIGUOUS rather than silently rewritten.\n *\n * The function NEVER throws. Callers branch on `ok`.\n */\n\n\n/** E.164 permits at most 15 digits; ITU minimum in practice is ~7 (+ country code). */\nconst E164_MAX_DIGITS = 15;\nconst E164_MIN_DIGITS = 8;\n\n/** Arabic-Indic (٠-٩) and Eastern Arabic-Indic (۰-۹) digit transliteration. */\nconst ARABIC_DIGIT_MAP = {\n  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',\n  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',\n  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',\n  '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',\n};\n\n/**\n * Country-specific national-number length checks. Used ONLY to detect\n * ambiguity, never to rewrite a number. Extend as more markets are added.\n * `nsnLengths` = valid lengths of the national significant number\n * (i.e. what follows the country code).\n */\nconst COUNTRY_RULES = {\n  // Jordan: mobile NSN is 9 digits beginning with 7 (77/78/79 today).\n  '962': { nsnLengths: [9], mobilePrefixes: ['7'], name: 'Jordan' },\n};\n\nfunction transliterateDigits(str) {\n  let out = '';\n  for (const ch of str) {\n    out += Object.prototype.hasOwnProperty.call(ARABIC_DIGIT_MAP, ch)\n      ? ARABIC_DIGIT_MAP[ch]\n      : ch;\n  }\n  return out;\n}\n\n/**\n * @param {string} raw                 Phone number in any common format.\n * @param {object} [opts]\n * @param {string} [opts.defaultCountryCode='962']  Country code (no '+') used to\n *                                    expand national '0...' forms.\n * @returns {{\n *   ok: boolean,\n *   e164: string|null,          // digits only, no '+', e.g. '962791234567'\n *   e164Plus: string|null,      // '+962791234567'\n *   waLink: string|null,        // 'https://wa.me/962791234567'\n *   input: string,\n *   applied: string[],          // transformations applied, for audit\n *   ambiguous: boolean,\n *   reason: string|null         // machine-readable code when !ok or ambiguous\n * }}\n */\nfunction normalizePhone(raw, opts) {\n  const options = opts || {};\n  const defaultCountryCode = String(\n    options.defaultCountryCode || '962'\n  ).replace(/\\D/g, '');\n\n  const result = {\n    ok: false,\n    e164: null,\n    e164Plus: null,\n    waLink: null,\n    input: raw === undefined || raw === null ? '' : String(raw),\n    applied: [],\n    ambiguous: false,\n    reason: null,\n  };\n\n  if (raw === undefined || raw === null || String(raw).trim() === '') {\n    result.reason = 'EMPTY_INPUT';\n    return result;\n  }\n\n  let s = transliterateDigits(String(raw).trim());\n  if (s !== String(raw).trim()) result.applied.push('transliterated_arabic_digits');\n\n  // Reject clearly non-numeric input (letters imply this isn't a phone number).\n  if (/[A-Za-z]/.test(s)) {\n    result.reason = 'CONTAINS_LETTERS';\n    return result;\n  }\n\n  const hadPlus = s.startsWith('+');\n  // Strip every character that isn't a digit (spaces, -, (), ., etc.).\n  const digitsOnly = s.replace(/\\D/g, '');\n  if (digitsOnly.length !== s.length) result.applied.push('stripped_formatting');\n\n  if (digitsOnly === '') {\n    result.reason = 'NO_DIGITS';\n    return result;\n  }\n\n  let e164 = digitsOnly;\n\n  if (hadPlus) {\n    // '+CC...' is already E.164; nothing to infer.\n    result.applied.push('stripped_plus');\n  } else if (e164.startsWith('00')) {\n    // '00' is the international access prefix in most of the world.\n    e164 = e164.slice(2);\n    result.applied.push('stripped_00_idd_prefix');\n  } else if (e164.startsWith('0')) {\n    // National (trunk) format: replace the trunk '0' with the country code.\n    e164 = defaultCountryCode + e164.slice(1);\n    result.applied.push('national_to_e164:' + defaultCountryCode);\n  }\n\n  // Length sanity checks against E.164 bounds.\n  if (e164.length > E164_MAX_DIGITS) {\n    result.reason = 'TOO_LONG';\n    result.e164 = null;\n    return result;\n  }\n  if (e164.length < E164_MIN_DIGITS) {\n    result.reason = 'TOO_SHORT';\n    return result;\n  }\n\n  // Ambiguity detection — flag, don't rewrite.\n  const rule = COUNTRY_RULES[defaultCountryCode];\n  if (rule && !hadPlus && !digitsOnly.startsWith('00') && !digitsOnly.startsWith('0')) {\n    const startsWithCountryCode = e164.startsWith(defaultCountryCode);\n    if (!startsWithCountryCode) {\n      const looksLikeBareNsn =\n        rule.nsnLengths.indexOf(e164.length) !== -1 &&\n        rule.mobilePrefixes.some((p) => e164.startsWith(p));\n      if (looksLikeBareNsn) {\n        // e.g. '791234567' — probably Jordanian without the trunk 0, but we\n        // will not guess. Surface it and let the caller decide.\n        result.ambiguous = true;\n        result.reason = 'AMBIGUOUS_MISSING_COUNTRY_CODE';\n      } else {\n        // Some other country's E.164 number — legitimate, pass through.\n        result.applied.push('assumed_foreign_e164');\n      }\n    }\n  }\n\n  result.ok = true;\n  result.e164 = e164;\n  result.e164Plus = '+' + e164;\n  result.waLink = 'https://wa.me/' + e164;\n  return result;\n}\n\n/**\n * Build a wa.me deep link. Returns null rather than a malformed URL when the\n * input cannot be normalized — callers must handle null (never interpolate\n * an unvalidated number straight into a URL).\n */\nfunction buildWaLink(raw, opts) {\n  const n = normalizePhone(raw, opts);\n  return n.ok ? n.waLink : null;\n}\n\n/**\n * Convenience: strict variant that treats ambiguity as failure. Used on paths\n * where guessing wrong would message the wrong person (e.g. outbound sends).\n */\nfunction normalizePhoneStrict(raw, opts) {\n  const n = normalizePhone(raw, opts);\n  if (n.ambiguous) {\n    return Object.assign({}, n, { ok: false, e164: null, e164Plus: null, waLink: null });\n  }\n  return n;\n}\n\n// ----- scripts/lib/idempotency.js -----\n/**\n * Idempotency and concurrency control.\n *\n * CANONICAL SOURCE. Unit-tested (tests/webhook/idempotency.test.js) and\n * injected into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * WHY THIS EXISTS\n * ---------------\n * Meta retries a webhook when it does not receive a timely 200. The same\n * message therefore arrives more than once, and a naive pipeline would create\n * duplicate Messages rows, duplicate Conversations, and — worst — assign the\n * same customer to two different agents and double-count both agents' load.\n *\n * The defence is layered:\n *   1. Deduplicate on the Meta message id (`wamid...`), which is globally\n *      unique and stable across retries. This is the primary guard and it is\n *      reliable.\n *   2. Serialize the assignment critical section. This is the WEAK guard,\n *      because Google Sheets offers no atomic compare-and-set. See\n *      docs/ASSIGNMENT_ALGORITHM.md for the honest limitations.\n */\n\n\n\n/**\n * Build the deduplication key for an inbound event.\n *\n * For messages, the Meta message id alone is sufficient and correct.\n * For statuses, the same message id arrives repeatedly with DIFFERENT statuses\n * (sent -> delivered -> read), so the key must include the status, otherwise\n * legitimate status progression would be discarded as a duplicate.\n */\nfunction buildDedupeKey(event) {\n  const e = event || {};\n  if (e.kind === 'status') {\n    return 'status:' + String(e.message_id || 'unknown') + ':' + String(e.status || 'unknown');\n  }\n  if (e.kind === 'message') {\n    return 'message:' + String(e.message_id || 'unknown');\n  }\n  // Unknown/error events: hash the stable identifying fields so repeated\n  // deliveries of the same anomaly do not spam the audit log.\n  const basis = JSON.stringify({\n    kind: e.kind || null,\n    waba: e.waba_id || null,\n    biz: e.business_phone_number_id || null,\n    code: e.error_code || null,\n    reason: e.reason || null,\n  });\n  return 'other:' + crypto.createHash('sha256').update(basis).digest('hex').slice(0, 32);\n}\n\n/**\n * Decide whether an event has already been processed.\n *\n * @param {string} dedupeKey\n * @param {Array<object>} existingRows  Rows already in the Messages/Events\n *        sheet, each expected to expose `dedupe_key` (or `message_id`).\n * @returns {{ duplicate: boolean, matched: object|null }}\n */\nfunction checkDuplicate(dedupeKey, existingRows) {\n  const rows = Array.isArray(existingRows) ? existingRows : [];\n  for (const row of rows) {\n    if (!row) continue;\n    const rowKey =\n      row.dedupe_key !== undefined && row.dedupe_key !== null && String(row.dedupe_key) !== ''\n        ? String(row.dedupe_key)\n        : row.message_id !== undefined\n          ? 'message:' + String(row.message_id)\n          : null;\n    if (rowKey !== null && rowKey === dedupeKey) {\n      return { duplicate: true, matched: row };\n    }\n  }\n  return { duplicate: false, matched: null };\n}\n\n/**\n * Detect an out-of-order status callback.\n *\n * Meta does not guarantee ordering, so `read` can arrive before `delivered`.\n * Statuses form a monotonic ladder; we must never downgrade a message that is\n * already READ back to DELIVERED.\n *\n * FAILED is terminal-but-special: it can legitimately follow SENT, and it must\n * never be overwritten by a late DELIVERED for the same message.\n */\nconst STATUS_RANK = {\n  PENDING: 0,\n  ACCEPTED: 1,\n  SENT: 2,\n  DELIVERED: 3,\n  READ: 4,\n  FAILED: 5,\n};\n\nfunction shouldApplyStatus(currentStatus, incomingStatus) {\n  const cur = currentStatus ? String(currentStatus).toUpperCase() : null;\n  const inc = incomingStatus ? String(incomingStatus).toUpperCase() : null;\n\n  if (inc === null || STATUS_RANK[inc] === undefined) {\n    return { apply: false, reason: 'UNKNOWN_INCOMING_STATUS' };\n  }\n  if (cur === null || STATUS_RANK[cur] === undefined) {\n    return { apply: true, reason: 'NO_PRIOR_STATUS' };\n  }\n  if (cur === 'FAILED') {\n    return { apply: false, reason: 'ALREADY_FAILED_TERMINAL' };\n  }\n  if (inc === 'FAILED') {\n    return { apply: true, reason: 'FAILURE_OVERRIDES' };\n  }\n  if (STATUS_RANK[inc] > STATUS_RANK[cur]) {\n    return { apply: true, reason: 'STATUS_ADVANCED' };\n  }\n  return { apply: false, reason: 'OUT_OF_ORDER_OR_STALE' };\n}\n\n/**\n * Advisory lock for the assignment critical section.\n *\n * HONEST LIMITATION: this is NOT a mutex. Google Sheets has no atomic\n * compare-and-set, so between \"read lock row\" and \"write lock row\" another\n * execution can interleave. What this buys us:\n *   - it collapses the race window from \"the whole assignment pipeline\"\n *     (several seconds of Sheets reads/writes) down to the round-trip of a\n *     single write (~200-400ms),\n *   - it makes contention VISIBLE in the audit log instead of silent,\n *   - it gives the eventual PostgreSQL implementation a drop-in seam: the same\n *     call site becomes `SELECT ... FOR UPDATE`.\n *\n * The real mitigation in the MVP is n8n workflow-level concurrency=1 on the\n * assignment workflow, which removes the race entirely on a single instance.\n * See docs/ASSIGNMENT_ALGORITHM.md.\n */\nfunction buildLockClaim(resource, ownerExecutionId, nowMs, ttlSeconds) {\n  const now = nowMs === undefined || nowMs === null ? Date.now() : Number(nowMs);\n  const ttl = ttlSeconds === undefined ? 30 : Number(ttlSeconds);\n  return {\n    lock_resource: String(resource),\n    lock_owner: String(ownerExecutionId),\n    acquired_at: new Date(now).toISOString(),\n    expires_at: new Date(now + ttl * 1000).toISOString(),\n  };\n}\n\n/**\n * Decide whether a lock can be claimed given the currently stored lock row.\n * Expired locks are reclaimable so a crashed execution cannot deadlock the\n * queue forever.\n */\nfunction canClaimLock(existingLock, nowMs) {\n  const now = nowMs === undefined || nowMs === null ? Date.now() : Number(nowMs);\n  if (!existingLock || !existingLock.lock_owner || String(existingLock.lock_owner) === '') {\n    return { claimable: true, reason: 'NO_EXISTING_LOCK' };\n  }\n  const expiresAt = existingLock.expires_at ? Date.parse(String(existingLock.expires_at)) : NaN;\n  if (isNaN(expiresAt)) {\n    return { claimable: true, reason: 'EXISTING_LOCK_HAS_NO_VALID_EXPIRY' };\n  }\n  if (now >= expiresAt) {\n    return { claimable: true, reason: 'EXISTING_LOCK_EXPIRED' };\n  }\n  return {\n    claimable: false,\n    reason: 'LOCK_HELD',\n    held_by: String(existingLock.lock_owner),\n    expires_at: existingLock.expires_at,\n  };\n}\n\n/**\n * Deterministic correlation id for tracing one webhook through every workflow\n * and every audit row. Derived from the dedupe key so retries of the SAME\n * event share a correlation id (making retry storms obvious in the log).\n */\nfunction buildCorrelationId(dedupeKey) {\n  return 'corr-' + crypto.createHash('sha256').update(String(dedupeKey)).digest('hex').slice(0, 16);\n}\n\n// ===================== end generated block ================================\n\nconst input = $input.first().json;\nconst body = input.body || input;\n\nconst parsed = parseWebhook(body);\nconst defaultCountryCode = $env.DEFAULT_COUNTRY_CODE || '962';\n\nif (!parsed.ok) {\n  console.log(JSON.stringify({\n    event: 'webhook_parse_failed',\n    reason: parsed.reason,\n  }));\n  return [{ json: {\n    kind: 'error',\n    processing_status: 'parse_failed',\n    reason: parsed.reason,\n    received_at: new Date().toISOString(),\n  } }];\n}\n\n// One n8n item per event, so batched webhooks fan out correctly\n// instead of only the first message being processed.\nconst items = parsed.events.map((event) => {\n  const dedupeKey = buildDedupeKey(event);\n  const correlationId = buildCorrelationId(dedupeKey);\n\n  const phoneSource = event.kind === 'status' ? event.recipient_phone : event.customer_phone;\n  const normalized = normalizePhone(phoneSource, { defaultCountryCode });\n\n  return { json: Object.assign({}, event, {\n    dedupe_key: dedupeKey,\n    correlation_id: correlationId,\n    customer_phone_e164: normalized.ok ? normalized.e164 : null,\n    phone_normalized_ok: normalized.ok,\n    phone_ambiguous: normalized.ambiguous,\n    phone_reason: normalized.reason,\n    wa_link: normalized.ok ? normalized.waLink : null,\n    received_at: new Date().toISOString(),\n  }) };\n});\n\nconsole.log(JSON.stringify({\n  event: 'webhook_parsed',\n  messages: parsed.counts.messages,\n  statuses: parsed.counts.statuses,\n  unknown: parsed.counts.unknown,\n}));\n\nreturn items;"
+      },
+      "id": "parse-events",
+      "name": "Parse & Normalize Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "is-message",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "message",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "customer_message"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "is-status",
+                    "leftValue": "={{ $json.kind }}",
+                    "rightValue": "status",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "status_update"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "other_event"
+        }
+      },
+      "id": "route-kind",
+      "name": "Route By Event Kind",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        60,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Messages",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "dedupe_key",
+              "lookupValue": "={{ $json.dedupe_key }}"
+            }
+          ]
+        },
+        "options": {
+          "returnAllMatches": false
+        }
+      },
+      "id": "lookup-dupe",
+      "name": "Lookup Existing Message",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        320,
+        -160
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "notes": "alwaysOutputData=true so \"no match\" produces an empty item rather than ending the branch."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/idempotency.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\nconst crypto = require('crypto');\n\n// ----- scripts/lib/idempotency.js -----\n/**\n * Idempotency and concurrency control.\n *\n * CANONICAL SOURCE. Unit-tested (tests/webhook/idempotency.test.js) and\n * injected into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * WHY THIS EXISTS\n * ---------------\n * Meta retries a webhook when it does not receive a timely 200. The same\n * message therefore arrives more than once, and a naive pipeline would create\n * duplicate Messages rows, duplicate Conversations, and — worst — assign the\n * same customer to two different agents and double-count both agents' load.\n *\n * The defence is layered:\n *   1. Deduplicate on the Meta message id (`wamid...`), which is globally\n *      unique and stable across retries. This is the primary guard and it is\n *      reliable.\n *   2. Serialize the assignment critical section. This is the WEAK guard,\n *      because Google Sheets offers no atomic compare-and-set. See\n *      docs/ASSIGNMENT_ALGORITHM.md for the honest limitations.\n */\n\n\n\n/**\n * Build the deduplication key for an inbound event.\n *\n * For messages, the Meta message id alone is sufficient and correct.\n * For statuses, the same message id arrives repeatedly with DIFFERENT statuses\n * (sent -> delivered -> read), so the key must include the status, otherwise\n * legitimate status progression would be discarded as a duplicate.\n */\nfunction buildDedupeKey(event) {\n  const e = event || {};\n  if (e.kind === 'status') {\n    return 'status:' + String(e.message_id || 'unknown') + ':' + String(e.status || 'unknown');\n  }\n  if (e.kind === 'message') {\n    return 'message:' + String(e.message_id || 'unknown');\n  }\n  // Unknown/error events: hash the stable identifying fields so repeated\n  // deliveries of the same anomaly do not spam the audit log.\n  const basis = JSON.stringify({\n    kind: e.kind || null,\n    waba: e.waba_id || null,\n    biz: e.business_phone_number_id || null,\n    code: e.error_code || null,\n    reason: e.reason || null,\n  });\n  return 'other:' + crypto.createHash('sha256').update(basis).digest('hex').slice(0, 32);\n}\n\n/**\n * Decide whether an event has already been processed.\n *\n * @param {string} dedupeKey\n * @param {Array<object>} existingRows  Rows already in the Messages/Events\n *        sheet, each expected to expose `dedupe_key` (or `message_id`).\n * @returns {{ duplicate: boolean, matched: object|null }}\n */\nfunction checkDuplicate(dedupeKey, existingRows) {\n  const rows = Array.isArray(existingRows) ? existingRows : [];\n  for (const row of rows) {\n    if (!row) continue;\n    const rowKey =\n      row.dedupe_key !== undefined && row.dedupe_key !== null && String(row.dedupe_key) !== ''\n        ? String(row.dedupe_key)\n        : row.message_id !== undefined\n          ? 'message:' + String(row.message_id)\n          : null;\n    if (rowKey !== null && rowKey === dedupeKey) {\n      return { duplicate: true, matched: row };\n    }\n  }\n  return { duplicate: false, matched: null };\n}\n\n/**\n * Detect an out-of-order status callback.\n *\n * Meta does not guarantee ordering, so `read` can arrive before `delivered`.\n * Statuses form a monotonic ladder; we must never downgrade a message that is\n * already READ back to DELIVERED.\n *\n * FAILED is terminal-but-special: it can legitimately follow SENT, and it must\n * never be overwritten by a late DELIVERED for the same message.\n */\nconst STATUS_RANK = {\n  PENDING: 0,\n  ACCEPTED: 1,\n  SENT: 2,\n  DELIVERED: 3,\n  READ: 4,\n  FAILED: 5,\n};\n\nfunction shouldApplyStatus(currentStatus, incomingStatus) {\n  const cur = currentStatus ? String(currentStatus).toUpperCase() : null;\n  const inc = incomingStatus ? String(incomingStatus).toUpperCase() : null;\n\n  if (inc === null || STATUS_RANK[inc] === undefined) {\n    return { apply: false, reason: 'UNKNOWN_INCOMING_STATUS' };\n  }\n  if (cur === null || STATUS_RANK[cur] === undefined) {\n    return { apply: true, reason: 'NO_PRIOR_STATUS' };\n  }\n  if (cur === 'FAILED') {\n    return { apply: false, reason: 'ALREADY_FAILED_TERMINAL' };\n  }\n  if (inc === 'FAILED') {\n    return { apply: true, reason: 'FAILURE_OVERRIDES' };\n  }\n  if (STATUS_RANK[inc] > STATUS_RANK[cur]) {\n    return { apply: true, reason: 'STATUS_ADVANCED' };\n  }\n  return { apply: false, reason: 'OUT_OF_ORDER_OR_STALE' };\n}\n\n/**\n * Advisory lock for the assignment critical section.\n *\n * HONEST LIMITATION: this is NOT a mutex. Google Sheets has no atomic\n * compare-and-set, so between \"read lock row\" and \"write lock row\" another\n * execution can interleave. What this buys us:\n *   - it collapses the race window from \"the whole assignment pipeline\"\n *     (several seconds of Sheets reads/writes) down to the round-trip of a\n *     single write (~200-400ms),\n *   - it makes contention VISIBLE in the audit log instead of silent,\n *   - it gives the eventual PostgreSQL implementation a drop-in seam: the same\n *     call site becomes `SELECT ... FOR UPDATE`.\n *\n * The real mitigation in the MVP is n8n workflow-level concurrency=1 on the\n * assignment workflow, which removes the race entirely on a single instance.\n * See docs/ASSIGNMENT_ALGORITHM.md.\n */\nfunction buildLockClaim(resource, ownerExecutionId, nowMs, ttlSeconds) {\n  const now = nowMs === undefined || nowMs === null ? Date.now() : Number(nowMs);\n  const ttl = ttlSeconds === undefined ? 30 : Number(ttlSeconds);\n  return {\n    lock_resource: String(resource),\n    lock_owner: String(ownerExecutionId),\n    acquired_at: new Date(now).toISOString(),\n    expires_at: new Date(now + ttl * 1000).toISOString(),\n  };\n}\n\n/**\n * Decide whether a lock can be claimed given the currently stored lock row.\n * Expired locks are reclaimable so a crashed execution cannot deadlock the\n * queue forever.\n */\nfunction canClaimLock(existingLock, nowMs) {\n  const now = nowMs === undefined || nowMs === null ? Date.now() : Number(nowMs);\n  if (!existingLock || !existingLock.lock_owner || String(existingLock.lock_owner) === '') {\n    return { claimable: true, reason: 'NO_EXISTING_LOCK' };\n  }\n  const expiresAt = existingLock.expires_at ? Date.parse(String(existingLock.expires_at)) : NaN;\n  if (isNaN(expiresAt)) {\n    return { claimable: true, reason: 'EXISTING_LOCK_HAS_NO_VALID_EXPIRY' };\n  }\n  if (now >= expiresAt) {\n    return { claimable: true, reason: 'EXISTING_LOCK_EXPIRED' };\n  }\n  return {\n    claimable: false,\n    reason: 'LOCK_HELD',\n    held_by: String(existingLock.lock_owner),\n    expires_at: existingLock.expires_at,\n  };\n}\n\n/**\n * Deterministic correlation id for tracing one webhook through every workflow\n * and every audit row. Derived from the dedupe key so retries of the SAME\n * event share a correlation id (making retry storms obvious in the log).\n */\nfunction buildCorrelationId(dedupeKey) {\n  return 'corr-' + crypto.createHash('sha256').update(String(dedupeKey)).digest('hex').slice(0, 16);\n}\n\n// ===================== end generated block ================================\n\nconst event = $('Route By Event Kind').item.json;\nconst matches = $input.all().map((i) => i.json).filter((j) => j && Object.keys(j).length > 0);\n\nconst verdict = checkDuplicate(event.dedupe_key, matches);\n\nconsole.log(JSON.stringify({\n  event: 'dedupe_check',\n  correlation_id: event.correlation_id,\n  duplicate: verdict.duplicate,\n}));\n\nreturn [{ json: Object.assign({}, event, {\n  is_duplicate: verdict.duplicate,\n}) }];"
+      },
+      "id": "is-duplicate",
+      "name": "Is Duplicate?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "not-dupe",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-new",
+      "name": "New Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        800,
+        -160
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "skip-dupe",
+      "name": "Skip Duplicate",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1060,
+        -40
+      ],
+      "notes": "Meta retried an event we already processed. Correct behaviour: do nothing."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "whatsappConv0003",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "call-conversation",
+      "name": "Resolve Conversation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1060,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Messages",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "message_id",
+              "lookupValue": "={{ $json.message_id }}"
+            }
+          ]
+        },
+        "options": {
+          "returnAllMatches": false
+        }
+      },
+      "id": "lookup-outbound",
+      "name": "Find Outbound Message",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        320,
+        120
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/idempotency.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\nconst crypto = require('crypto');\n\n// ----- scripts/lib/idempotency.js -----\n/**\n * Idempotency and concurrency control.\n *\n * CANONICAL SOURCE. Unit-tested (tests/webhook/idempotency.test.js) and\n * injected into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * WHY THIS EXISTS\n * ---------------\n * Meta retries a webhook when it does not receive a timely 200. The same\n * message therefore arrives more than once, and a naive pipeline would create\n * duplicate Messages rows, duplicate Conversations, and — worst — assign the\n * same customer to two different agents and double-count both agents' load.\n *\n * The defence is layered:\n *   1. Deduplicate on the Meta message id (`wamid...`), which is globally\n *      unique and stable across retries. This is the primary guard and it is\n *      reliable.\n *   2. Serialize the assignment critical section. This is the WEAK guard,\n *      because Google Sheets offers no atomic compare-and-set. See\n *      docs/ASSIGNMENT_ALGORITHM.md for the honest limitations.\n */\n\n\n\n/**\n * Build the deduplication key for an inbound event.\n *\n * For messages, the Meta message id alone is sufficient and correct.\n * For statuses, the same message id arrives repeatedly with DIFFERENT statuses\n * (sent -> delivered -> read), so the key must include the status, otherwise\n * legitimate status progression would be discarded as a duplicate.\n */\nfunction buildDedupeKey(event) {\n  const e = event || {};\n  if (e.kind === 'status') {\n    return 'status:' + String(e.message_id || 'unknown') + ':' + String(e.status || 'unknown');\n  }\n  if (e.kind === 'message') {\n    return 'message:' + String(e.message_id || 'unknown');\n  }\n  // Unknown/error events: hash the stable identifying fields so repeated\n  // deliveries of the same anomaly do not spam the audit log.\n  const basis = JSON.stringify({\n    kind: e.kind || null,\n    waba: e.waba_id || null,\n    biz: e.business_phone_number_id || null,\n    code: e.error_code || null,\n    reason: e.reason || null,\n  });\n  return 'other:' + crypto.createHash('sha256').update(basis).digest('hex').slice(0, 32);\n}\n\n/**\n * Decide whether an event has already been processed.\n *\n * @param {string} dedupeKey\n * @param {Array<object>} existingRows  Rows already in the Messages/Events\n *        sheet, each expected to expose `dedupe_key` (or `message_id`).\n * @returns {{ duplicate: boolean, matched: object|null }}\n */\nfunction checkDuplicate(dedupeKey, existingRows) {\n  const rows = Array.isArray(existingRows) ? existingRows : [];\n  for (const row of rows) {\n    if (!row) continue;\n    const rowKey =\n      row.dedupe_key !== undefined && row.dedupe_key !== null && String(row.dedupe_key) !== ''\n        ? String(row.dedupe_key)\n        : row.message_id !== undefined\n          ? 'message:' + String(row.message_id)\n          : null;\n    if (rowKey !== null && rowKey === dedupeKey) {\n      return { duplicate: true, matched: row };\n    }\n  }\n  return { duplicate: false, matched: null };\n}\n\n/**\n * Detect an out-of-order status callback.\n *\n * Meta does not guarantee ordering, so `read` can arrive before `delivered`.\n * Statuses form a monotonic ladder; we must never downgrade a message that is\n * already READ back to DELIVERED.\n *\n * FAILED is terminal-but-special: it can legitimately follow SENT, and it must\n * never be overwritten by a late DELIVERED for the same message.\n */\nconst STATUS_RANK = {\n  PENDING: 0,\n  ACCEPTED: 1,\n  SENT: 2,\n  DELIVERED: 3,\n  READ: 4,\n  FAILED: 5,\n};\n\nfunction shouldApplyStatus(currentStatus, incomingStatus) {\n  const cur = currentStatus ? String(currentStatus).toUpperCase() : null;\n  const inc = incomingStatus ? String(incomingStatus).toUpperCase() : null;\n\n  if (inc === null || STATUS_RANK[inc] === undefined) {\n    return { apply: false, reason: 'UNKNOWN_INCOMING_STATUS' };\n  }\n  if (cur === null || STATUS_RANK[cur] === undefined) {\n    return { apply: true, reason: 'NO_PRIOR_STATUS' };\n  }\n  if (cur === 'FAILED') {\n    return { apply: false, reason: 'ALREADY_FAILED_TERMINAL' };\n  }\n  if (inc === 'FAILED') {\n    return { apply: true, reason: 'FAILURE_OVERRIDES' };\n  }\n  if (STATUS_RANK[inc] > STATUS_RANK[cur]) {\n    return { apply: true, reason: 'STATUS_ADVANCED' };\n  }\n  return { apply: false, reason: 'OUT_OF_ORDER_OR_STALE' };\n}\n\n/**\n * Advisory lock for the assignment critical section.\n *\n * HONEST LIMITATION: this is NOT a mutex. Google Sheets has no atomic\n * compare-and-set, so between \"read lock row\" and \"write lock row\" another\n * execution can interleave. What this buys us:\n *   - it collapses the race window from \"the whole assignment pipeline\"\n *     (several seconds of Sheets reads/writes) down to the round-trip of a\n *     single write (~200-400ms),\n *   - it makes contention VISIBLE in the audit log instead of silent,\n *   - it gives the eventual PostgreSQL implementation a drop-in seam: the same\n *     call site becomes `SELECT ... FOR UPDATE`.\n *\n * The real mitigation in the MVP is n8n workflow-level concurrency=1 on the\n * assignment workflow, which removes the race entirely on a single instance.\n * See docs/ASSIGNMENT_ALGORITHM.md.\n */\nfunction buildLockClaim(resource, ownerExecutionId, nowMs, ttlSeconds) {\n  const now = nowMs === undefined || nowMs === null ? Date.now() : Number(nowMs);\n  const ttl = ttlSeconds === undefined ? 30 : Number(ttlSeconds);\n  return {\n    lock_resource: String(resource),\n    lock_owner: String(ownerExecutionId),\n    acquired_at: new Date(now).toISOString(),\n    expires_at: new Date(now + ttl * 1000).toISOString(),\n  };\n}\n\n/**\n * Decide whether a lock can be claimed given the currently stored lock row.\n * Expired locks are reclaimable so a crashed execution cannot deadlock the\n * queue forever.\n */\nfunction canClaimLock(existingLock, nowMs) {\n  const now = nowMs === undefined || nowMs === null ? Date.now() : Number(nowMs);\n  if (!existingLock || !existingLock.lock_owner || String(existingLock.lock_owner) === '') {\n    return { claimable: true, reason: 'NO_EXISTING_LOCK' };\n  }\n  const expiresAt = existingLock.expires_at ? Date.parse(String(existingLock.expires_at)) : NaN;\n  if (isNaN(expiresAt)) {\n    return { claimable: true, reason: 'EXISTING_LOCK_HAS_NO_VALID_EXPIRY' };\n  }\n  if (now >= expiresAt) {\n    return { claimable: true, reason: 'EXISTING_LOCK_EXPIRED' };\n  }\n  return {\n    claimable: false,\n    reason: 'LOCK_HELD',\n    held_by: String(existingLock.lock_owner),\n    expires_at: existingLock.expires_at,\n  };\n}\n\n/**\n * Deterministic correlation id for tracing one webhook through every workflow\n * and every audit row. Derived from the dedupe key so retries of the SAME\n * event share a correlation id (making retry storms obvious in the log).\n */\nfunction buildCorrelationId(dedupeKey) {\n  return 'corr-' + crypto.createHash('sha256').update(String(dedupeKey)).digest('hex').slice(0, 16);\n}\n\n// ===================== end generated block ================================\n\nconst event = $('Route By Event Kind').item.json;\nconst existing = $input.all().map((i) => i.json).filter((j) => j && Object.keys(j).length > 0)[0] || null;\n\n// Status callbacks can arrive out of order (read before delivered) and\n// can arrive BEFORE the outbound message row exists.\nif (!existing) {\n  console.log(JSON.stringify({\n    event: 'status_before_message_record',\n    correlation_id: event.correlation_id,\n    message_id: event.message_id,\n  }));\n  return [{ json: Object.assign({}, event, {\n    apply_status: false,\n    skip_reason: 'MESSAGE_ROW_NOT_FOUND',\n    processing_status: 'deferred',\n  }) }];\n}\n\nconst verdict = shouldApplyStatus(existing.status, event.status);\n\nconsole.log(JSON.stringify({\n  event: 'status_ladder',\n  correlation_id: event.correlation_id,\n  from: existing.status || null,\n  to: event.status,\n  applied: verdict.apply,\n  reason: verdict.reason,\n}));\n\nreturn [{ json: Object.assign({}, event, {\n  apply_status: verdict.apply,\n  skip_reason: verdict.apply ? null : verdict.reason,\n  existing_row_number: existing.row_number || null,\n  conversation_id: existing.conversation_id || null,\n}) }];"
+      },
+      "id": "apply-status",
+      "name": "Apply Status Ladder",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "apply",
+              "leftValue": "={{ $json.apply_status }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-apply-status",
+      "name": "Apply Status?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        800,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Messages",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_id": "={{ $json.message_id }}",
+            "status": "={{ $json.status }}",
+            "status_updated_at": "={{ $json.timestamp_iso }}"
+          },
+          "matchingColumns": [
+            "message_id"
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-status",
+      "name": "Update Message Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1060,
+        60
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {},
+      "id": "skip-status",
+      "name": "Skip Stale Status",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1060,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Events",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "event_id": "={{ $json.correlation_id }}",
+            "event_type": "={{ $json.kind }}",
+            "source": "meta_webhook",
+            "timestamp": "={{ $json.received_at }}",
+            "status": "unhandled",
+            "details": "={{ JSON.stringify({ reason: $json.reason, field: $json.field }) }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "log-other",
+      "name": "Log Unhandled Event",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        320,
+        380
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## Workflow 2 — Incoming Message Processor\n\nRuns AFTER the 200 has already been sent, so it may take its time.\n\n### Three branches\n1. **customer_message** → dedupe → resolve conversation → assign\n2. **status_update** → monotonic status ladder (never downgrade READ)\n3. **other_event** → recorded in Events, never silently dropped\n\n### Idempotency\nDedupe is on `dedupe_key`, which is the Meta message id for messages\nand message-id+status for status callbacks — so `sent → delivered →\nread` is NOT mistaken for three duplicates of the same event.",
+        "height": 320,
+        "width": 620,
+        "color": 5
+      },
+      "id": "sticky-32ve73oi",
+      "name": "Note e4gd",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -420
+      ]
+    }
+  ],
+  "connections": {
+    "When Called By Receiver": {
+      "main": [
+        [
+          {
+            "node": "Parse & Normalize Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Normalize Events": {
+      "main": [
+        [
+          {
+            "node": "Route By Event Kind",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route By Event Kind": {
+      "main": [
+        [
+          {
+            "node": "Lookup Existing Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Find Outbound Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Unhandled Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Existing Message": {
+      "main": [
+        [
+          {
+            "node": "Is Duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Duplicate?": {
+      "main": [
+        [
+          {
+            "node": "New Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New Message?": {
+      "main": [
+        [
+          {
+            "node": "Resolve Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Outbound Message": {
+      "main": [
+        [
+          {
+            "node": "Apply Status Ladder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Status Ladder": {
+      "main": [
+        [
+          {
+            "node": "Apply Status?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Status?": {
+      "main": [
+        [
+          {
+            "node": "Update Message Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Stale Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  },
+  "tags": []
+}

@@ -38,7 +38,9 @@ services:
       - N8N_HOST=${N8N_HOST:-localhost}
       - N8N_PORT=5678
       - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
-      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+      # n8n 2.x renamed WEBHOOK_URL -> N8N_WEBHOOK_URL (the old name still
+      # works but logs a deprecation warning on every boot).
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
 
       # --- Encryption key for credentials stored in n8n's DB ---
       # MUST be set explicitly (not left to auto-generate) so the volume can
@@ -46,13 +48,45 @@ services:
       # to decrypt stored credentials. Generated once, stored only in .env.
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
 
-      # --- Task runners (sandboxed Code-node execution; on by default in
-      #     recent n8n, set explicitly for clarity/reproducibility) ---
-      - N8N_RUNNERS_ENABLED=true
+      # Code nodes need Node's built-in `crypto` for HMAC signature
+      # verification (X-Hub-Signature-256). Scoped to that ONE module rather
+      # than '*' — least privilege. NODE_FUNCTION_ALLOW_EXTERNAL is
+      # deliberately NOT set: no npm packages may be loaded inside Code nodes.
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+
+      # n8n 2.x blocks $env access inside nodes by DEFAULT. The workflows read
+      # configuration (verify token, app secret, Graph API version, sheet id)
+      # from the environment rather than hard-coding it, so this must be off.
+      #
+      # Security note: this grants Code nodes read access to this container's
+      # environment. That is acceptable because the container's environment is
+      # exactly the config the workflows are meant to use, and nothing else
+      # runs in it. It is ALSO why nothing may be logged unredacted — see
+      # scripts/lib/security.js redact().
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+
+      # NOTE: N8N_RUNNERS_ENABLED is deliberately NOT set. n8n 2.x always uses
+      # task runners and logs "no longer needed" if the variable is present.
 
       # --- Reduce noise / telemetry for a project handling customer data ---
       - N8N_DIAGNOSTICS_ENABLED=false
       - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+
+      # --- Defaults pinned explicitly ---
+      # n8n warns that these defaults will tighten in a future release. Pinning
+      # them means an n8n upgrade cannot silently change this system's
+      # behaviour. The values chosen are the SAFER future defaults, not the
+      # current permissive ones.
+      #
+      # No community packages: this project only uses built-in nodes, and
+      # allowing unverified packages widens the supply-chain surface.
+      - N8N_UNVERIFIED_PACKAGES_ENABLED=false
+      # Every workflow here finishes in seconds; a 60s cap turns a hung Code
+      # node into a fast, visible failure instead of a 5-minute stall.
+      - N8N_RUNNERS_TASK_TIMEOUT=60
+      # This system never processes archives. Small caps limit zip-bomb impact.
+      - N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES=268435456
+      - N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES=1000
 
       # --- Application-level configuration consumed by workflow Code/Set
       #     nodes (business logic), not by n8n itself. Documented in
