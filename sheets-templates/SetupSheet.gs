@@ -1,0 +1,536 @@
+/**
+ * WhatsApp Support Routing — one-click Google Sheets setup.
+ *
+ * WHAT THIS DOES
+ * --------------
+ * Builds the entire spreadsheet the system expects: every tab, every column,
+ * frozen headers, dropdown validation, colour rules, filter views, and a
+ * "WhatsApp Support" menu with a Reply box.
+ *
+ * HOW TO INSTALL
+ * --------------
+ *   1. Open your Google Sheet
+ *   2. Extensions -> Apps Script
+ *   3. Delete anything in the editor, paste this whole file, Save
+ *   4. Run -> setupEverything   (approve the permission prompt once)
+ *   5. Reload the sheet. A "WhatsApp Support" menu appears.
+ *
+ * SAFE TO RE-RUN. Existing data is never deleted: tabs that already exist keep
+ * their rows, and only headers, formatting and validation are refreshed.
+ */
+
+/* ────────────────────────────────────────────────────────────────────────
+   Schema — must match docs/GOOGLE_SHEETS_SCHEMA.md and the n8n workflows.
+   Column names are how the workflows address data, so a typo here breaks
+   writes silently.
+   ──────────────────────────────────────────────────────────────────────── */
+
+var SCHEMA = {
+  Agents: [
+    'agent_id', 'name', 'phone', 'active', 'available',
+    'max_open_conversations', 'open_conversations', 'last_assigned_at',
+    'role', 'working_hours', 'timezone', 'created_at', 'updated_at'
+  ],
+  Conversations: [
+    'conversation_id', 'customer_phone', 'customer_name',
+    'business_phone_number_id', 'assigned_agent_id', 'assigned_agent_name',
+    'status', 'last_message', 'last_message_id', 'last_message_direction',
+    'last_customer_message_at', 'last_agent_message_at', 'last_activity_at',
+    'unread', 'created_at', 'updated_at', 'closed_at', 'wa_link',
+    'unassigned_reason', 'reply_text', 'reply_status', 'reply_error',
+    'reply_sent_at'
+  ],
+  Messages: [
+    'message_id', 'dedupe_key', 'conversation_id', 'direction',
+    'sender_phone', 'recipient_phone', 'message_type', 'text', 'timestamp',
+    'status', 'status_updated_at', 'agent_id', 'sent_via', 'supported',
+    'processing_status', 'correlation_id', 'raw_event_reference', 'created_at'
+  ],
+  Events: [
+    'event_id', 'event_type', 'conversation_id', 'message_id', 'source',
+    'timestamp', 'status', 'error', 'details'
+  ]
+};
+
+var CONVERSATION_STATUSES = [
+  'WAITING_FOR_AGENT', 'UNANSWERED', 'REPLIED', 'WAITING_FOR_CUSTOMER', 'CLOSED'
+];
+
+/** Colours chosen so status is readable at a glance without reading text. */
+var STATUS_COLORS = {
+  WAITING_FOR_AGENT: '#f4c7c3',   // red    — nobody owns this
+  UNANSWERED:        '#fce8b2',   // amber  — customer is waiting
+  REPLIED:           '#d9ead3',   // green  — ball in customer's court
+  WAITING_FOR_CUSTOMER: '#d9ead3',
+  CLOSED:            '#efefef'    // grey   — done
+};
+
+/* ────────────────────────────────────────────────────────────────────────
+   Entry point
+   ──────────────────────────────────────────────────────────────────────── */
+
+function setupEverything() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var report = [];
+
+  // Core tabs
+  for (var name in SCHEMA) {
+    report.push(ensureSheet_(ss, name, SCHEMA[name]));
+  }
+
+  // Archive tabs mirror their source plus archived_at.
+  report.push(ensureSheet_(ss, 'Conversations_Archive',
+      SCHEMA.Conversations.concat(['archived_at'])));
+  report.push(ensureSheet_(ss, 'Messages_Archive',
+      SCHEMA.Messages.concat(['archived_at'])));
+
+  applyConversationRules_(ss);
+  applyAgentRules_(ss);
+  createFilterViews_(ss);
+  protectSystemColumns_(ss);
+
+  SpreadsheetApp.getUi().alert(
+    'Setup complete\n\n' + report.join('\n') +
+    '\n\nReload the page to see the "WhatsApp Support" menu.'
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Tab creation
+   ──────────────────────────────────────────────────────────────────────── */
+
+function ensureSheet_(ss, name, headers) {
+  var sheet = ss.getSheetByName(name);
+  var created = false;
+
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    created = true;
+  }
+
+  // Widen if the sheet has fewer columns than the schema needs.
+  if (sheet.getMaxColumns() < headers.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(),
+        headers.length - sheet.getMaxColumns());
+  }
+
+  // Write headers. Existing DATA rows are untouched — only row 1 is rewritten,
+  // so re-running this never destroys conversations.
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  sheet.getRange(1, 1, 1, headers.length)
+       .setFontWeight('bold')
+       .setBackground('#434343')
+       .setFontColor('#ffffff')
+       .setVerticalAlignment('middle');
+
+  sheet.setFrozenRows(1);
+  sheet.setRowHeight(1, 34);
+
+  return (created ? 'Created  ' : 'Updated  ') + name +
+         ' (' + headers.length + ' columns)';
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Conversations: validation, colour rules, column widths
+   ──────────────────────────────────────────────────────────────────────── */
+
+function applyConversationRules_(ss) {
+  var sheet = ss.getSheetByName('Conversations');
+  if (!sheet) return;
+
+  var headers = SCHEMA.Conversations;
+  var lastRow = Math.max(sheet.getMaxRows(), 1000);
+  var col = function (n) { return headers.indexOf(n) + 1; };
+
+  // --- status dropdown: stops typos creating states nothing filters on ---
+  var statusRule = SpreadsheetApp.newDataValidation()
+      .requireValueInList(CONVERSATION_STATUSES, true)
+      .setAllowInvalid(false)
+      .setHelpText('Pick a status. Free text here breaks the manager filters.')
+      .build();
+  sheet.getRange(2, col('status'), lastRow - 1, 1).setDataValidation(statusRule);
+
+  // --- unread as a real checkbox, not typed TRUE/FALSE ---
+  sheet.getRange(2, col('unread'), lastRow - 1, 1).insertCheckboxes();
+
+  // --- colour the whole row by status ---
+  var rules = [];
+  var range = sheet.getRange(2, 1, lastRow - 1, headers.length);
+  var statusLetter = columnLetter_(col('status'));
+
+  for (var status in STATUS_COLORS) {
+    rules.push(
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenFormulaSatisfied('=$' + statusLetter + '2="' + status + '"')
+        .setBackground(STATUS_COLORS[status])
+        .setRanges([range])
+        .build()
+    );
+  }
+
+  // Unanswered for more than an hour: make it impossible to miss.
+  var lastCustLetter = columnLetter_(col('last_customer_message_at'));
+  rules.push(
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(
+        '=AND($' + statusLetter + '2="UNANSWERED",' +
+        'NOW()-$' + lastCustLetter + '2 > 1/24)')
+      .setBackground('#e06666')
+      .setFontColor('#ffffff')
+      .setBold(true)
+      .setRanges([range])
+      .build()
+  );
+
+  // A reply waiting to be picked up by workflow 7.
+  var replyLetter = columnLetter_(col('reply_text'));
+  var replyStatusLetter = columnLetter_(col('reply_status'));
+  rules.push(
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=AND($' + replyLetter + '2<>"",$' + replyStatusLetter + '2="")')
+      .setBackground('#c9daf8')
+      .setRanges([sheet.getRange(2, col('reply_text'), lastRow - 1, 1)])
+      .build()
+  );
+
+  // A reply that failed to send.
+  rules.push(
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo('FAILED')
+      .setBackground('#cc0000')
+      .setFontColor('#ffffff')
+      .setRanges([sheet.getRange(2, col('reply_status'), lastRow - 1, 1)])
+      .build()
+  );
+
+  sheet.setConditionalFormatRules(rules);
+
+  // --- readable widths: the columns people actually look at ---
+  sheet.setColumnWidth(col('last_message'), 320);
+  sheet.setColumnWidth(col('reply_text'), 320);
+  sheet.setColumnWidth(col('customer_name'), 160);
+  sheet.setColumnWidth(col('customer_phone'), 140);
+  sheet.setColumnWidth(col('status'), 170);
+  sheet.setColumnWidth(col('wa_link'), 210);
+  sheet.setColumnWidth(col('conversation_id'), 260);
+
+  // Long text wraps instead of spilling across the screen.
+  sheet.getRange(2, col('last_message'), lastRow - 1, 1)
+       .setWrap(true).setVerticalAlignment('top');
+  sheet.getRange(2, col('reply_text'), lastRow - 1, 1)
+       .setWrap(true).setVerticalAlignment('top');
+
+  // Hide the plumbing. Nothing is deleted — unhide any time.
+  ['business_phone_number_id', 'last_message_id', 'reply_error']
+    .forEach(function (h) {
+      var c = col(h);
+      if (c > 0) sheet.hideColumns(c);
+    });
+}
+
+function applyAgentRules_(ss) {
+  var sheet = ss.getSheetByName('Agents');
+  if (!sheet) return;
+
+  var headers = SCHEMA.Agents;
+  var lastRow = Math.max(sheet.getMaxRows(), 200);
+  var col = function (n) { return headers.indexOf(n) + 1; };
+
+  // Checkboxes remove the whole class of "is 'yes' truthy?" problems.
+  // The assignment engine fails closed on anything it does not recognise,
+  // so a checkbox is not cosmetic — it prevents agents silently going unrouted.
+  sheet.getRange(2, col('active'), lastRow - 1, 1).insertCheckboxes();
+  sheet.getRange(2, col('available'), lastRow - 1, 1).insertCheckboxes();
+
+  var capacityRule = SpreadsheetApp.newDataValidation()
+      .requireNumberBetween(0, 100)
+      .setAllowInvalid(false)
+      .setHelpText('Maximum open conversations. 0 means this agent takes none.')
+      .build();
+  sheet.getRange(2, col('max_open_conversations'), lastRow - 1, 1)
+       .setDataValidation(capacityRule);
+
+  // open_conversations is system-owned; grey it so nobody edits it casually.
+  sheet.getRange(2, col('open_conversations'), lastRow - 1, 1)
+       .setBackground('#f3f3f3').setFontColor('#666666');
+
+  // Highlight an agent who is at or over capacity.
+  var openLetter = columnLetter_(col('open_conversations'));
+  var maxLetter = columnLetter_(col('max_open_conversations'));
+  sheet.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=AND($' + openLetter + '2<>"",$' + openLetter + '2>=$' + maxLetter + '2)')
+      .setBackground('#fce8b2')
+      .setRanges([sheet.getRange(2, 1, lastRow - 1, headers.length)])
+      .build()
+  ]);
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Filter views — the manager's saved queries
+   ──────────────────────────────────────────────────────────────────────── */
+
+function createFilterViews_(ss) {
+  var sheet = ss.getSheetByName('Conversations');
+  if (!sheet) return;
+
+  // Apps Script cannot create named filter *views*, so this applies a basic
+  // filter. The named views are created once by hand — see the menu item
+  // "Filter view instructions" for the exact recipe.
+  try {
+    var existing = sheet.getFilter();
+    if (existing) existing.remove();
+    sheet.getRange(1, 1, sheet.getMaxRows(), SCHEMA.Conversations.length)
+         .createFilter();
+  } catch (e) {
+    // A filter already exists, or the sheet is protected. Not fatal.
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Protection — warn before someone edits a system-owned column
+   ──────────────────────────────────────────────────────────────────────── */
+
+function protectSystemColumns_(ss) {
+  var sheet = ss.getSheetByName('Conversations');
+  if (!sheet) return;
+
+  var headers = SCHEMA.Conversations;
+  var systemCols = [
+    'conversation_id', 'last_message', 'last_message_id',
+    'last_customer_message_at', 'last_agent_message_at', 'last_activity_at',
+    'created_at', 'updated_at', 'reply_status', 'reply_sent_at'
+  ];
+
+  // Warning-only, not a hard lock: a hard lock would also block the service
+  // account, which must write these columns.
+  systemCols.forEach(function (name) {
+    var c = headers.indexOf(name) + 1;
+    if (c <= 0) return;
+    try {
+      var p = sheet.getRange(2, c, sheet.getMaxRows() - 1, 1)
+                   .protect()
+                   .setDescription('System-owned: written by n8n');
+      p.setWarningOnly(true);
+    } catch (e) { /* already protected */ }
+  });
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Menu
+   ──────────────────────────────────────────────────────────────────────── */
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('WhatsApp Support')
+    .addItem('Reply to selected conversation…', 'replyToSelected')
+    .addItem('Open WhatsApp chat for selected row', 'openWhatsAppChat')
+    .addSeparator()
+    .addItem('Mark selected as CLOSED', 'closeSelected')
+    .addItem('Reopen selected', 'reopenSelected')
+    .addSeparator()
+    .addItem('Recalculate agent workload', 'recalculateAgentLoad')
+    .addItem('Filter view instructions', 'showFilterInstructions')
+    .addSeparator()
+    .addItem('Re-run full setup', 'setupEverything')
+    .addToUi();
+}
+
+/**
+ * Type a reply in a dialog instead of hunting for the reply_text cell.
+ * Writing the cell is all that is needed — workflow 7 picks it up within a
+ * minute and sends it over the Cloud API.
+ */
+function replyToSelected() {
+  var ui = SpreadsheetApp.getUi();
+  var sheet = SpreadsheetApp.getActiveSheet();
+
+  if (sheet.getName() !== 'Conversations') {
+    ui.alert('Select a row on the Conversations tab first.');
+    return;
+  }
+
+  var row = sheet.getActiveRange().getRow();
+  if (row < 2) {
+    ui.alert('Select a conversation row (not the header).');
+    return;
+  }
+
+  var headers = SCHEMA.Conversations;
+  var nameCol = headers.indexOf('customer_name') + 1;
+  var phoneCol = headers.indexOf('customer_phone') + 1;
+  var replyCol = headers.indexOf('reply_text') + 1;
+  var statusCol = headers.indexOf('reply_status') + 1;
+
+  var who = sheet.getRange(row, nameCol).getValue() ||
+            sheet.getRange(row, phoneCol).getValue();
+
+  var response = ui.prompt(
+    'Reply to ' + who,
+    'Your message will be sent over WhatsApp within about a minute.',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+
+  var text = response.getResponseText().trim();
+  if (!text) { ui.alert('Nothing sent — the message was empty.'); return; }
+  if (text.length > 4096) {
+    ui.alert('Too long: ' + text.length + ' characters (limit is 4096).');
+    return;
+  }
+
+  sheet.getRange(row, replyCol).setValue(text);
+  // Clearing reply_status is what marks it as pending for workflow 7.
+  sheet.getRange(row, statusCol).setValue('');
+
+  ui.alert('Queued.\n\nIt will be sent within a minute. Watch the reply_status column.');
+}
+
+function openWhatsAppChat() {
+  var sheet = SpreadsheetApp.getActiveSheet();
+  var row = sheet.getActiveRange().getRow();
+  if (sheet.getName() !== 'Conversations' || row < 2) {
+    SpreadsheetApp.getUi().alert('Select a conversation row first.');
+    return;
+  }
+  var linkCol = SCHEMA.Conversations.indexOf('wa_link') + 1;
+  var link = sheet.getRange(row, linkCol).getValue();
+  if (!link) { SpreadsheetApp.getUi().alert('No WhatsApp link on this row.'); return; }
+
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(
+      '<p>Opening WhatsApp…</p>' +
+      '<p><a href="' + link + '" target="_blank" rel="noopener">' + link + '</a></p>' +
+      '<p style="color:#666;font-size:12px">Replying from a <b>personal</b> WhatsApp ' +
+      'account is not tracked. Use the Reply menu item, or the WhatsApp Business App ' +
+      'on the business number, so the reply is recorded.</p>' +
+      '<script>window.open("' + link + '","_blank");</script>'
+    ).setWidth(430).setHeight(210),
+    'WhatsApp'
+  );
+}
+
+function closeSelected() { setStatusOnSelection_('CLOSED'); }
+function reopenSelected() { setStatusOnSelection_('UNANSWERED'); }
+
+function setStatusOnSelection_(status) {
+  var sheet = SpreadsheetApp.getActiveSheet();
+  if (sheet.getName() !== 'Conversations') {
+    SpreadsheetApp.getUi().alert('Switch to the Conversations tab first.');
+    return;
+  }
+  var headers = SCHEMA.Conversations;
+  var statusCol = headers.indexOf('status') + 1;
+  var closedCol = headers.indexOf('closed_at') + 1;
+  var updatedCol = headers.indexOf('updated_at') + 1;
+  var now = new Date().toISOString();
+
+  var range = sheet.getActiveRange();
+  var count = 0;
+
+  for (var i = 0; i < range.getNumRows(); i++) {
+    var row = range.getRow() + i;
+    if (row < 2) continue;
+    sheet.getRange(row, statusCol).setValue(status);
+    sheet.getRange(row, closedCol).setValue(status === 'CLOSED' ? now : '');
+    sheet.getRange(row, updatedCol).setValue(now);
+    count++;
+  }
+
+  SpreadsheetApp.getUi().alert(count + ' conversation(s) set to ' + status + '.');
+}
+
+/**
+ * Recompute open_conversations from the Conversations tab.
+ *
+ * The counter is denormalized, so it can drift — most often because two
+ * conversations were assigned simultaneously (Google Sheets cannot make that
+ * atomic). This restores the true value:
+ *   count of non-CLOSED conversations per agent.
+ */
+function recalculateAgentLoad() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var convSheet = ss.getSheetByName('Conversations');
+  var agentSheet = ss.getSheetByName('Agents');
+  if (!convSheet || !agentSheet) {
+    SpreadsheetApp.getUi().alert('Conversations or Agents tab is missing.');
+    return;
+  }
+
+  var convHeaders = SCHEMA.Conversations;
+  var agentIdCol = convHeaders.indexOf('assigned_agent_id');
+  var statusCol = convHeaders.indexOf('status');
+
+  var counts = {};
+  var convData = convSheet.getDataRange().getValues();
+  for (var r = 1; r < convData.length; r++) {
+    var agentId = String(convData[r][agentIdCol] || '').trim();
+    var status = String(convData[r][statusCol] || '').trim().toUpperCase();
+    if (!agentId || status === 'CLOSED' || status === '') continue;
+    counts[agentId] = (counts[agentId] || 0) + 1;
+  }
+
+  var aHeaders = SCHEMA.Agents;
+  var aIdCol = aHeaders.indexOf('agent_id');
+  var aOpenCol = aHeaders.indexOf('open_conversations') + 1;
+
+  var agentData = agentSheet.getDataRange().getValues();
+  var changes = [];
+
+  for (var i = 1; i < agentData.length; i++) {
+    var id = String(agentData[i][aIdCol] || '').trim();
+    if (!id) continue;
+    var actual = counts[id] || 0;
+    var stored = Number(agentData[i][aOpenCol - 1] || 0);
+    if (actual !== stored) {
+      agentSheet.getRange(i + 1, aOpenCol).setValue(actual);
+      changes.push(id + ': ' + stored + ' -> ' + actual);
+    }
+  }
+
+  SpreadsheetApp.getUi().alert(
+    changes.length === 0
+      ? 'All agent counters were already correct.'
+      : 'Corrected ' + changes.length + ' counter(s):\n\n' + changes.join('\n')
+  );
+}
+
+function showFilterInstructions() {
+  var html =
+    '<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.6">' +
+    '<p>Apps Script cannot create <b>named filter views</b>, so create these once by hand:</p>' +
+    '<p><b>Data → Filter views → Create new filter view</b>, then set the filter and rename it.</p>' +
+    '<table cellpadding="6" style="border-collapse:collapse">' +
+    '<tr style="background:#eee"><th align="left">Name</th><th align="left">Filter</th></tr>' +
+    '<tr><td><b>Needs attention</b></td><td>status is UNANSWERED or WAITING_FOR_AGENT<br>' +
+    '<i>sort last_customer_message_at ascending</i></td></tr>' +
+    '<tr><td><b>Unassigned</b></td><td>status = WAITING_FOR_AGENT</td></tr>' +
+    '<tr><td><b>Unanswered</b></td><td>status = UNANSWERED</td></tr>' +
+    '<tr><td><b>Open</b></td><td>status is not CLOSED</td></tr>' +
+    '<tr><td><b>Closed</b></td><td>status = CLOSED</td></tr>' +
+    '<tr><td><b>Waiting for customer</b></td><td>status = REPLIED</td></tr>' +
+    '<tr><td><b>By agent</b></td><td>assigned_agent_name = (pick one)</td></tr>' +
+    '<tr><td><b>Unread</b></td><td>unread is checked</td></tr>' +
+    '<tr><td><b>Failed replies</b></td><td>reply_status = FAILED</td></tr>' +
+    '</table>' +
+    '<p style="color:#666">Filter <b>views</b> are per-person: yours does not change what ' +
+    'anyone else sees. A plain filter does.</p>' +
+    '</div>';
+  SpreadsheetApp.getUi().showModalDialog(
+    HtmlService.createHtmlOutput(html).setWidth(560).setHeight(460),
+    'Recommended filter views'
+  );
+}
+
+/** 1 -> A, 27 -> AA. Needed for conditional-format formulas. */
+function columnLetter_(index) {
+  var letter = '';
+  while (index > 0) {
+    var rem = (index - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    index = Math.floor((index - 1) / 26);
+  }
+  return letter;
+}

@@ -10,7 +10,37 @@ that is what makes the conversation view readable by a manager.
 
 ---
 
-## Setup
+## Fastest setup: the Apps Script
+
+Instead of creating tabs by hand, paste
+[`sheets-templates/SetupSheet.gs`](../sheets-templates/SetupSheet.gs) into
+*Extensions -> Apps Script* and run `setupEverything`.
+
+It creates every tab with the right columns, freezes headers, turns
+`active`/`available`/`unread` into real checkboxes, adds a status dropdown,
+colours rows by status, flags anything unanswered for over an hour in red, and
+adds a **WhatsApp Support** menu with:
+
+| Menu item | What it does |
+|---|---|
+| Reply to selected conversation… | Type a reply in a dialog; sent within a minute |
+| Open WhatsApp chat for selected row | Opens the `wa.me` link, with a warning about untracked personal replies |
+| Mark selected as CLOSED / Reopen | Bulk status changes with correct timestamps |
+| Recalculate agent workload | Repairs `open_conversations` drift from the real data |
+| Filter view instructions | The exact recipe for each recommended filter view |
+
+Safe to re-run: it refreshes headers and formatting without deleting rows.
+
+Verify the schema stays consistent across the CSVs, the Apps Script and the
+workflows:
+
+```bash
+node scripts/validation/check-schema-consistency.js
+```
+
+---
+
+## Manual setup
 
 1. Create a new Google Sheet.
 2. Create four tabs named exactly: `Agents`, `Conversations`, `Messages`,
@@ -115,6 +145,26 @@ One row per conversation. This is the sheet managers actually live in.
 | `closed_at` | ISO-8601 UTC | system | Blank unless `CLOSED`; cleared on reopen |
 | `wa_link` | URL | system | `https://wa.me/<e164>` |
 | `unassigned_reason` | text | system | Why nobody was assigned; blank when assigned |
+| `reply_text` | text | **human** | **Type here to send a WhatsApp reply** — see below |
+| `reply_status` | text | system | Blank = pending, then `SENT` or `FAILED` |
+| `reply_error` | text | system | Why a reply failed |
+| `reply_sent_at` | ISO-8601 UTC | system | When it was sent |
+
+### Replying from the sheet
+
+Type a message into **`reply_text`** and leave `reply_status` blank. Within a
+minute, workflow 7 sends it over the Cloud API, clears the cell, and sets
+`reply_status` to `SENT`.
+
+`reply_status` is the interlock that prevents double-sending: once it says
+`SENT`, `SENDING` or `FAILED`, that text is never sent again. Without it every
+poll would resend the same message until someone cleared the cell.
+
+On failure the text is **deliberately left in place** so the author can see and
+correct it; `reply_error` says what went wrong.
+
+Every reply sent this way is recorded in `Messages` with
+`sent_via = google_sheet`.
 
 ### Status values
 
@@ -176,6 +226,7 @@ the deduplication store.
 | `status` | enum | `RECEIVED` \| `SENT` \| `DELIVERED` \| `READ` \| `FAILED` |
 | `status_updated_at` | ISO-8601 UTC | Last status change |
 | `agent_id` | text | For outbound: who sent it |
+| `sent_via` | text | `cloud_api` \| `whatsapp_business_app` \| `google_sheet` |
 | `supported` | TRUE/FALSE | FALSE for message types we do not yet handle |
 | `processing_status` | text | `parsed` \| `unsupported` \| `deferred` |
 | `correlation_id` | text | Traces one webhook across all sheets and logs |
@@ -248,6 +299,33 @@ row → decision context → n8n execution for the raw bytes if truly needed.
 | corr-a1b2c3d4e5f60718 | AGENT_ASSIGNED | CONV-1065…-9627…-1788969600000 | assignment_engine | ASSIGNED | `[{"agent_id":"A1","eligible":false,"reasons":["AT_CAPACITY"],"open":5,"max":5},{"agent_id":"A2","eligible":true,"reasons":[],"open":3,"max":5}]` |
 
 That row answers "why did A2 get it and not A1" without any guesswork.
+
+---
+
+## Archiving
+
+Workflow 8 runs nightly at 03:00 and moves conversations that have been
+`CLOSED` for longer than `ARCHIVE_AFTER_DAYS` (default 30) into
+`Conversations_Archive`, keeping the working sheet small and responsive.
+
+Three safety rules make this non-destructive in practice:
+
+1. **Only `CLOSED` rows are touched.** An open conversation is live work.
+2. **Copy before delete.** The archive-append node stops the workflow on error,
+   so a failed copy can never be followed by a delete.
+3. **Delete bottom-up.** Rows are processed in descending `row_number` order,
+   because deleting a row shifts every row beneath it — deleting top-down would
+   corrupt the indices of rows still queued.
+
+A row whose `closed_at` cannot be parsed is skipped rather than archived on a
+guess.
+
+Set `ARCHIVE_AFTER_DAYS=0` to disable. Tune `ARCHIVE_BATCH_SIZE` (default 200)
+to stay within the write quota on a first, large run.
+
+**Rough sizing.** At 100 conversations/day with a 30-day window, the working
+sheet holds roughly 3,000 rows — fast to load and filter — while history
+accumulates in the archive tab.
 
 ---
 
