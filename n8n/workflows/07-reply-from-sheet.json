@@ -1,0 +1,395 @@
+{
+  "id": "whatsappShRp0007",
+  "name": "WhatsApp — 7 Reply From Sheet",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "reply-schedule",
+      "name": "Every Minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -620,
+        0
+      ],
+      "notes": "One minute is the practical floor: faster polling burns the Google Sheets read quota for no perceptible gain."
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "options": {
+          "returnAllMatches": true
+        }
+      },
+      "id": "read-for-reply",
+      "name": "Read Conversations",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -380,
+        0
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/phone.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/phone.js -----\n/**\n * Phone number normalization to E.164.\n *\n * CANONICAL SOURCE. This file is unit-tested (tests/conversations/phone.test.js)\n * and injected verbatim into n8n Code nodes by scripts/setup/build-workflows.js.\n * Do not fork this logic inside a workflow — edit here and re-run the build.\n *\n * Storage rule: phone numbers are stored as E.164 WITHOUT the leading '+'\n * (digits only), matching the format Meta uses for `wa_id` / `from`.\n * The '+' form and the wa.me link are derived, never stored separately.\n *\n * Normalization rules (docs/ARCHITECTURE.md \"Phone Number Normalization\"):\n *   1. Strip all formatting: spaces, '-', '(', ')', '.', non-breaking spaces,\n *      and Arabic-Indic digits are transliterated to ASCII.\n *   2. '00' international prefix  -> dropped (00962... -> 962...)\n *   3. Leading '+'                -> dropped (+962... -> 962...)\n *   4. Leading '0' national form  -> '0' replaced with defaultCountryCode\n *                                    (0791234567 -> 962791234567)\n *   5. Already-E.164 digits       -> passed through unchanged\n *   6. Anything else is flagged AMBIGUOUS rather than silently rewritten.\n *\n * The function NEVER throws. Callers branch on `ok`.\n */\n\n\n/** E.164 permits at most 15 digits; ITU minimum in practice is ~7 (+ country code). */\nconst E164_MAX_DIGITS = 15;\nconst E164_MIN_DIGITS = 8;\n\n/** Arabic-Indic (٠-٩) and Eastern Arabic-Indic (۰-۹) digit transliteration. */\nconst ARABIC_DIGIT_MAP = {\n  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',\n  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',\n  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',\n  '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',\n};\n\n/**\n * Country-specific national-number length checks. Used ONLY to detect\n * ambiguity, never to rewrite a number. Extend as more markets are added.\n * `nsnLengths` = valid lengths of the national significant number\n * (i.e. what follows the country code).\n */\nconst COUNTRY_RULES = {\n  // Jordan: mobile NSN is 9 digits beginning with 7 (77/78/79 today).\n  '962': { nsnLengths: [9], mobilePrefixes: ['7'], name: 'Jordan' },\n};\n\nfunction transliterateDigits(str) {\n  let out = '';\n  for (const ch of str) {\n    out += Object.prototype.hasOwnProperty.call(ARABIC_DIGIT_MAP, ch)\n      ? ARABIC_DIGIT_MAP[ch]\n      : ch;\n  }\n  return out;\n}\n\n/**\n * @param {string} raw                 Phone number in any common format.\n * @param {object} [opts]\n * @param {string} [opts.defaultCountryCode='962']  Country code (no '+') used to\n *                                    expand national '0...' forms.\n * @returns {{\n *   ok: boolean,\n *   e164: string|null,          // digits only, no '+', e.g. '962791234567'\n *   e164Plus: string|null,      // '+962791234567'\n *   waLink: string|null,        // 'https://wa.me/962791234567'\n *   input: string,\n *   applied: string[],          // transformations applied, for audit\n *   ambiguous: boolean,\n *   reason: string|null         // machine-readable code when !ok or ambiguous\n * }}\n */\nfunction normalizePhone(raw, opts) {\n  const options = opts || {};\n  const defaultCountryCode = String(\n    options.defaultCountryCode || '962'\n  ).replace(/\\D/g, '');\n\n  const result = {\n    ok: false,\n    e164: null,\n    e164Plus: null,\n    waLink: null,\n    input: raw === undefined || raw === null ? '' : String(raw),\n    applied: [],\n    ambiguous: false,\n    reason: null,\n  };\n\n  if (raw === undefined || raw === null || String(raw).trim() === '') {\n    result.reason = 'EMPTY_INPUT';\n    return result;\n  }\n\n  let s = transliterateDigits(String(raw).trim());\n  if (s !== String(raw).trim()) result.applied.push('transliterated_arabic_digits');\n\n  // Reject clearly non-numeric input (letters imply this isn't a phone number).\n  if (/[A-Za-z]/.test(s)) {\n    result.reason = 'CONTAINS_LETTERS';\n    return result;\n  }\n\n  const hadPlus = s.startsWith('+');\n  // Strip every character that isn't a digit (spaces, -, (), ., etc.).\n  const digitsOnly = s.replace(/\\D/g, '');\n  if (digitsOnly.length !== s.length) result.applied.push('stripped_formatting');\n\n  if (digitsOnly === '') {\n    result.reason = 'NO_DIGITS';\n    return result;\n  }\n\n  let e164 = digitsOnly;\n\n  if (hadPlus) {\n    // '+CC...' is already E.164; nothing to infer.\n    result.applied.push('stripped_plus');\n  } else if (e164.startsWith('00')) {\n    // '00' is the international access prefix in most of the world.\n    e164 = e164.slice(2);\n    result.applied.push('stripped_00_idd_prefix');\n  } else if (e164.startsWith('0')) {\n    // National (trunk) format: replace the trunk '0' with the country code.\n    e164 = defaultCountryCode + e164.slice(1);\n    result.applied.push('national_to_e164:' + defaultCountryCode);\n  }\n\n  // Length sanity checks against E.164 bounds.\n  if (e164.length > E164_MAX_DIGITS) {\n    result.reason = 'TOO_LONG';\n    result.e164 = null;\n    return result;\n  }\n  if (e164.length < E164_MIN_DIGITS) {\n    result.reason = 'TOO_SHORT';\n    return result;\n  }\n\n  // Ambiguity detection — flag, don't rewrite.\n  const rule = COUNTRY_RULES[defaultCountryCode];\n  if (rule && !hadPlus && !digitsOnly.startsWith('00') && !digitsOnly.startsWith('0')) {\n    const startsWithCountryCode = e164.startsWith(defaultCountryCode);\n    if (!startsWithCountryCode) {\n      const looksLikeBareNsn =\n        rule.nsnLengths.indexOf(e164.length) !== -1 &&\n        rule.mobilePrefixes.some((p) => e164.startsWith(p));\n      if (looksLikeBareNsn) {\n        // e.g. '791234567' — probably Jordanian without the trunk 0, but we\n        // will not guess. Surface it and let the caller decide.\n        result.ambiguous = true;\n        result.reason = 'AMBIGUOUS_MISSING_COUNTRY_CODE';\n      } else {\n        // Some other country's E.164 number — legitimate, pass through.\n        result.applied.push('assumed_foreign_e164');\n      }\n    }\n  }\n\n  result.ok = true;\n  result.e164 = e164;\n  result.e164Plus = '+' + e164;\n  result.waLink = 'https://wa.me/' + e164;\n  return result;\n}\n\n/**\n * Build a wa.me deep link. Returns null rather than a malformed URL when the\n * input cannot be normalized — callers must handle null (never interpolate\n * an unvalidated number straight into a URL).\n */\nfunction buildWaLink(raw, opts) {\n  const n = normalizePhone(raw, opts);\n  return n.ok ? n.waLink : null;\n}\n\n/**\n * Convenience: strict variant that treats ambiguity as failure. Used on paths\n * where guessing wrong would message the wrong person (e.g. outbound sends).\n */\nfunction normalizePhoneStrict(raw, opts) {\n  const n = normalizePhone(raw, opts);\n  if (n.ambiguous) {\n    return Object.assign({}, n, { ok: false, e164: null, e164Plus: null, waLink: null });\n  }\n  return n;\n}\n\n// ===================== end generated block ================================\n\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.conversation_id);\nconst defaultCountryCode = $env.DEFAULT_COUNTRY_CODE || '962';\n\n// A reply is pending when a human has typed into reply_text and the\n// system has not yet processed it. reply_status is the guard that\n// stops the same text being sent twice on the next poll.\nconst pending = [];\n\nfor (const row of rows) {\n  const text = (row.reply_text === undefined || row.reply_text === null) ? '' : String(row.reply_text).trim();\n  if (text === '') continue;\n\n  const status = String(row.reply_status || '').trim().toUpperCase();\n  // PENDING or blank means \"not yet handled\". SENT/FAILED mean we are\n  // done with this text and must not resend it.\n  if (status === 'SENT' || status === 'SENDING' || status === 'FAILED') continue;\n\n  // Strict normalization: never message a number we had to guess.\n  const phone = normalizePhoneStrict(row.customer_phone, { defaultCountryCode });\n  if (!phone.ok) {\n    pending.push({ json: {\n      conversation_id: row.conversation_id,\n      skip: true,\n      reply_status: 'FAILED',\n      reply_error: 'invalid_phone:' + (phone.reason || 'unknown'),\n      reply_text: text,\n    } });\n    continue;\n  }\n\n  if (text.length > 4096) {\n    pending.push({ json: {\n      conversation_id: row.conversation_id,\n      skip: true,\n      reply_status: 'FAILED',\n      reply_error: 'text_too_long:' + text.length,\n      reply_text: text,\n    } });\n    continue;\n  }\n\n  pending.push({ json: {\n    conversation_id: row.conversation_id,\n    to: phone.e164,\n    text,\n    skip: false,\n    agent_id: row.assigned_agent_id || 'sheet',\n    agent_name: row.assigned_agent_name || '',\n    reply_text: text,\n  } });\n}\n\nconsole.log(JSON.stringify({\n  event: 'sheet_reply_scan',\n  scanned: rows.length,\n  pending: pending.length,\n}));\n\nreturn pending;"
+      },
+      "id": "find-pending",
+      "name": "Find Pending Replies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -140,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "not-skip",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-sendable",
+      "name": "Sendable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        100,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/{{ $env.META_GRAPH_API_VERSION }}/{{ $env.META_PHONE_NUMBER_ID }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: \"whatsapp\", recipient_type: \"individual\", to: $json.to, type: \"text\", text: { body: $json.text } }) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "retry": {
+            "retry": {
+              "maxTries": 3,
+              "waitBetweenTries": 2000
+            }
+          }
+        }
+      },
+      "id": "sheet-send",
+      "name": "Send Reply Via Cloud API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        340,
+        -120
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Uses the \"Meta WhatsApp Token\" credential. The token is never stored in this node."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const request = $('Sendable?').item.json;\nconst response = $input.first().json;\nconst nowIso = new Date().toISOString();\n\nconst messageId = response && response.messages && response.messages[0]\n  ? response.messages[0].id\n  : null;\nconst apiError = response && response.error ? response.error : null;\nconst ok = !!messageId && !apiError;\n\nconsole.log(JSON.stringify({\n  event: ok ? 'sheet_reply_sent' : 'sheet_reply_failed',\n  conversation_id: request.conversation_id,\n  message_id: messageId,\n  error_code: apiError ? apiError.code : null,\n  text_length: request.text ? request.text.length : 0,\n}));\n\nreturn [{ json: {\n  conversation_id: request.conversation_id,\n  to: request.to,\n  text: request.text,\n  agent_id: request.agent_id,\n  ok,\n  message_id: messageId,\n  reply_status: ok ? 'SENT' : 'FAILED',\n  reply_error: apiError ? ('[' + apiError.code + '] ' + String(apiError.message).slice(0, 200)) : '',\n  sent_at: nowIso,\n} }];"
+      },
+      "id": "interpret-sheet-send",
+      "name": "Interpret Sheet Send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        580,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "conversation_id": "={{ $json.conversation_id }}",
+            "reply_text": "",
+            "reply_status": "={{ $json.reply_status }}",
+            "reply_error": "={{ $json.reply_error }}",
+            "reply_sent_at": "={{ $json.sent_at }}",
+            "status": "={{ $json.ok ? \"REPLIED\" : $json.status }}",
+            "last_message": "={{ $json.ok ? $json.text : undefined }}",
+            "last_message_id": "={{ $json.ok ? $json.message_id : undefined }}",
+            "last_message_direction": "={{ $json.ok ? \"outbound\" : undefined }}",
+            "last_agent_message_at": "={{ $json.ok ? $json.sent_at : undefined }}",
+            "last_activity_at": "={{ $json.sent_at }}",
+            "unread": "={{ $json.ok ? \"FALSE\" : undefined }}",
+            "updated_at": "={{ $json.sent_at }}"
+          },
+          "matchingColumns": [
+            "conversation_id"
+          ]
+        },
+        "options": {}
+      },
+      "id": "clear-reply",
+      "name": "Clear Cell And Record Outcome",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        820,
+        -120
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Messages",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_id": "={{ $json.message_id }}",
+            "dedupe_key": "={{ \"message:\" + $json.message_id }}",
+            "conversation_id": "={{ $json.conversation_id }}",
+            "direction": "outbound",
+            "sender_phone": "={{ $env.META_PHONE_NUMBER_ID }}",
+            "recipient_phone": "={{ $json.to }}",
+            "message_type": "text",
+            "text": "={{ $json.text }}",
+            "timestamp": "={{ $json.sent_at }}",
+            "status": "={{ $json.reply_status }}",
+            "agent_id": "={{ $json.agent_id }}",
+            "sent_via": "google_sheet",
+            "created_at": "={{ $json.sent_at }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "sheet-append-msg",
+      "name": "Record Sent Reply",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1060,
+        -120
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "conversation_id": "={{ $json.conversation_id }}",
+            "reply_status": "FAILED",
+            "reply_error": "={{ $json.reply_error }}",
+            "reply_sent_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "conversation_id"
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-invalid",
+      "name": "Mark Invalid Reply",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        340,
+        160
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "reply_text is deliberately NOT cleared here, so the person can see and correct what they typed."
+    },
+    {
+      "parameters": {
+        "content": "## Workflow 7 — Reply From The Sheet\n\nType a message into the **reply_text** column of a conversation row.\nWithin a minute it is sent to that customer over the Cloud API and\nthe cell is cleared.\n\n### Why this matters\nIt gives non-technical staff a working reply channel with no app to\ninstall and no training — and unlike replying from a personal phone,\nevery message IS tracked.\n\n### Guard against double-sending\n`reply_status` is the interlock. Blank/PENDING = send it.\nSENDING/SENT/FAILED = leave it alone. Without this, every poll would\nresend the same text until someone cleared the cell by hand.\n\n### On failure\nreply_text is NOT cleared, so the author can see and fix what they\ntyped. reply_error says what went wrong.",
+        "height": 420,
+        "width": 620,
+        "color": 5
+      },
+      "id": "sticky-a0888385",
+      "name": "Note a03c",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -620,
+        -520
+      ]
+    }
+  ],
+  "connections": {
+    "Every Minute": {
+      "main": [
+        [
+          {
+            "node": "Read Conversations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Conversations": {
+      "main": [
+        [
+          {
+            "node": "Find Pending Replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Pending Replies": {
+      "main": [
+        [
+          {
+            "node": "Sendable?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sendable?": {
+      "main": [
+        [
+          {
+            "node": "Send Reply Via Cloud API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Invalid Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reply Via Cloud API": {
+      "main": [
+        [
+          {
+            "node": "Interpret Sheet Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpret Sheet Send": {
+      "main": [
+        [
+          {
+            "node": "Clear Cell And Record Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Cell And Record Outcome": {
+      "main": [
+        [
+          {
+            "node": "Record Sent Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "tags": []
+}

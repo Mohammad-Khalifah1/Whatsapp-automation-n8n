@@ -232,3 +232,59 @@ describe('webhook parser — text extraction per type', () => {
     }
   });
 });
+
+describe('webhook parser — WhatsApp Business App echoes (Coexistence)', () => {
+  it('recognises an app-sent reply as an OUTBOUND echo, not an inbound message', () => {
+    const p = parseWebhook(loadFixture('echo-agent-reply.json'));
+    assert.ok(p.ok);
+    assert.equal(p.counts.echoes, 1);
+    assert.equal(p.counts.messages, 0, 'must NOT be counted as a customer message');
+    assert.equal(p.events[0].kind, 'echo');
+    assert.equal(p.events[0].direction, 'outbound');
+  });
+
+  it('CRITICALLY attributes the customer correctly despite reversed from/to', () => {
+    // In an echo, `from` is the BUSINESS and `to` is the CUSTOMER — the
+    // opposite of a normal message. Getting this backwards would file the
+    // agent's own reply under the business's phone number.
+    const p = parseWebhook(loadFixture('echo-agent-reply.json'));
+    const e = p.events[0];
+    assert.equal(e.customer_phone, '962791234567', 'customer is `to`, not `from`');
+    assert.equal(e.business_display_phone_number, '962790000000');
+  });
+
+  it('records how the reply was sent, so reporting can tell app from API', () => {
+    const p = parseWebhook(loadFixture('echo-agent-reply.json'));
+    assert.equal(p.events[0].sent_via, 'whatsapp_business_app');
+  });
+
+  it('extracts the reply text', () => {
+    const p = parseWebhook(loadFixture('echo-agent-reply.json'));
+    assert.equal(p.events[0].text, 'أهلا وسهلا، السعر 25 دينار.');
+    assert.equal(p.events[0].timestamp_iso, '2026-09-09T16:05:00.000Z');
+  });
+
+  it('handles a revoke (message deleted from the app) as a control event', () => {
+    const p = parseWebhook(loadFixture('echo-revoke.json'));
+    const e = p.events[0];
+    assert.equal(e.kind, 'echo');
+    assert.equal(e.message_type, 'revoke');
+    assert.ok(e.is_control_event, 'revoke modifies an existing message');
+    assert.equal(e.revoked_message_id, 'wamid.ECHO00000000000000000000000000000000000001');
+    assert.ok(e.supported, 'revoke is a known type, not an unsupported one');
+  });
+
+  it('does not report an echo-only payload as unrecognised', () => {
+    const p = parseWebhook(loadFixture('echo-agent-reply.json'));
+    assert.equal(p.counts.unknown, 0, 'message_echoes must count as recognised payload');
+  });
+
+  it('never throws on malformed echo arrays', () => {
+    const nasty = [
+      { object: 'whatsapp_business_account', entry: [{ changes: [{ value: { message_echoes: [null] } }] }] },
+      { object: 'whatsapp_business_account', entry: [{ changes: [{ value: { message_echoes: 'nope' } }] }] },
+      { object: 'whatsapp_business_account', entry: [{ changes: [{ value: { message_echoes: [42] } }] }] },
+    ];
+    for (const n of nasty) assert.doesNotThrow(() => parseWebhook(n));
+  });
+});

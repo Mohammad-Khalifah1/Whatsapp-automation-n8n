@@ -532,7 +532,9 @@
   "settings": {
     "executionOrder": "v1",
     "saveManualExecutions": true,
-    "saveExecutionProgress": true
+    "saveExecutionProgress": true,
+    "executionTimeout": 300,
+    "concurrency": 1
   },
   "tags": []
 }

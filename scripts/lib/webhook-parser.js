@@ -43,9 +43,22 @@ const TEXT_BEARING_TYPES = ['text', 'button', 'interactive', 'reaction'];
 const EVENT_KIND = {
   MESSAGE: 'message',
   STATUS: 'status',
+  /**
+   * An "echo" of a message the business sent from the WhatsApp Business App
+   * (or a linked companion device) rather than through the Cloud API.
+   *
+   * This arrives via the `smb_message_echoes` webhook field, which only exists
+   * when WhatsApp Coexistence is enabled. It is the difference between
+   * "an agent replied from their phone and we have no idea" and full reply
+   * tracking. See docs/COEXISTENCE.md.
+   */
+  ECHO: 'echo',
   ERROR: 'error',
   UNKNOWN: 'unknown',
 };
+
+/** Echo sub-types that are not new messages but modifications of old ones. */
+const ECHO_CONTROL_TYPES = ['revoke', 'edit'];
 
 /**
  * Extract a short human-readable preview for the `last_message` column.
@@ -167,7 +180,7 @@ function parseWebhook(body) {
     reason: null,
     object: null,
     events: [],
-    counts: { messages: 0, statuses: 0, errors: 0, unknown: 0 },
+    counts: { messages: 0, statuses: 0, echoes: 0, errors: 0, unknown: 0 },
   };
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -306,6 +319,69 @@ function parseWebhook(body) {
         }
       }
 
+      // ---- Echoes of messages sent from the WhatsApp Business App ----
+      //
+      // CRITICAL DIFFERENCE from `messages`: the direction is reversed.
+      // Here `from` is the BUSINESS and `to` is the CUSTOMER, because the
+      // business is the sender. Treating an echo like an inbound message
+      // would attribute the agent's own reply to the customer and flip the
+      // conversation into UNANSWERED — the exact opposite of the truth.
+      if (Array.isArray(value.message_echoes)) {
+        for (const e of value.message_echoes) {
+          if (!e || typeof e !== 'object') {
+            out.counts.unknown += 1;
+            out.events.push(Object.assign({}, base, {
+              kind: EVENT_KIND.UNKNOWN,
+              reason: 'ECHO_NOT_OBJECT',
+            }));
+            continue;
+          }
+
+          const type = e.type !== undefined ? String(e.type) : null;
+          const isControl = ECHO_CONTROL_TYPES.indexOf(type) !== -1;
+          const supported = isControl || SUPPORTED_MESSAGE_TYPES.indexOf(type) !== -1;
+          const textInfo = extractMessageText(e);
+
+          out.counts.echoes += 1;
+          out.events.push(Object.assign({}, base, {
+            kind: EVENT_KIND.ECHO,
+            direction: 'outbound',
+            // How this reply was sent — distinguishes it from a reply made
+            // through workflow 4. Reporting needs to tell these apart.
+            sent_via: 'whatsapp_business_app',
+            message_id: e.id !== undefined ? String(e.id) : null,
+            // `to` is the customer; `from` is our own business number.
+            customer_phone: e.to !== undefined ? String(e.to) : null,
+            business_display_phone_number:
+              e.from !== undefined ? String(e.from) : businessDisplayPhone,
+            message_type: type,
+            supported,
+            // revoke/edit modify an existing message rather than adding one.
+            is_control_event: isControl,
+            revoked_message_id:
+              type === 'revoke' && e.revoke && e.revoke.message_id
+                ? String(e.revoke.message_id)
+                : null,
+            edited_message_id:
+              type === 'edit' && e.edit && e.edit.message_id
+                ? String(e.edit.message_id)
+                : null,
+            processing_status: supported ? 'parsed' : 'unsupported',
+            text: textInfo.text,
+            preview: textInfo.preview,
+            has_text: textInfo.has_text,
+            timestamp_unix: e.timestamp !== undefined ? String(e.timestamp) : null,
+            timestamp_iso: metaTimestampToIso(e.timestamp),
+            media_id:
+              e[type] && typeof e[type] === 'object' && e[type].id ? String(e[type].id) : null,
+            mime_type:
+              e[type] && typeof e[type] === 'object' && e[type].mime_type
+                ? String(e[type].mime_type)
+                : null,
+          }));
+        }
+      }
+
       // ---- Account-level errors delivered on the webhook ----
       if (Array.isArray(value.errors) && value.errors.length > 0) {
         for (const e of value.errors) {
@@ -324,6 +400,7 @@ function parseWebhook(body) {
       const producedSomething =
         (Array.isArray(value.messages) && value.messages.length > 0) ||
         (Array.isArray(value.statuses) && value.statuses.length > 0) ||
+        (Array.isArray(value.message_echoes) && value.message_echoes.length > 0) ||
         (Array.isArray(value.errors) && value.errors.length > 0);
 
       if (!producedSomething) {
@@ -350,4 +427,5 @@ module.exports = {
   SUPPORTED_MESSAGE_TYPES,
   TEXT_BEARING_TYPES,
   EVENT_KIND,
+  ECHO_CONTROL_TYPES,
 };

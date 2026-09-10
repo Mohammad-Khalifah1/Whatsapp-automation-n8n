@@ -1,0 +1,1 @@
+message_id,dedupe_key,conversation_id,direction,sender_phone,recipient_phone,message_type,text,timestamp,status,status_updated_at,agent_id,sent_via,supported,processing_status,correlation_id,raw_event_reference,created_at,archived_at

@@ -5,7 +5,7 @@
  * IDEMPOTENT. Each workflow JSON carries a stable `id` (see
  * scripts/setup/build-workflows.js -> WORKFLOW_ID), and n8n's import UPDATES a
  * workflow whose id already exists rather than creating another copy. Running
- * this repeatedly re-syncs the same six workflows instead of accumulating
+ * this repeatedly re-syncs the same workflows instead of accumulating
  * duplicates.
  *
  * Because ids are fixed at build time, Execute Workflow cross-references are
@@ -35,6 +35,8 @@ const EXPECTED_IDS = [
   'whatsappSend0004',
   'whatsappQueu0005',
   'whatsappErrH0006',
+  'whatsappShRp0007',
+  'whatsappArch0008',
 ];
 
 function docker(args) {
@@ -129,9 +131,10 @@ function main() {
   console.log('  1. Create the Google Sheets service-account credential   -> docs/SETUP.md');
   console.log('  2. Create the "Meta WhatsApp Token" header-auth credential');
   console.log('  3. Assign both credentials to the Sheets / HTTP Request nodes');
-  console.log('  4. Set workflow 6 as the Error Workflow on workflows 1-5');
-  console.log('  5. Set workflow 3 concurrency to 1  -> docs/ASSIGNMENT_ALGORITHM.md');
-  console.log('  6. Activate workflows 1, 4 and 5');
+  console.log('  4. Set workflow 6 as the Error Workflow on workflows 1-5, 7, 8');
+  console.log('  5. Publish the workflows you need (1,2,3 always; 4,5,7,8 optional)');
+  console.log('');
+  console.log('  Workflow 3 already ships with concurrency=1 in its JSON — no manual step.');
 }
 
 main();

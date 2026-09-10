@@ -56,6 +56,8 @@ const WORKFLOW_ID = {
   outgoing: 'whatsappSend0004',
   queueRetry: 'whatsappQueu0005',
   errorHandler: 'whatsappErrH0006',
+  replyFromSheet: 'whatsappShRp0007',
+  archive: 'whatsappArch0008',
 };
 
 const NODE_VERSION = {
@@ -593,6 +595,22 @@ function buildMessageProcessor() {
             renameOutput: true,
             outputKey: 'status_update',
           },
+          {
+            conditions: {
+              options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+              conditions: [
+                {
+                  id: 'is-echo',
+                  leftValue: '={{ $json.kind }}',
+                  rightValue: 'echo',
+                  operator: { type: 'string', operation: 'equals' },
+                },
+              ],
+              combinator: 'and',
+            },
+            renameOutput: true,
+            outputKey: 'app_reply_echo',
+          },
         ],
       },
       options: { fallbackOutput: 'extra', renameFallbackOutput: 'other_event' },
@@ -816,6 +834,194 @@ function buildMessageProcessor() {
     position: [1060, 240],
   });
 
+  // ---- WhatsApp Business App echo branch (Coexistence) ----
+  nodes.push({
+    parameters: {
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      filtersUI: {
+        values: [{ lookupColumn: 'customer_phone', lookupValue: '={{ $json.customer_phone_e164 }}' }],
+      },
+      options: { returnAllMatches: true },
+    },
+    id: 'echo-find-conv',
+    name: 'Find Conversation For Echo',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [320, 560],
+    alwaysOutputData: true,
+    onError: 'continueRegularOutput',
+  });
+
+  nodes.push(
+    codeNode(
+      'Apply App Reply',
+      'apply-echo',
+      [560, 560],
+      ['conversation.js'],
+      [
+        "const echo = $('Route By Event Kind').item.json;",
+        'const rows = $input.all().map((i) => i.json).filter((r) => r && r.conversation_id);',
+        '',
+        '// Control events (revoke/edit) modify a previous message rather than',
+        '// being a new reply. Record them, but do not move the conversation',
+        '// state — deleting a message is not answering a customer.',
+        'if (echo.is_control_event) {',
+        '  console.log(JSON.stringify({',
+        "    event: 'echo_control',",
+        '    correlation_id: echo.correlation_id,',
+        '    type: echo.message_type,',
+        '    target: echo.revoked_message_id || echo.edited_message_id,',
+        '  }));',
+        '  return [{ json: Object.assign({}, echo, {',
+        '    conversation_found: rows.length > 0,',
+        "    conversation_id: rows.length > 0 ? rows[0].conversation_id : '',",
+        '    update_conversation: false,',
+        '  }) }];',
+        '}',
+        '',
+        'const matching = rows.filter((r) =>',
+        "  String(r.business_phone_number_id || '') === String(echo.business_phone_number_id || '')",
+        ');',
+        "const open = matching.filter((r) => r.status !== 'CLOSED')",
+        '  .sort((a, b) => Date.parse(b.last_activity_at || 0) - Date.parse(a.last_activity_at || 0));',
+        '',
+        'if (open.length === 0) {',
+        '  // An agent messaged a customer we have no open conversation for.',
+        '  // Record it; do not invent a conversation from an outbound message.',
+        '  console.log(JSON.stringify({',
+        "    event: 'echo_without_conversation',",
+        '    correlation_id: echo.correlation_id,',
+        '  }));',
+        '  return [{ json: Object.assign({}, echo, {',
+        '    conversation_found: false,',
+        '    update_conversation: false,',
+        '  }) }];',
+        '}',
+        '',
+        'const existing = open[0];',
+        'const nowIso = new Date().toISOString();',
+        '',
+        '// THIS is what Coexistence buys us: a reply typed in the WhatsApp',
+        '// Business App now advances the conversation exactly like an API',
+        '// reply would. Without it, the conversation would sit on UNANSWERED',
+        '// forever even though the customer was answered.',
+        'const { update, transition } = buildAgentMessageUpdate(existing, {',
+        '  message_id: echo.message_id,',
+        '  preview: echo.preview,',
+        '  text: echo.text,',
+        '  timestamp_iso: echo.timestamp_iso,',
+        '}, { now_iso: nowIso });',
+        '',
+        'console.log(JSON.stringify({',
+        "  event: 'echo_applied',",
+        '  correlation_id: echo.correlation_id,',
+        '  conversation_id: existing.conversation_id,',
+        '  from_status: existing.status,',
+        '  to_status: transition.next,',
+        "  sent_via: 'whatsapp_business_app',",
+        '}));',
+        '',
+        'return [{ json: Object.assign({}, echo, {',
+        '  conversation_found: true,',
+        '  update_conversation: true,',
+        '  conversation_id: existing.conversation_id,',
+        '  assigned_agent_id: existing.assigned_agent_id || \'\',',
+        '  conversation_update: Object.assign({ conversation_id: existing.conversation_id }, update),',
+        '}) }];',
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          {
+            id: 'do-update',
+            leftValue: '={{ $json.update_conversation }}',
+            rightValue: true,
+            operator: { type: 'boolean', operation: 'true', singleValue: true },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+    id: 'if-echo-update',
+    name: 'Echo Updates Conversation?',
+    type: 'n8n-nodes-base.if',
+    typeVersion: NODE_VERSION.if,
+    position: [800, 560],
+  });
+
+  nodes.push({
+    parameters: {
+      operation: 'update',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      columns: {
+        mappingMode: 'defineBelow',
+        value: {
+          conversation_id: '={{ $json.conversation_update.conversation_id }}',
+          status: '={{ $json.conversation_update.status }}',
+          last_message: '={{ $json.conversation_update.last_message }}',
+          last_message_id: '={{ $json.conversation_update.last_message_id }}',
+          last_message_direction: 'outbound',
+          last_agent_message_at: '={{ $json.conversation_update.last_agent_message_at }}',
+          last_activity_at: '={{ $json.conversation_update.last_activity_at }}',
+          unread: 'FALSE',
+          updated_at: '={{ $json.conversation_update.updated_at }}',
+        },
+        matchingColumns: ['conversation_id'],
+      },
+      options: {},
+    },
+    id: 'echo-update-conv',
+    name: 'Update Conversation From App Reply',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [1060, 480],
+    onError: 'continueErrorOutput',
+  });
+
+  nodes.push({
+    parameters: {
+      operation: 'append',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Messages', mode: 'name' },
+      columns: {
+        mappingMode: 'defineBelow',
+        value: {
+          message_id: '={{ $json.message_id }}',
+          dedupe_key: '={{ $json.dedupe_key }}',
+          conversation_id: '={{ $json.conversation_id }}',
+          direction: 'outbound',
+          sender_phone: '={{ $json.business_display_phone_number }}',
+          recipient_phone: '={{ $json.customer_phone_e164 }}',
+          message_type: '={{ $json.message_type }}',
+          text: '={{ $json.preview }}',
+          timestamp: '={{ $json.timestamp_iso }}',
+          status: 'SENT',
+          agent_id: '={{ $json.assigned_agent_id }}',
+          sent_via: 'whatsapp_business_app',
+          supported: '={{ $json.supported }}',
+          processing_status: '={{ $json.processing_status }}',
+          correlation_id: '={{ $json.correlation_id }}',
+          created_at: '={{ $now.toISO() }}',
+        },
+      },
+      options: {},
+    },
+    id: 'echo-append-msg',
+    name: 'Record App Reply Message',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [1320, 560],
+    onError: 'continueRegularOutput',
+  });
+
   // ---- Other/unknown events ----
   nodes.push({
     parameters: {
@@ -839,7 +1045,7 @@ function buildMessageProcessor() {
     name: 'Log Unhandled Event',
     type: 'n8n-nodes-base.googleSheets',
     typeVersion: NODE_VERSION.googleSheets,
-    position: [320, 380],
+    position: [320, 800],
     onError: 'continueRegularOutput',
   });
 
@@ -873,9 +1079,19 @@ function buildMessageProcessor() {
     main: [
       [{ node: 'Lookup Existing Message', type: 'main', index: 0 }],
       [{ node: 'Find Outbound Message', type: 'main', index: 0 }],
+      [{ node: 'Find Conversation For Echo', type: 'main', index: 0 }],
       [{ node: 'Log Unhandled Event', type: 'main', index: 0 }],
     ],
   };
+  connections['Find Conversation For Echo'] = { main: [[{ node: 'Apply App Reply', type: 'main', index: 0 }]] };
+  connections['Apply App Reply'] = { main: [[{ node: 'Echo Updates Conversation?', type: 'main', index: 0 }]] };
+  connections['Echo Updates Conversation?'] = {
+    main: [
+      [{ node: 'Update Conversation From App Reply', type: 'main', index: 0 }],
+      [{ node: 'Record App Reply Message', type: 'main', index: 0 }],
+    ],
+  };
+  connections['Update Conversation From App Reply'] = { main: [[{ node: 'Record App Reply Message', type: 'main', index: 0 }]] };
   connections['Lookup Existing Message'] = { main: [[{ node: 'Is Duplicate?', type: 'main', index: 0 }]] };
   connections['Is Duplicate?'] = { main: [[{ node: 'New Message?', type: 'main', index: 0 }]] };
   connections['New Message?'] = {
@@ -1376,6 +1592,13 @@ function buildConversationAndAssignment() {
       executionOrder: 'v1',
       saveManualExecutions: true,
       saveExecutionProgress: true,
+      // Serialize assignment. Google Sheets has no atomic compare-and-set, so
+      // two parallel executions can both read "Mohammad has 3 open" and both
+      // assign him. Shipping this in the generated JSON means a fresh import
+      // is safe by default instead of depending on someone remembering to set
+      // it in the UI. See docs/ASSIGNMENT_ALGORITHM.md.
+      executionTimeout: 300,
+      concurrency: 1,
     },
     tags: [],
   };
@@ -2004,6 +2227,549 @@ function buildErrorHandler() {
 }
 
 // ===========================================================================
+// Workflow 7 — Reply From Sheet
+// ===========================================================================
+function buildReplyFromSheet() {
+  const nodes = [];
+  const connections = {};
+
+  nodes.push({
+    parameters: {
+      rule: { interval: [{ field: 'minutes', minutesInterval: 1 }] },
+    },
+    id: 'reply-schedule',
+    name: 'Every Minute',
+    type: 'n8n-nodes-base.scheduleTrigger',
+    typeVersion: NODE_VERSION.scheduleTrigger,
+    position: [-620, 0],
+    notes: 'One minute is the practical floor: faster polling burns the Google Sheets read quota for no perceptible gain.',
+  });
+
+  nodes.push({
+    parameters: {
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      options: { returnAllMatches: true },
+    },
+    id: 'read-for-reply',
+    name: 'Read Conversations',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [-380, 0],
+    alwaysOutputData: true,
+    onError: 'continueRegularOutput',
+  });
+
+  nodes.push(
+    codeNode(
+      'Find Pending Replies',
+      'find-pending',
+      [-140, 0],
+      ['phone.js'],
+      [
+        'const rows = $input.all().map((i) => i.json).filter((r) => r && r.conversation_id);',
+        "const defaultCountryCode = $env.DEFAULT_COUNTRY_CODE || '962';",
+        '',
+        '// A reply is pending when a human has typed into reply_text and the',
+        '// system has not yet processed it. reply_status is the guard that',
+        '// stops the same text being sent twice on the next poll.',
+        'const pending = [];',
+        '',
+        'for (const row of rows) {',
+        "  const text = (row.reply_text === undefined || row.reply_text === null) ? '' : String(row.reply_text).trim();",
+        "  if (text === '') continue;",
+        '',
+        "  const status = String(row.reply_status || '').trim().toUpperCase();",
+        '  // PENDING or blank means "not yet handled". SENT/FAILED mean we are',
+        '  // done with this text and must not resend it.',
+        "  if (status === 'SENT' || status === 'SENDING' || status === 'FAILED') continue;",
+        '',
+        '  // Strict normalization: never message a number we had to guess.',
+        '  const phone = normalizePhoneStrict(row.customer_phone, { defaultCountryCode });',
+        '  if (!phone.ok) {',
+        '    pending.push({ json: {',
+        '      conversation_id: row.conversation_id,',
+        '      skip: true,',
+        "      reply_status: 'FAILED',",
+        "      reply_error: 'invalid_phone:' + (phone.reason || 'unknown'),",
+        '      reply_text: text,',
+        '    } });',
+        '    continue;',
+        '  }',
+        '',
+        '  if (text.length > 4096) {',
+        '    pending.push({ json: {',
+        '      conversation_id: row.conversation_id,',
+        '      skip: true,',
+        "      reply_status: 'FAILED',",
+        "      reply_error: 'text_too_long:' + text.length,",
+        '      reply_text: text,',
+        '    } });',
+        '    continue;',
+        '  }',
+        '',
+        '  pending.push({ json: {',
+        '    conversation_id: row.conversation_id,',
+        '    to: phone.e164,',
+        '    text,',
+        '    skip: false,',
+        "    agent_id: row.assigned_agent_id || 'sheet',",
+        "    agent_name: row.assigned_agent_name || '',",
+        '    reply_text: text,',
+        '  } });',
+        '}',
+        '',
+        'console.log(JSON.stringify({',
+        "  event: 'sheet_reply_scan',",
+        '  scanned: rows.length,',
+        '  pending: pending.length,',
+        '}));',
+        '',
+        'return pending;',
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          {
+            id: 'not-skip',
+            leftValue: '={{ $json.skip }}',
+            rightValue: false,
+            operator: { type: 'boolean', operation: 'false', singleValue: true },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+    id: 'if-sendable',
+    name: 'Sendable?',
+    type: 'n8n-nodes-base.if',
+    typeVersion: NODE_VERSION.if,
+    position: [100, 0],
+  });
+
+  nodes.push({
+    parameters: {
+      method: 'POST',
+      url: '=https://graph.facebook.com/{{ $env.META_GRAPH_API_VERSION }}/{{ $env.META_PHONE_NUMBER_ID }}/messages',
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendHeaders: true,
+      headerParameters: { parameters: [{ name: 'Content-Type', value: 'application/json' }] },
+      sendBody: true,
+      specifyBody: 'json',
+      jsonBody:
+        '={{ JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to: $json.to, type: "text", text: { body: $json.text } }) }}',
+      options: {
+        timeout: 15000,
+        response: { response: { neverError: true, responseFormat: 'json' } },
+        retry: { retry: { maxTries: 3, waitBetweenTries: 2000 } },
+      },
+    },
+    id: 'sheet-send',
+    name: 'Send Reply Via Cloud API',
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: NODE_VERSION.httpRequest,
+    position: [340, -120],
+    onError: 'continueRegularOutput',
+    notes: 'Uses the "Meta WhatsApp Token" credential. The token is never stored in this node.',
+  });
+
+  nodes.push(
+    codeNode(
+      'Interpret Sheet Send',
+      'interpret-sheet-send',
+      [580, -120],
+      [],
+      [
+        "const request = $('Sendable?').item.json;",
+        'const response = $input.first().json;',
+        'const nowIso = new Date().toISOString();',
+        '',
+        'const messageId = response && response.messages && response.messages[0]',
+        '  ? response.messages[0].id',
+        '  : null;',
+        'const apiError = response && response.error ? response.error : null;',
+        'const ok = !!messageId && !apiError;',
+        '',
+        'console.log(JSON.stringify({',
+        "  event: ok ? 'sheet_reply_sent' : 'sheet_reply_failed',",
+        '  conversation_id: request.conversation_id,',
+        '  message_id: messageId,',
+        '  error_code: apiError ? apiError.code : null,',
+        '  text_length: request.text ? request.text.length : 0,',
+        '}));',
+        '',
+        'return [{ json: {',
+        '  conversation_id: request.conversation_id,',
+        '  to: request.to,',
+        '  text: request.text,',
+        '  agent_id: request.agent_id,',
+        '  ok,',
+        '  message_id: messageId,',
+        "  reply_status: ok ? 'SENT' : 'FAILED',",
+        "  reply_error: apiError ? ('[' + apiError.code + '] ' + String(apiError.message).slice(0, 200)) : '',",
+        '  sent_at: nowIso,',
+        '} }];',
+      ].join('\n')
+    )
+  );
+
+  // On success: clear reply_text so the cell is ready for the next reply, and
+  // record the outcome where the person who typed it will see it.
+  nodes.push({
+    parameters: {
+      operation: 'update',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      columns: {
+        mappingMode: 'defineBelow',
+        value: {
+          conversation_id: '={{ $json.conversation_id }}',
+          reply_text: '',
+          reply_status: '={{ $json.reply_status }}',
+          reply_error: '={{ $json.reply_error }}',
+          reply_sent_at: '={{ $json.sent_at }}',
+          status: '={{ $json.ok ? "REPLIED" : $json.status }}',
+          last_message: '={{ $json.ok ? $json.text : undefined }}',
+          last_message_id: '={{ $json.ok ? $json.message_id : undefined }}',
+          last_message_direction: '={{ $json.ok ? "outbound" : undefined }}',
+          last_agent_message_at: '={{ $json.ok ? $json.sent_at : undefined }}',
+          last_activity_at: '={{ $json.sent_at }}',
+          unread: '={{ $json.ok ? "FALSE" : undefined }}',
+          updated_at: '={{ $json.sent_at }}',
+        },
+        matchingColumns: ['conversation_id'],
+      },
+      options: {},
+    },
+    id: 'clear-reply',
+    name: 'Clear Cell And Record Outcome',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [820, -120],
+    onError: 'continueErrorOutput',
+  });
+
+  nodes.push({
+    parameters: {
+      operation: 'append',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Messages', mode: 'name' },
+      columns: {
+        mappingMode: 'defineBelow',
+        value: {
+          message_id: '={{ $json.message_id }}',
+          dedupe_key: '={{ "message:" + $json.message_id }}',
+          conversation_id: '={{ $json.conversation_id }}',
+          direction: 'outbound',
+          sender_phone: '={{ $env.META_PHONE_NUMBER_ID }}',
+          recipient_phone: '={{ $json.to }}',
+          message_type: 'text',
+          text: '={{ $json.text }}',
+          timestamp: '={{ $json.sent_at }}',
+          status: '={{ $json.reply_status }}',
+          agent_id: '={{ $json.agent_id }}',
+          sent_via: 'google_sheet',
+          created_at: '={{ $json.sent_at }}',
+        },
+      },
+      options: {},
+    },
+    id: 'sheet-append-msg',
+    name: 'Record Sent Reply',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [1060, -120],
+    onError: 'continueRegularOutput',
+  });
+
+  // Validation failures never reach Meta — record why, and clear the cell so a
+  // bad value does not retry forever.
+  nodes.push({
+    parameters: {
+      operation: 'update',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      columns: {
+        mappingMode: 'defineBelow',
+        value: {
+          conversation_id: '={{ $json.conversation_id }}',
+          reply_status: 'FAILED',
+          reply_error: '={{ $json.reply_error }}',
+          reply_sent_at: '={{ $now.toISO() }}',
+        },
+        matchingColumns: ['conversation_id'],
+      },
+      options: {},
+    },
+    id: 'mark-invalid',
+    name: 'Mark Invalid Reply',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [340, 160],
+    onError: 'continueRegularOutput',
+    notes: 'reply_text is deliberately NOT cleared here, so the person can see and correct what they typed.',
+  });
+
+  nodes.push(
+    stickyNote(
+      [
+        '## Workflow 7 — Reply From The Sheet',
+        '',
+        'Type a message into the **reply_text** column of a conversation row.',
+        'Within a minute it is sent to that customer over the Cloud API and',
+        'the cell is cleared.',
+        '',
+        '### Why this matters',
+        'It gives non-technical staff a working reply channel with no app to',
+        'install and no training — and unlike replying from a personal phone,',
+        'every message IS tracked.',
+        '',
+        '### Guard against double-sending',
+        '`reply_status` is the interlock. Blank/PENDING = send it.',
+        'SENDING/SENT/FAILED = leave it alone. Without this, every poll would',
+        'resend the same text until someone cleared the cell by hand.',
+        '',
+        '### On failure',
+        'reply_text is NOT cleared, so the author can see and fix what they',
+        'typed. reply_error says what went wrong.',
+      ].join('\n'),
+      [-620, -520],
+      420,
+      620,
+      5
+    )
+  );
+
+  connections['Every Minute'] = { main: [[{ node: 'Read Conversations', type: 'main', index: 0 }]] };
+  connections['Read Conversations'] = { main: [[{ node: 'Find Pending Replies', type: 'main', index: 0 }]] };
+  connections['Find Pending Replies'] = { main: [[{ node: 'Sendable?', type: 'main', index: 0 }]] };
+  connections['Sendable?'] = {
+    main: [
+      [{ node: 'Send Reply Via Cloud API', type: 'main', index: 0 }],
+      [{ node: 'Mark Invalid Reply', type: 'main', index: 0 }],
+    ],
+  };
+  connections['Send Reply Via Cloud API'] = { main: [[{ node: 'Interpret Sheet Send', type: 'main', index: 0 }]] };
+  connections['Interpret Sheet Send'] = { main: [[{ node: 'Clear Cell And Record Outcome', type: 'main', index: 0 }]] };
+  connections['Clear Cell And Record Outcome'] = { main: [[{ node: 'Record Sent Reply', type: 'main', index: 0 }]] };
+
+  return {
+    id: WORKFLOW_ID.replyFromSheet,
+    name: 'WhatsApp — 7 Reply From Sheet',
+    nodes,
+    connections,
+    settings: { executionOrder: 'v1', saveManualExecutions: true },
+    tags: [],
+  };
+}
+
+// ===========================================================================
+// Workflow 8 — Archive Old Conversations
+// ===========================================================================
+function buildArchive() {
+  const nodes = [];
+  const connections = {};
+
+  nodes.push({
+    parameters: {
+      rule: { interval: [{ field: 'days', triggerAtHour: 3, triggerAtMinute: 0 }] },
+    },
+    id: 'archive-schedule',
+    name: 'Daily At 03:00',
+    type: 'n8n-nodes-base.scheduleTrigger',
+    typeVersion: NODE_VERSION.scheduleTrigger,
+    position: [-620, 0],
+    notes: 'Runs in the local timezone set by GENERIC_TIMEZONE (Asia/Amman).',
+  });
+
+  nodes.push({
+    parameters: {
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      options: { returnAllMatches: true },
+    },
+    id: 'archive-read',
+    name: 'Read Conversations',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [-380, 0],
+    alwaysOutputData: true,
+    onError: 'continueRegularOutput',
+  });
+
+  nodes.push(
+    codeNode(
+      'Select Archivable',
+      'select-archivable',
+      [-140, 0],
+      ['conversation.js'],
+      [
+        'const rows = $input.all().map((i) => i.json).filter((r) => r && r.conversation_id);',
+        'const days = Number($env.ARCHIVE_AFTER_DAYS || 30);',
+        'const maxBatch = Number($env.ARCHIVE_BATCH_SIZE || 200);',
+        'const now = Date.now();',
+        '',
+        'if (!isFinite(days) || days <= 0) {',
+        "  console.log(JSON.stringify({ event: 'archive_disabled' }));",
+        '  return [];',
+        '}',
+        '',
+        'const cutoff = now - days * 86400000;',
+        'const archivable = [];',
+        '',
+        'for (const row of rows) {',
+        '  // ONLY closed conversations are ever archived. An open conversation',
+        '  // is live work; archiving it would hide a waiting customer.',
+        "  if (String(row.status || '').toUpperCase() !== 'CLOSED') continue;",
+        '',
+        '  const ts = Date.parse(row.closed_at || row.last_activity_at || row.updated_at || \'\');',
+        '  // Never archive a row whose date we cannot read — that is how data',
+        '  // gets lost silently.',
+        '  if (isNaN(ts)) continue;',
+        '  if (ts > cutoff) continue;',
+        '',
+        '  archivable.push(row);',
+        '}',
+        '',
+        '// Deleting rows shifts every row beneath it. Sorting DESCENDING by',
+        '// row_number means each delete only moves rows we have already',
+        '// handled, so indices stay valid throughout the batch.',
+        'archivable.sort((a, b) => Number(b.row_number || 0) - Number(a.row_number || 0));',
+        '',
+        'const batch = archivable.slice(0, maxBatch);',
+        '',
+        'console.log(JSON.stringify({',
+        "  event: 'archive_scan',",
+        '  total_rows: rows.length,',
+        '  eligible: archivable.length,',
+        '  batch: batch.length,',
+        '  cutoff_days: days,',
+        '}));',
+        '',
+        'return batch.map((r) => ({ json: Object.assign({}, r, { archived_at: new Date(now).toISOString() }) }));',
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      operation: 'append',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations_Archive', mode: 'name' },
+      columns: { mappingMode: 'autoMapInputData', value: {} },
+      options: {},
+    },
+    id: 'archive-append',
+    name: 'Copy To Archive',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [100, 0],
+    onError: 'stopWorkflow',
+    notes:
+      'onError=stopWorkflow is deliberate: if the copy fails, the delete MUST NOT run, or the data is gone.',
+  });
+
+  nodes.push({
+    parameters: {
+      operation: 'delete',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      toDelete: 'rows',
+      startIndex: '={{ $json.row_number }}',
+      numberToDelete: 1,
+    },
+    id: 'archive-delete',
+    name: 'Remove From Conversations',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [340, 0],
+    onError: 'continueErrorOutput',
+    executeOnce: false,
+    notes:
+      'Runs ONLY after a successful archive copy. Items arrive sorted by row_number DESCENDING so deletes do not shift rows still to be processed.',
+  });
+
+  nodes.push({
+    parameters: {
+      operation: 'append',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Events', mode: 'name' },
+      columns: {
+        mappingMode: 'defineBelow',
+        value: {
+          event_id: '={{ "archive-" + $json.conversation_id }}',
+          event_type: 'CONVERSATION_ARCHIVED',
+          conversation_id: '={{ $json.conversation_id }}',
+          source: 'archive_workflow',
+          timestamp: '={{ $now.toISO() }}',
+          status: 'ARCHIVED',
+          details: '={{ JSON.stringify({ closed_at: $json.closed_at, customer_phone: $json.customer_phone }) }}',
+        },
+      },
+      options: {},
+    },
+    id: 'archive-audit',
+    name: 'Audit Archive',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [580, 0],
+    onError: 'continueRegularOutput',
+  });
+
+  nodes.push(
+    stickyNote(
+      [
+        '## Workflow 8 — Archive Old Conversations',
+        '',
+        'Nightly at 03:00, moves conversations that have been **CLOSED** for',
+        'more than `ARCHIVE_AFTER_DAYS` (default 30) into',
+        '`Conversations_Archive`, keeping the working sheet small and fast.',
+        '',
+        '### Three safety rules',
+        '1. **Only CLOSED rows.** An open conversation is live work.',
+        '2. **Copy before delete.** The copy node is `stopWorkflow` on error,',
+        '   so a failed copy can never be followed by a delete.',
+        '3. **Delete bottom-up.** Rows are sorted by row_number DESCENDING,',
+        '   because deleting a row shifts everything below it. Deleting',
+        '   top-down would corrupt the indices of rows still queued.',
+        '',
+        '### Unreadable dates are skipped',
+        'A row whose closed_at cannot be parsed is left alone rather than',
+        'archived on a guess.',
+        '',
+        'Set `ARCHIVE_AFTER_DAYS=0` to disable entirely.',
+      ].join('\n'),
+      [-620, -560],
+      460,
+      620,
+      3
+    )
+  );
+
+  connections['Daily At 03:00'] = { main: [[{ node: 'Read Conversations', type: 'main', index: 0 }]] };
+  connections['Read Conversations'] = { main: [[{ node: 'Select Archivable', type: 'main', index: 0 }]] };
+  connections['Select Archivable'] = { main: [[{ node: 'Copy To Archive', type: 'main', index: 0 }]] };
+  connections['Copy To Archive'] = { main: [[{ node: 'Remove From Conversations', type: 'main', index: 0 }]] };
+  connections['Remove From Conversations'] = { main: [[{ node: 'Audit Archive', type: 'main', index: 0 }]] };
+
+  return {
+    id: WORKFLOW_ID.archive,
+    name: 'WhatsApp — 8 Archive Old Conversations',
+    nodes,
+    connections,
+    settings: { executionOrder: 'v1', saveManualExecutions: true },
+    tags: [],
+  };
+}
+
+// ===========================================================================
 // Build + write
 // ===========================================================================
 const WORKFLOWS = [
@@ -2013,6 +2779,8 @@ const WORKFLOWS = [
   { file: '04-outgoing-agent-message.json', build: buildOutgoingMessage },
   { file: '05-unassigned-queue-retry.json', build: buildUnassignedRetry },
   { file: '06-error-handler.json', build: buildErrorHandler },
+  { file: '07-reply-from-sheet.json', build: buildReplyFromSheet },
+  { file: '08-archive-conversations.json', build: buildArchive },
 ];
 
 function main() {
