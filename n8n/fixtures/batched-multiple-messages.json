@@ -1,0 +1,73 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "102290129340398",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "962790000000",
+              "phone_number_id": "106540352242922"
+            },
+            "contacts": [
+              { "profile": { "name": "Rapid Sender" }, "wa_id": "962791111111" }
+            ],
+            "messages": [
+              {
+                "from": "962791111111",
+                "id": "wamid.BATCH0000000000000000000000000000000000000001",
+                "timestamp": "1788970200",
+                "text": { "body": "السلام عليكم" },
+                "type": "text"
+              },
+              {
+                "from": "962791111111",
+                "id": "wamid.BATCH0000000000000000000000000000000000000002",
+                "timestamp": "1788970201",
+                "text": { "body": "بدي أستفسر عن الطلب" },
+                "type": "text"
+              },
+              {
+                "from": "962791111111",
+                "id": "wamid.BATCH0000000000000000000000000000000000000003",
+                "timestamp": "1788970202",
+                "text": { "body": "رقم الطلب 12345" },
+                "type": "text"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    },
+    {
+      "id": "102290129340398",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "962790000001",
+              "phone_number_id": "999888777666555"
+            },
+            "contacts": [
+              { "profile": { "name": "Second Number Customer" }, "wa_id": "962792222222" }
+            ],
+            "messages": [
+              {
+                "from": "962792222222",
+                "id": "wamid.BATCH0000000000000000000000000000000000000004",
+                "timestamp": "1788970203",
+                "text": { "body": "Hello from the other business number" },
+                "type": "text"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

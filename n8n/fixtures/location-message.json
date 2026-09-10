@@ -1,0 +1,37 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "102290129340398",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "962790000000",
+              "phone_number_id": "106540352242922"
+            },
+            "contacts": [
+              { "profile": { "name": "Sami Odeh" }, "wa_id": "962787654321" }
+            ],
+            "messages": [
+              {
+                "from": "962787654321",
+                "id": "wamid.HBgMOTYyNzg3NjU0MzIxFQIAEhggOTg3NjU0MzIxMEZFRENCQTA5ODc2NTQzMjEwRkUA",
+                "timestamp": "1788969800",
+                "type": "location",
+                "location": {
+                  "latitude": 31.963158,
+                  "longitude": 35.930359,
+                  "name": "Amman City Center",
+                  "address": "Amman, Jordan"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

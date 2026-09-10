@@ -1,0 +1,106 @@
+# WhatsApp Support Routing — local development stack
+#
+# Design decisions (see docs/DECISIONS.md for full rationale):
+#   - Docker Compose, not Kubernetes, for the MVP (single host, low complexity).
+#   - n8n image pinned to the version already running on this machine (2.38.5)
+#     rather than `:latest`, so `docker compose up` is reproducible.
+#   - n8n's built-in user management (owner login) protects the editor UI;
+#     no separate basic-auth layer is added for local dev. Production adds a
+#     reverse proxy + TLS in front of this (see docs/DEPLOYMENT_HOSTINGER.md).
+#   - All secrets come from .env (git-ignored). .env.example documents every
+#     variable with a placeholder, never a real value.
+#
+# Usage:
+#   cp .env.example .env   # then fill in real values as you obtain them
+#   docker compose up -d
+#   docker compose logs -f n8n
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.38.5
+    container_name: n8n-whatsapp
+    restart: unless-stopped
+
+    ports:
+      - "5678:5678"
+
+    environment:
+      # --- Timezone (all timestamps/cron schedules use this) ---
+      - TZ=${TZ:-Asia/Amman}
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Amman}
+
+      # --- Editor / webhook URL generation ---
+      # N8N_HOST/PROTOCOL/PORT control what n8n *thinks* its own address is,
+      # used when it prints webhook URLs in the UI. WEBHOOK_URL overrides
+      # the externally-visible base URL — set this to your ngrok/Cloudflare
+      # Tunnel URL during development so the "Production URL" shown in the
+      # Webhook node is actually reachable by Meta. See docs/SETUP.md.
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+
+      # --- Encryption key for credentials stored in n8n's DB ---
+      # MUST be set explicitly (not left to auto-generate) so the volume can
+      # be backed up/restored or migrated to a VPS without losing the ability
+      # to decrypt stored credentials. Generated once, stored only in .env.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      # --- Task runners (sandboxed Code-node execution; on by default in
+      #     recent n8n, set explicitly for clarity/reproducibility) ---
+      - N8N_RUNNERS_ENABLED=true
+
+      # --- Reduce noise / telemetry for a project handling customer data ---
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+
+      # --- Application-level configuration consumed by workflow Code/Set
+      #     nodes (business logic), not by n8n itself. Documented in
+      #     docs/ENVIRONMENT.md. ---
+      - META_GRAPH_API_VERSION=${META_GRAPH_API_VERSION:-v26.0}
+      - META_ACCESS_TOKEN=${META_ACCESS_TOKEN}
+      - META_PHONE_NUMBER_ID=${META_PHONE_NUMBER_ID}
+      - META_WABA_ID=${META_WABA_ID}
+      - META_APP_SECRET=${META_APP_SECRET}
+      - WEBHOOK_VERIFY_TOKEN=${WEBHOOK_VERIFY_TOKEN}
+      - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
+      - CONVERSATION_INACTIVITY_HOURS=${CONVERSATION_INACTIVITY_HOURS:-24}
+      - DEFAULT_COUNTRY_CODE=${DEFAULT_COUNTRY_CODE:-962}
+
+    volumes:
+      # Named volume: n8n's own DB (SQLite), credentials, binary data, logs.
+      # Survives `docker compose down` (only removed with an explicit -v).
+      - n8n_data:/home/node/.n8n
+      # Bind-mounted so workflow JSON/fixtures edited on the host can be
+      # imported via the n8n CLI without rebuilding the image.
+      - ./n8n/workflows:/home/node/n8n-workflows:ro
+      - ./n8n/fixtures:/home/node/n8n-fixtures:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+    networks:
+      - n8n_whatsapp_network
+
+networks:
+  n8n_whatsapp_network:
+    name: n8n_whatsapp_network
+
+volumes:
+  # NOTE: a fresh volume is used deliberately.
+  #
+  # The original volume (`n8n-whatsapp_n8n_data`) was created by an earlier run
+  # in which n8n auto-generated its own encryption key and stored it inside the
+  # volume. n8n refuses to start when that stored key disagrees with an explicit
+  # N8N_ENCRYPTION_KEY env var ("Mismatching encryption keys").
+  #
+  # That old volume contained ZERO workflows and ZERO credentials, so nothing of
+  # value is in it. It is intentionally left ON DISK, untouched, rather than
+  # deleted. Remove it yourself once you are satisfied nothing is needed:
+  #     docker volume rm n8n-whatsapp_n8n_data
+  n8n_data:
+    name: n8n_whatsapp_data
