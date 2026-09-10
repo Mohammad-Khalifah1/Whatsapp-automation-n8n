@@ -107,10 +107,40 @@ invisible. Coexistence tracks the **business number**, not the person.
 
 | Requirement | Detail |
 |---|---|
-| WhatsApp **Business App** (not regular WhatsApp) | The number must be registered on it |
+| WhatsApp **Business App**, version **2.24.17 or later** | The number must already be registered on the SMB app |
+| A **personal** WhatsApp account | **NOT eligible.** This is the single most common blocker |
+| Account tenure and messaging quality | Meta assesses both; a brand-new account may be refused |
 | Onboarding via Embedded Signup | Coexistence is enabled during that flow |
 | **The app must be opened at least once every 13 days** | Otherwise the account goes inactive |
 | Extra webhook subscriptions | `smb_message_echoes`, and optionally `smb_app_state_sync` |
+
+### Which kind of account do you actually need?
+
+Three different things get confused here:
+
+| | What it is | Needed for Coexistence? |
+|---|---|---|
+| **WhatsApp** | The regular consumer app | **No — and it disqualifies you** |
+| **WhatsApp Business App** | A separate free app for small businesses | **Yes, this exact one** |
+| **WhatsApp Business Platform (Cloud API)** | Not an app at all — the API this project uses | Yes, both together |
+
+**If the number is currently on regular WhatsApp**, you have two options:
+
+1. **Convert it to the WhatsApp Business App** — free, done from inside the
+   app, and it keeps existing chats. This makes the number eligible for
+   Coexistence and gives agents instant, fully-tracked replies with native
+   push notifications. Recommended.
+2. **Delete the WhatsApp account entirely** and register the number as
+   API-only. Replies then come only from the sheet (workflow 7) or the API
+   (workflow 4); there is no WhatsApp app on that number.
+
+> **There is no reverse coexistence.** Once a number is API-only, moving it
+> back means giving up the API entirely. Use a dedicated business number, not
+> someone's personal one.
+
+**To evaluate before committing**, use Meta's free test number — it messages up
+to 5 numbers you nominate, needs no number of your own, and requires deleting
+nothing.
 
 The 13-day rule is an operational obligation, not a technical one — but if the
 business phone sits in a drawer, Coexistence silently stops working. Assign it

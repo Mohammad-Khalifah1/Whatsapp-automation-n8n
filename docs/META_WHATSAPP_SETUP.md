@@ -31,6 +31,38 @@ a tutorial — including this one.
 > (*Settings → Account → Delete my account*) and then wait before registering it
 > with the Cloud API. Consider using a dedicated number.
 
+### Which WhatsApp account type do you need?
+
+Three different things are routinely confused:
+
+| | What it is | Role here |
+|---|---|---|
+| **WhatsApp** | The regular consumer app | Not used. A number on it must be freed first |
+| **WhatsApp Business App** | A separate free app for small businesses | Optional — but **required** if you want Coexistence |
+| **WhatsApp Business Platform (Cloud API)** | Not an app — the API this project calls | Always required |
+
+**You do not need a "Business account" to use the Cloud API.** You need a phone
+number that is not registered on any WhatsApp, plus a Meta *Business* account
+(a Business Manager profile — a different thing from the WhatsApp app).
+
+**Two viable paths:**
+
+| | Path A — API only | Path B — Coexistence |
+|---|---|---|
+| Number must be | Free of any WhatsApp | Registered on the **Business App** (v2.24.17+) |
+| Personal WhatsApp account | Must be deleted | **Not eligible at all** |
+| Agents reply from | Sheet (workflow 7) or API (workflow 4) | The Business App **and** sheet/API |
+| Reply latency | ≤ 60 s via the sheet | **Instant**, with native push notifications |
+| App maintenance | None | Open the app every 13 days |
+
+Path B is generally the better experience for a real support team — agents work
+in an app they already know and every reply is still tracked. It requires
+converting the number to the WhatsApp Business App first (free, in-app, keeps
+existing chats). See [COEXISTENCE.md](COEXISTENCE.md).
+
+> **There is no reverse coexistence.** Once a number is API-only, going back
+> means abandoning the API. Use a dedicated business number.
+
 Meta provides a **free test number** that can message up to 5 pre-approved
 recipients. Use it for the first end-to-end test — it needs no phone number of
 your own and costs nothing.
