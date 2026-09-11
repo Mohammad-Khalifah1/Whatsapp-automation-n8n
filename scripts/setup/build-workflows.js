@@ -1417,8 +1417,22 @@ function buildConversationAndAssignment() {
         "const context = $('Needs Assignment?').first().json;",
         'const agents = $input.all().map((i) => i.json).filter((a) => a && a.agent_id);',
         '',
+        "// Count each agent load from the conversations that actually exist.",
+        '// The Agents.open_conversations counter is incremented on assignment and',
+        '// nothing decrements it when a conversation closes or is archived, so it',
+        '// only ever grows. Left to itself it reached max_open_conversations for',
+        '// every agent and the whole team became ineligible: new customers piled',
+        '// up as WAITING_FOR_AGENT with three idle agents sitting there.',
+        '// A count derived from the rows cannot drift, because there is no second',
+        '// copy of the truth to disagree with.',
+        "const allConversations = $('Read All Conversations').all()",
+        '  .map((i) => i.json)',
+        '  .filter((r) => r && r.conversation_id);',
+        'const liveLoad = countOpenConversationsByAgent(allConversations);',
+        'const agentsWithLoad = withLiveLoad(agents, liveLoad);',
+        '',
         "const strategy = $env.ASSIGNMENT_STRATEGY || 'LEAST_OPEN_CONVERSATIONS';",
-        'const decision = selectAgent(agents, { strategy });',
+        'const decision = selectAgent(agentsWithLoad, { strategy });',
         '',
         'console.log(JSON.stringify({',
         "  event: 'agent_selection',",
@@ -1701,10 +1715,27 @@ function buildConversationAndAssignment() {
   connections['Decide Create Or Update'] = { main: [[{ node: 'Needs Assignment?', type: 'main', index: 0 }]] };
   connections['Needs Assignment?'] = {
     main: [
-      [{ node: 'Read Agents', type: 'main', index: 0 }],
+      [{ node: 'Read All Conversations', type: 'main', index: 0 }],
       [{ node: 'Build Conversation Row', type: 'main', index: 0 }],
     ],
   };
+  nodes.push(withSheetSchema({
+    parameters: {
+      authentication: 'serviceAccount',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      options: { returnAllMatches: true },
+    },
+    id: 'read-all-conversations',
+    name: 'Read All Conversations',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [480, -300],
+    alwaysOutputData: true,
+    onError: 'continueRegularOutput',
+  }));
+
+  connections['Read All Conversations'] = { main: [[{ node: 'Read Agents', type: 'main', index: 0 }]] };
   connections['Read Agents'] = { main: [[{ node: 'Select Agent', type: 'main', index: 0 }]] };
   connections['Select Agent'] = {
     main: [[
@@ -1721,7 +1752,203 @@ function buildConversationAndAssignment() {
   };
   connections['Append Conversation'] = { main: [[{ node: 'Append Message', type: 'main', index: 0 }]] };
   connections['Update Conversation'] = { main: [[{ node: 'Append Message', type: 'main', index: 0 }]] };
+
+  // ---- keep the newest conversation at the top -------------------------------
+  //
+  // A Sheets append always lands at the BOTTOM, so without this the oldest
+  // conversation sits at the top of the tab and whoever is using it scrolls to
+  // find what just came in. The n8n Sheets node has no sort operation, so this
+  // calls the Sheets API directly.
+  //
+  // It mints its own access token rather than using the n8n Google credential:
+  // that credential authenticates an HTTP Request node with a scope that does
+  // not cover spreadsheets.batchUpdate, and the call comes back 403 Forbidden.
+  // Signing here also keeps to the rule that every secret this project uses
+  // lives in .env and nowhere else.
+  nodes.push(
+    codeNode(
+      'Sign Sheets Token Request',
+      'sign-sheets-token',
+      [2960, 0],
+      [],
+      [
+        "// Allowed by NODE_FUNCTION_ALLOW_BUILTIN=crypto. The prelude only hoists",
+        '// requires it finds inside an inlined library, so this node asks for it.',
+        "const crypto = require('crypto');",
+        '',
+        "const email = $env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '';",
+        '// Stored with literal \\n escapes, the way a .env file can hold a key.',
+        "const key = String($env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').split('\\\\n').join('\\n');",
+        '',
+        'if (!email || !key) {',
+        '  console.log(JSON.stringify({ event: "sort_skipped", reason: "no_service_account" }));',
+        '  return [];',
+        '}',
+        '',
+        "const b64 = (o) => Buffer.from(typeof o === 'string' ? o : JSON.stringify(o)).toString('base64url');",
+        'const now = Math.floor(Date.now() / 1000);',
+        "const unsigned = b64({ alg: 'RS256', typ: 'JWT' }) + '.' + b64({",
+        '  iss: email,',
+        "  scope: 'https://www.googleapis.com/auth/spreadsheets',",
+        "  aud: 'https://oauth2.googleapis.com/token',",
+        '  iat: now,',
+        '  exp: now + 3600,',
+        '});',
+        "const signature = crypto.createSign('RSA-SHA256').update(unsigned).sign(key, 'base64url');",
+        '',
+        "return [{ json: { assertion: unsigned + '.' + signature } }];",
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      method: 'POST',
+      url: 'https://oauth2.googleapis.com/token',
+      sendHeaders: true,
+      headerParameters: {
+        parameters: [{ name: 'Content-Type', value: 'application/x-www-form-urlencoded' }],
+      },
+      // Sent as form fields rather than a raw body: with a raw body n8n hands
+      // back the response as an unparsed stream, and the access token arrives
+      // as a Buffer nobody downstream can read.
+      sendBody: true,
+      contentType: 'form-urlencoded',
+      bodyParameters: {
+        parameters: [
+          { name: 'grant_type', value: 'urn:ietf:params:oauth:grant-type:jwt-bearer' },
+          { name: 'assertion', value: '={{ $json.assertion }}' },
+        ],
+      },
+      options: { timeout: 10000, response: { response: { neverError: true, responseFormat: 'json' } } },
+    },
+    id: 'get-sheets-token',
+    name: 'Get Sheets Token',
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: NODE_VERSION.httpRequest,
+    position: [3180, 0],
+    // Sorting is cosmetic. Failing to sort must never lose a message.
+    onError: 'continueRegularOutput',
+  });
+
+  nodes.push(
+    codeNode(
+      'Build Sort Request',
+      'build-sort-request',
+      [3400, 0],
+      [],
+      [
+        'const token = ($input.first().json || {}).access_token;',
+        'if (!token) {',
+        '  console.log(JSON.stringify({ event: "sort_skipped", reason: "no_token" }));',
+        '  return [];',
+        '}',
+        '',
+        '// Sort on last_activity_at, descending: whatever moved most recently is',
+        '// at the top. The column is found by NAME, so reordering the sheet',
+        '// cannot silently sort the wrong one.',
+        'const COLUMNS = ' + JSON.stringify(CONVERSATION_COLUMNS) + ';',
+        "const sortColumn = COLUMNS.indexOf('last_activity_at');",
+        'if (sortColumn === -1) return [];',
+        '',
+        'return [{ json: { token, sortColumn, columnCount: COLUMNS.length } }];',
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      url: '=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}?fields=sheets.properties',
+      sendHeaders: true,
+      headerParameters: {
+        parameters: [{ name: 'Authorization', value: '=Bearer {{ $json.token }}' }],
+      },
+      options: { timeout: 10000, response: { response: { neverError: true, responseFormat: 'json' } } },
+    },
+    id: 'read-tab-ids',
+    name: 'Read Tab Ids',
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: NODE_VERSION.httpRequest,
+    position: [3620, 0],
+    onError: 'continueRegularOutput',
+  });
+
+  nodes.push(
+    codeNode(
+      'Build Sort Range',
+      'build-sort-range',
+      [3840, 0],
+      [],
+      [
+        "const cfg = $('Build Sort Request').item.json;",
+        'const meta = $input.first().json || {};',
+        'const tab = (meta.sheets || [])',
+        '  .map((s) => s.properties)',
+        '  .filter(Boolean)',
+        "  .find((p) => p.title === 'Conversations');",
+        '',
+        'if (!tab) {',
+        '  console.log(JSON.stringify({ event: "sort_skipped", reason: "tab_not_found" }));',
+        '  return [];',
+        '}',
+        '',
+        '// Row 1 is the header and must stay put, so the range starts at row 2.',
+        'const rowCount = (tab.gridProperties && tab.gridProperties.rowCount) || 0;',
+        'if (rowCount < 3) return [];',
+        '',
+        'return [{ json: {',
+        '  token: cfg.token,',
+        '  body: {',
+        '    requests: [{',
+        '      sortRange: {',
+        '        range: {',
+        '          sheetId: tab.sheetId,',
+        '          startRowIndex: 1,',
+        '          endRowIndex: rowCount,',
+        '          startColumnIndex: 0,',
+        '          endColumnIndex: cfg.columnCount,',
+        '        },',
+        '        sortSpecs: [{ dimensionIndex: cfg.sortColumn, sortOrder: "DESCENDING" }],',
+        '      },',
+        '    }],',
+        '  },',
+        '} }];',
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      method: 'POST',
+      url: '=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}:batchUpdate',
+      sendHeaders: true,
+      headerParameters: {
+        parameters: [
+          { name: 'Authorization', value: '=Bearer {{ $json.token }}' },
+          { name: 'Content-Type', value: 'application/json' },
+        ],
+      },
+      sendBody: true,
+      specifyBody: 'json',
+      jsonBody: '={{ JSON.stringify($json.body) }}',
+      options: { timeout: 15000, response: { response: { neverError: true, responseFormat: 'json' } } },
+    },
+    id: 'sort-conversations',
+    name: 'Sort Newest First',
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: NODE_VERSION.httpRequest,
+    position: [4060, 0],
+    onError: 'continueRegularOutput',
+  });
+
   connections['Append Message'] = { main: [[{ node: 'Audit Assignment', type: 'main', index: 0 }]] };
+  connections['Audit Assignment'] = { main: [[{ node: 'Sign Sheets Token Request', type: 'main', index: 0 }]] };
+  connections['Sign Sheets Token Request'] = { main: [[{ node: 'Get Sheets Token', type: 'main', index: 0 }]] };
+  connections['Get Sheets Token'] = { main: [[{ node: 'Build Sort Request', type: 'main', index: 0 }]] };
+  connections['Build Sort Request'] = { main: [[{ node: 'Read Tab Ids', type: 'main', index: 0 }]] };
+  connections['Read Tab Ids'] = { main: [[{ node: 'Build Sort Range', type: 'main', index: 0 }]] };
+  connections['Build Sort Range'] = { main: [[{ node: 'Sort Newest First', type: 'main', index: 0 }]] };
+
 
   return {
     id: WORKFLOW_ID.conversation,
@@ -2792,7 +3019,11 @@ function buildArchive() {
 
   nodes.push({
     parameters: {
-      rule: { interval: [{ field: 'minutes', minutesInterval: 1 }] },
+      // Thirty seconds behind workflow 7. This one re-sorts Conversations,
+      // which renumbers rows, while workflow 7 writes a reply outcome back by
+      // physical row number. Running them at opposite ends of the minute keeps
+      // those two apart.
+      rule: { interval: [{ field: 'cronExpression', expression: '30 * * * * *' }] },
     },
     id: 'archive-schedule',
     name: 'Every Minute',
