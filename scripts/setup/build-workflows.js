@@ -208,6 +208,11 @@ function conversationColumnMap(source) {
   return value;
 }
 
+/** The canonical Messages header, for anything that needs it by position. */
+const MESSAGE_COLUMNS = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'sheets-templates', 'Messages.csv'), 'utf8'
+).split(/\r?\n/)[0].split(',').map((c) => c.trim()).filter(Boolean);
+
 /** Column map for the Log tab, mirroring sheets-templates/Log.csv. */
 function logColumnMap() {
   const cols = ['event_id', 'event_type', 'conversation_id', 'message_id',
@@ -1851,7 +1856,15 @@ function buildConversationAndAssignment() {
         "const sortColumn = COLUMNS.indexOf('last_activity_at');",
         'if (sortColumn === -1) return [];',
         '',
-        'return [{ json: { token, sortColumn, columnCount: COLUMNS.length } }];',
+        'const MESSAGE_COLUMNS = ' + JSON.stringify(MESSAGE_COLUMNS) + ';',
+        '',
+        'return [{ json: {',
+        '  token,',
+        '  sortColumn,',
+        '  columnCount: COLUMNS.length,',
+        "  messageSortColumn: MESSAGE_COLUMNS.indexOf('timestamp'),",
+        '  messageColumnCount: MESSAGE_COLUMNS.length,',
+        '} }];',
       ].join('\n')
     )
   );
@@ -1882,37 +1895,39 @@ function buildConversationAndAssignment() {
       [
         "const cfg = $('Build Sort Request').item.json;",
         'const meta = $input.first().json || {};',
-        'const tab = (meta.sheets || [])',
-        '  .map((s) => s.properties)',
-        '  .filter(Boolean)',
-        "  .find((p) => p.title === 'Conversations');",
+        'const props = (meta.sheets || []).map((s) => s.properties).filter(Boolean);',
         '',
-        'if (!tab) {',
-        '  console.log(JSON.stringify({ event: "sort_skipped", reason: "tab_not_found" }));',
+        '// Row 1 is the header and must stay put, so every range starts at row 2.',
+        'const sortTab = (title, column, columnCount) => {',
+        '  const tab = props.find((p) => p.title === title);',
+        '  if (!tab || column === -1) return null;',
+        '  const rowCount = (tab.gridProperties && tab.gridProperties.rowCount) || 0;',
+        '  if (rowCount < 3) return null;',
+        '  return { sortRange: {',
+        '    range: {',
+        '      sheetId: tab.sheetId,',
+        '      startRowIndex: 1,',
+        '      endRowIndex: rowCount,',
+        '      startColumnIndex: 0,',
+        '      endColumnIndex: columnCount,',
+        '    },',
+        '    sortSpecs: [{ dimensionIndex: column, sortOrder: "DESCENDING" }],',
+        '  } };',
+        '};',
+        '',
+        '// Both tabs, newest at the top: Conversations by when the customer last',
+        '// moved, Messages by when each message happened. One batch, one call.',
+        'const requests = [',
+        "  sortTab('Conversations', cfg.sortColumn, cfg.columnCount),",
+        "  sortTab('Messages', cfg.messageSortColumn, cfg.messageColumnCount),",
+        '].filter(Boolean);',
+        '',
+        'if (!requests.length) {',
+        '  console.log(JSON.stringify({ event: "sort_skipped", reason: "nothing_to_sort" }));',
         '  return [];',
         '}',
         '',
-        '// Row 1 is the header and must stay put, so the range starts at row 2.',
-        'const rowCount = (tab.gridProperties && tab.gridProperties.rowCount) || 0;',
-        'if (rowCount < 3) return [];',
-        '',
-        'return [{ json: {',
-        '  token: cfg.token,',
-        '  body: {',
-        '    requests: [{',
-        '      sortRange: {',
-        '        range: {',
-        '          sheetId: tab.sheetId,',
-        '          startRowIndex: 1,',
-        '          endRowIndex: rowCount,',
-        '          startColumnIndex: 0,',
-        '          endColumnIndex: cfg.columnCount,',
-        '        },',
-        '        sortSpecs: [{ dimensionIndex: cfg.sortColumn, sortOrder: "DESCENDING" }],',
-        '      },',
-        '    }],',
-        '  },',
-        '} }];',
+        'return [{ json: { token: cfg.token, body: { requests } } }];',
       ].join('\n')
     )
   );

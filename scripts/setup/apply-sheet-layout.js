@@ -76,27 +76,55 @@ const TABS = [
   { name: 'Conversations', columns: header('Conversations.csv') },
   { name: 'Agents', columns: header('Agents.csv') },
   { name: 'Archive', columns: header('Archive.csv') },
-  { name: 'Messages', columns: header('Messages.csv'), hidden: true },
+  { name: 'Messages', columns: header('Messages.csv') },
   { name: 'Log', columns: header('Log.csv'), hidden: true },
 ];
 
-/** Values a column is allowed to hold. Each becomes a dropdown. */
+/**
+ * Values a column is allowed to hold. Each becomes a dropdown.
+ *
+ * Keyed by tab, because `status` means two different things. In Conversations
+ * it is the state of the conversation - has anyone answered this customer. In
+ * Messages it is the delivery state of one message. Sharing one list put
+ * DELIVERED in the conversation dropdown and ARCHIVED in the message dropdown,
+ * which is how someone ends up archiving a conversation by picking a value
+ * that was never meant for it.
+ */
+const MESSAGE_TYPES = ['text', 'image', 'audio', 'video', 'document', 'sticker',
+  'location', 'contacts', 'interactive', 'button', 'reaction'];
+
 const ENUMS = {
-  status: ['WAITING_FOR_AGENT', 'UNANSWERED', 'REPLIED', 'WAITING_FOR_CUSTOMER', 'CLOSED', 'ARCHIVED'],
-  reply_status: ['', 'SENT', 'FAILED'],
-  direction: ['inbound', 'outbound'],
-  last_message_direction: ['inbound', 'outbound'],
-  message_type: ['text', 'image', 'audio', 'video', 'document', 'sticker',
-    'location', 'contacts', 'interactive', 'button', 'reaction'],
-  last_message_type: ['text', 'image', 'audio', 'video', 'document', 'sticker',
-    'location', 'contacts', 'interactive', 'button', 'reaction'],
-  sent_via: ['cloud_api', 'whatsapp_business_app', 'google_sheet'],
-  processing_status: ['parsed', 'unsupported', 'deferred'],
-  supported: ['TRUE', 'FALSE'],
-  unread: ['TRUE', 'FALSE'],
-  active: ['TRUE', 'FALSE'],
-  available: ['TRUE', 'FALSE'],
-  role: ['agent', 'supervisor', 'admin'],
+  Conversations: {
+    status: ['WAITING_FOR_AGENT', 'UNANSWERED', 'REPLIED', 'WAITING_FOR_CUSTOMER', 'CLOSED', 'ARCHIVED'],
+    reply_status: ['', 'SENT', 'FAILED'],
+    last_message_direction: ['inbound', 'outbound'],
+    last_message_type: MESSAGE_TYPES,
+    unread: ['TRUE', 'FALSE'],
+  },
+  Archive: {
+    status: ['WAITING_FOR_AGENT', 'UNANSWERED', 'REPLIED', 'WAITING_FOR_CUSTOMER', 'CLOSED', 'ARCHIVED'],
+    reply_status: ['', 'SENT', 'FAILED'],
+    last_message_direction: ['inbound', 'outbound'],
+    last_message_type: MESSAGE_TYPES,
+    unread: ['TRUE', 'FALSE'],
+  },
+  Messages: {
+    status: ['RECEIVED', 'SENT', 'DELIVERED', 'READ', 'FAILED'],
+    direction: ['inbound', 'outbound'],
+    message_type: MESSAGE_TYPES,
+    sent_via: ['cloud_api', 'whatsapp_business_app', 'google_sheet'],
+    processing_status: ['parsed', 'unsupported', 'deferred'],
+    supported: ['TRUE', 'FALSE'],
+  },
+  Agents: {
+    active: ['TRUE', 'FALSE'],
+    available: ['TRUE', 'FALSE'],
+    role: ['agent', 'supervisor', 'admin'],
+  },
+  Log: {
+    status: ['RECEIVED', 'SENT', 'DELIVERED', 'READ', 'FAILED', 'ASSIGNED',
+      'WAITING_FOR_AGENT', 'ARCHIVED', 'REJECTED'],
+  },
 };
 
 /** Colour carries the meaning: red waiting, amber in flight, green done. */
@@ -126,7 +154,10 @@ const WIDTHS = {
   last_message: 340, last_message_type: 130, last_message_direction: 150,
   product: 140, quantity: 80, first_message_at: 170, last_activity_at: 170,
   reply_text: 300, reply_status: 115, unread: 80, wa_link: 190,
-  name: 150, agent_id: 110, phone: 130, text: 320, message_id: 150,
+  name: 150, agent_id: 110, phone: 130, text: 340, message_id: 150,
+  direction: 110, recipient_phone: 140, sender_phone: 140, message_type: 130,
+  sent_via: 150, processing_status: 145, supported: 100, status_updated_at: 165,
+  created_at: 165,
   conversation_id: 200, timestamp: 165, details: 300, error: 240,
   event_type: 180, source: 160,
 };
@@ -138,7 +169,7 @@ const HIDE_COLUMNS = {
     'created_at', 'updated_at', 'closed_at', 'unassigned_reason', 'reply_sent_at'],
   Archive: ['conversation_id', 'assigned_agent_id', 'business_phone_number_id',
     'last_message_id', 'created_at', 'updated_at', 'unassigned_reason'],
-  Messages: ['dedupe_key', 'correlation_id', 'raw_event_reference', 'status_updated_at'],
+  Messages: ['dedupe_key', 'correlation_id', 'raw_event_reference', 'conversation_id'],
 };
 
 /** What each tab is for, shown as a note on A1. */
@@ -168,6 +199,12 @@ const NOTES = {
     '',
     'Coloured columns are dropdowns. The columns after wa_link are maintained',
     'by the system and are hidden; unhide them if you need to trace something.',
+    '',
+    'One row per CUSTOMER, newest activity at the top. last_message is the',
+    'latest thing they said, not the only thing - every message ever sent or',
+    'received is kept in the Messages tab.',
+    'A row leaves this tab in exactly one way: you set status to ARCHIVED, or',
+    'the nightly sweep moves a long-closed conversation. Nothing else deletes.',
   ],
   Agents: [
     'AGENTS - the routing configuration. One row per team member.',
@@ -191,14 +228,20 @@ const NOTES = {
     'Conversations.',
   ],
   Messages: [
-    'MESSAGES - the full message log. One row per message, inbound and outbound.',
+    'MESSAGES - every message, kept. One row per message, in and out, newest',
+    'first.',
     '',
-    'Written by the system. It is also the duplicate check: WhatsApp resends a',
-    'webhook until it is acknowledged, and this tab is how the same message_id',
-    'is recognised and not recorded twice. Deleting rows here can cause a',
-    'message to be processed a second time.',
+    'This is the history. Conversations shows one row per CUSTOMER, so its',
+    'last_message column only ever shows the latest thing they said - the',
+    'earlier ones are not overwritten, they are here. Nothing is ever replaced',
+    'and nothing is ever deleted from this tab.',
     '',
-    'Hidden by default because nobody needs to edit it.',
+    'It is also the duplicate check: WhatsApp resends a webhook until it is',
+    'acknowledged, and this tab is how the same message_id is recognised and',
+    'not recorded twice. Deleting rows here can make a message be processed a',
+    'second time.',
+    '',
+    'Written by the system. There is nothing to edit.',
   ],
   Log: [
     'LOG - system events and errors.',
@@ -391,13 +434,14 @@ async function main() {
 
     // Dropdowns. strict:false keeps a value the API writes that is not in the
     // list from being rejected; it is flagged, not blocked.
+    const tabEnums = ENUMS[tab.name] || {};
     let dropdowns = 0;
-    for (const name of Object.keys(ENUMS)) {
+    for (const name of Object.keys(tabEnums)) {
       const c = cols.indexOf(name);
       if (c === -1) continue;
       reqs.push({ setDataValidation: {
         range: { sheetId, startRowIndex: 1, endRowIndex: endRow, startColumnIndex: c, endColumnIndex: c + 1 },
-        rule: { condition: { type: 'ONE_OF_LIST', values: ENUMS[name].map((v) => ({ userEnteredValue: v })) },
+        rule: { condition: { type: 'ONE_OF_LIST', values: tabEnums[name].map((v) => ({ userEnteredValue: v })) },
           showCustomUi: true, strict: false } } });
       dropdowns += 1;
     }
@@ -457,10 +501,10 @@ async function main() {
 
     const colourReqs = [];
     let index = 0;
-    for (const name of Object.keys(ENUMS)) {
+    for (const name of Object.keys(tabEnums)) {
       const c = cols.indexOf(name);
       if (c === -1) continue;
-      for (const value of ENUMS[name]) {
+      for (const value of tabEnums[name]) {
         if (!value || !COLORS[value]) continue;
         colourReqs.push({ addConditionalFormatRule: { index: index, rule: {
           ranges: [{ sheetId, startRowIndex: 1, endRowIndex: endRow, startColumnIndex: c, endColumnIndex: c + 1 }],
