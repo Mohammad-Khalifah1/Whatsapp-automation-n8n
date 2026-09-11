@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نظام توجيه محادثات واتساب — شرح مبسّط</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --ink:#1a2330; --muted:#5b6675; --line:#dfe4ea;
+    --green:#25d366; --greenD:#128c7e; --amber:#f2a33c; --red:#e05a55;
+    --blue:#3b7ddd; --grey:#8a94a3;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#12161c; --card:#1a1f27; --ink:#e8ecf1; --muted:#9aa5b4; --line:#2b323c; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:"Segoe UI",Tahoma,system-ui,-apple-system,sans-serif;line-height:1.75}
+  .wrap{max-width:1100px;margin:0 auto;padding:28px 20px 80px}
+  header{text-align:center;padding:28px 0 10px}
+  h1{margin:0 0 6px;font-size:30px;letter-spacing:-.2px}
+  .sub{color:var(--muted);font-size:15px}
+  h2{font-size:21px;margin:38px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .muted{color:var(--muted)}
+  code{background:rgba(128,128,128,.14);padding:1px 6px;border-radius:5px;
+       font-family:ui-monospace,Consolas,monospace;font-size:.9em;direction:ltr;display:inline-block}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:right;vertical-align:top}
+  th{background:rgba(128,128,128,.10);font-weight:600}
+  .ltr{direction:ltr;text-align:left}
+
+  /* flow */
+  .flow{display:flex;flex-direction:column;align-items:center;gap:0;margin:8px 0}
+  .step{background:var(--card);border:2px solid var(--line);border-radius:12px;
+        padding:13px 18px;min-width:330px;max-width:620px;width:100%;position:relative}
+  .step .n{position:absolute;inset-inline-start:-13px;top:-13px;width:28px;height:28px;
+           border-radius:50%;background:var(--greenD);color:#fff;display:grid;place-items:center;
+           font-size:13px;font-weight:700}
+  .step h3{margin:0 0 4px;font-size:16px}
+  .step p{margin:0;font-size:14px;color:var(--muted)}
+  .arrow{width:2px;height:22px;background:var(--line);position:relative}
+  .arrow::after{content:"";position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);
+                border:6px solid transparent;border-top-color:var(--line)}
+  .b-green{border-color:var(--green)} .b-blue{border-color:var(--blue)}
+  .b-amber{border-color:var(--amber)} .b-grey{border-color:var(--grey)}
+
+  /* states */
+  .states{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+  .st{padding:8px 14px;border-radius:999px;font-size:13.5px;font-weight:600;border:2px solid}
+  .st-wait{background:#fdece9;color:#a83a32;border-color:#e9b3ac}
+  .st-un{background:#fdf3dd;color:#8a5d10;border-color:#eccd8a}
+  .st-rep{background:#e5f2e3;color:#2c6b2f;border-color:#a9d3a6}
+  .st-clo{background:#eceff2;color:#5b6675;border-color:#cdd4dc}
+  @media (prefers-color-scheme: dark){
+    .st-wait{background:#3a211f;color:#f0a49c;border-color:#6b3a35}
+    .st-un{background:#3a3220;color:#e8c07a;border-color:#6d5a2e}
+    .st-rep{background:#22331f;color:#9ed39a;border-color:#3f6b3c}
+    .st-clo{background:#252a31;color:#9aa5b4;border-color:#3a424c}
+  }
+
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+  .note{border-inline-start:4px solid var(--amber);background:rgba(242,163,60,.09);
+        padding:12px 15px;border-radius:8px;margin:12px 0;font-size:14.5px}
+  .good{border-inline-start-color:var(--green);background:rgba(37,211,102,.09)}
+  .bad{border-inline-start-color:var(--red);background:rgba(224,90,85,.10)}
+  .tag{display:inline-block;padding:2px 9px;border-radius:6px;font-size:12px;
+       font-weight:700;background:var(--greenD);color:#fff;margin-inline-start:6px}
+  .scroll{overflow-x:auto}
+  footer{text-align:center;color:var(--muted);font-size:13px;margin-top:46px;
+         padding-top:18px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>نظام توجيه محادثات واتساب</h1>
+  <div class="sub">كيف تصل رسالة العميل، وكيف تُوزَّع على الموظفين، وأين تُتابَع</div>
+</header>
+
+<h2>الفكرة في سطرين</h2>
+<div class="card">
+  عميل يرسل رسالة على رقم الواتساب التجاري. النظام يتعرّف عليه، يفتح له محادثة،
+  ويُسندها تلقائياً <strong>لأقل موظف انشغالاً</strong>. كل شيء يظهر في
+  <strong>Google Sheet</strong> ملوّن يعرف منه المدير فوراً مَن ينتظر رداً ومنذ متى.
+</div>
+
+<h2>رحلة الرسالة — خطوة بخطوة</h2>
+<div class="flow">
+
+  <div class="step b-green"><span class="n">1</span>
+    <h3>العميل يرسل رسالة</h3>
+    <p>من واتساب العادي إلى رقم الشركة. لا يحتاج أي تطبيق خاص.</p>
+  </div><div class="arrow"></div>
+
+  <div class="step b-green"><span class="n">2</span>
+    <h3>Meta ترسل إشعاراً موقّعاً</h3>
+    <p>تستدعي رابطنا فوراً، وترفق توقيعاً مشفّراً يثبت أن الطلب منها فعلاً.</p>
+  </div><div class="arrow"></div>
+
+  <div class="step b-blue"><span class="n">3</span>
+    <h3>التحقق من التوقيع ثم رد فوري</h3>
+    <p>نرفض أي طلب غير موقّع. ثم نردّ على Meta خلال أقل من عُشر ثانية —
+       قبل أي عمل بطيء، حتى لا تعيد الإرسال وتتضاعف الرسالة.</p>
+  </div><div class="arrow"></div>
+
+  <div class="step b-blue"><span class="n">4</span>
+    <h3>قراءة الرسالة ومنع التكرار</h3>
+    <p>نستخرج الاسم والرقم والنص والوقت. لو وصلت الرسالة نفسها مرتين،
+       نتجاهل الثانية — لا محادثة مكرّرة ولا إسناد مزدوج.</p>
+  </div><div class="arrow"></div>
+
+  <div class="step b-amber"><span class="n">5</span>
+    <h3>محادثة جديدة أم قائمة؟</h3>
+    <p>لو للعميل محادثة مفتوحة، نُكملها ونُبقيها <strong>مع نفس الموظف</strong>.
+       لو لا، نفتح محادثة جديدة.</p>
+  </div><div class="arrow"></div>
+
+  <div class="step b-amber"><span class="n">6</span>
+    <h3>اختيار الموظف</h3>
+    <p>نأخذ الموظفين النشطين المتاحين غير الممتلئين، ونختار
+       <strong>الأقل عدداً من المحادثات المفتوحة</strong>.
+       عند التعادل: الأقدم إسناداً، ثم ترتيب ثابت — النتيجة قابلة للتفسير دائماً.</p>
+  </div><div class="arrow"></div>
+
+  <div class="step b-green"><span class="n">7</span>
+    <h3>يظهر كل شيء في الشيت</h3>
+    <p>صف واحد للمحادثة، ملوّن حسب حالتها، مع رابط مباشر لمحادثة العميل.</p>
+  </div>
+</div>
+
+<div class="note good">
+  <strong>لو لم يتوفّر أي موظف</strong> — لا تضيع المحادثة أبداً. تُسجَّل بحالة
+  <code>WAITING_FOR_AGENT</code> مع سبب واضح، ويعيد النظام محاولة إسنادها كل ٥ دقائق.
+</div>
+
+<h2>حالات المحادثة</h2>
+<div class="states">
+  <span class="st st-wait">WAITING_FOR_AGENT — لا أحد يتابعها</span>
+  <span class="st st-un">UNANSWERED — العميل ينتظر رداً</span>
+  <span class="st st-rep">REPLIED — تم الرد، الدور على العميل</span>
+  <span class="st st-clo">CLOSED — منتهية</span>
+</div>
+
+<div class="card scroll">
+<table>
+  <tr><th>ماذا حدث</th><th>الحالة الجديدة</th><th>لماذا يهم</th></tr>
+  <tr><td>رسالة أولى من عميل جديد</td><td><code>UNANSWERED</code></td><td>يبدأ عدّاد الانتظار</td></tr>
+  <tr><td>الموظف يرد</td><td><code>REPLIED</code></td><td>الكرة في ملعب العميل</td></tr>
+  <tr><td><strong>العميل يرد مجدداً</strong></td><td><code>UNANSWERED</code></td>
+      <td><strong>تعود للمتابعة تلقائياً</strong> — لا تضيع بين المحادثات المردود عليها</td></tr>
+  <tr><td>لا يوجد موظف متاح</td><td><code>WAITING_FOR_AGENT</code></td><td>مشكلة تغطية، تظهر بالأحمر</td></tr>
+  <tr><td>إغلاق يدوي</td><td><code>CLOSED</code></td><td>تخرج من قائمة العمل</td></tr>
+  <tr><td>عميل يراسل محادثة مغلقة</td><td><code>UNANSWERED</code></td><td>تُفتح من جديد بنفس السجل</td></tr>
+</table>
+</div>
+
+<h2>كيف يقرأ المدير الشيت</h2>
+<div class="card">
+  اللون وحده يكفي — دون قراءة كلمة واحدة:
+  <table>
+    <tr><th>اللون</th><th>المعنى</th><th>الإجراء</th></tr>
+    <tr><td>🔴 أحمر</td><td>لا يوجد موظف مُسنَد</td><td>مشكلة تغطية — تدخّل الآن</td></tr>
+    <tr><td>🟡 أصفر</td><td>العميل ينتظر رداً</td><td>هذه قائمة العمل</td></tr>
+    <tr><td>🔴 أحمر غامق + خط عريض</td><td><strong>ينتظر أكثر من ساعة</strong></td><td>خطر على مستوى الخدمة</td></tr>
+    <tr><td>🟢 أخضر</td><td>تم الرد</td><td>بانتظار العميل</td></tr>
+    <tr><td>⬜ رمادي</td><td>مغلقة</td><td>للأرشيف</td></tr>
+  </table>
+  <p class="muted" style="margin-top:10px">
+    الفرز متاح على أي عمود: الحالة، الموظف، التاريخ، اسم العميل.
+    الترتيب الأنفع: <strong>الحالة = UNANSWERED</strong> مرتّبة من الأقدم.
+  </p>
+</div>
+
+<h2>ثلاث طرق للرد — كلها مُسجَّلة</h2>
+<div class="cols">
+  <div class="card">
+    <strong>تطبيق WhatsApp Business</strong> <span class="tag">فوري</span>
+    <p class="muted">الموظف يرد من تطبيق يعرفه، مع إشعارات. يتطلب تفعيل Coexistence.</p>
+  </div>
+  <div class="card">
+    <strong>الكتابة في الشيت</strong> <span class="tag">≤ دقيقة</span>
+    <p class="muted">اكتب في عمود <code>reply_text</code> فتُرسل تلقائياً ويُفرَّغ الحقل. بلا أي تدريب.</p>
+  </div>
+  <div class="card">
+    <strong>عبر الـ API</strong> <span class="tag">فوري</span>
+    <p class="muted">للوحة الموظفين المستقبلية أو الأتمتة.</p>
+  </div>
+</div>
+
+<div class="note bad">
+  <strong>الاستثناء الوحيد:</strong> لو رد الموظف من <strong>واتساب الشخصي</strong> الخاص به،
+  فالنظام لا يرى ذلك — الرسالة لم تمرّ برقم الشركة أصلاً. لا يوجد نظام في العالم يستطيع تتبّعها.
+</div>
+
+<h2>ما الذي يمنع الأخطاء</h2>
+<div class="card scroll">
+<table>
+  <tr><th>الخطر</th><th>الحماية</th></tr>
+  <tr><td>رسائل مزوّرة من جهة مجهولة</td><td>التحقق من توقيع Meta المشفّر — يُرفض أي طلب غير موقّع</td></tr>
+  <tr><td>وصول الرسالة مرتين</td><td>مفتاح تكرار على معرّف الرسالة — تُتجاهل الثانية</td></tr>
+  <tr><td>إسناد عميلين لنفس الموظف في اللحظة ذاتها</td><td>تنفيذ الإسناد واحداً تلو الآخر</td></tr>
+  <tr><td>صف تالف في جدول الموظفين</td><td>يُستبعد ذلك الموظف وحده — التوجيه يستمر</td></tr>
+  <tr><td>قيمة غير مفهومة في خانة «متاح»</td><td>تُعامَل كغير متاح — الأسلم دائماً</td></tr>
+  <tr><td>نوع رسالة جديد لم نره</td><td>يُسجَّل ويُعلَّم «غير مدعوم» بدل تعطّل النظام</td></tr>
+  <tr><td>تضخّم الشيت مع الوقت</td><td>أرشفة ليلية للمحادثات المغلقة القديمة</td></tr>
+</table>
+</div>
+
+<h2>حدود يجب معرفتها</h2>
+<div class="card">
+  <table>
+    <tr><th>الحد</th><th>القيمة</th><th>الأثر</th></tr>
+    <tr><td>قراءات Google Sheets</td><td>٦٠/دقيقة</td><td>~١٠–١٥ رسالة واردة في الدقيقة كحد مستقر</td></tr>
+    <tr><td>الرد من الشيت</td><td>حتى دقيقة</td><td>للرد الفوري استخدم التطبيق</td></tr>
+    <tr><td>نافذة الـ ٢٤ ساعة</td><td>رد مجاني داخلها</td><td>بعدها تلزم رسالة قالب مدفوعة</td></tr>
+  </table>
+  <p class="muted" style="margin-top:10px">
+    عند تجاوز هذه الحدود، الانتقال إلى قاعدة بيانات PostgreSQL مخطَّط له مسبقاً
+    ولا يتطلب إعادة كتابة منطق العمل.
+  </p>
+</div>
+
+<h2>التكلفة</h2>
+<div class="card">
+  <table>
+    <tr><th>البند</th><th>التكلفة</th></tr>
+    <tr><td>رسائل الدعم داخل ٢٤ ساعة</td><td><strong>مجانية</strong></td></tr>
+    <tr><td>Meta Cloud API · n8n · Google Sheets · شهادة TLS</td><td>مجاني</td></tr>
+    <tr><td>خادم صغير</td><td>‎$6–12 شهرياً</td></tr>
+    <tr><td>نطاق</td><td>‎$10–15 سنوياً</td></tr>
+  </table>
+  <p class="muted" style="margin-top:10px">
+    التكلفة المخفية الحقيقية: <strong>تجديد الخادم</strong> يرتفع بعد المدة الترويجية،
+    و<strong>الرد بعد ٢٤ ساعة</strong> يتحوّل إلى رسالة مدفوعة — فسرعة الرد توفير مالي لا جودة خدمة فقط.
+  </p>
+</div>
+
+<footer>
+  للتفاصيل التقنية: <code class="ltr">docs/ARCHITECTURE.md</code> ·
+  للتشغيل اليومي: <code class="ltr">docs/OPERATING_GUIDE.md</code>
+</footer>
+
+</div>
+</body>
+</html>
