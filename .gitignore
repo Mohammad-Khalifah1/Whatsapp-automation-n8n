@@ -3,7 +3,11 @@
 # ==============================================================================
 .env
 .env.*
+# Templates are the exception: they hold placeholders only and MUST be
+# committed, or a new deployment has nothing to copy from.
 !.env.example
+!.env.prod.example
+!*.example
 *.pem
 *.key
 *.p12
@@ -56,3 +60,18 @@ tmp/
 # ngrok / tunnels
 # ==============================================================================
 ngrok.yml
+
+# ==============================================================================
+# Scratch files people paste credentials into.
+# These are NOT a safe place for secrets — they exist because humans make them
+# anyway, and an ignored file is far better than a committed one.
+# Real secrets belong in .env (also ignored) or a password manager.
+# ==============================================================================
+keys.txt
+keys.*
+*keys.txt
+secrets.txt
+token*.txt
+*token.txt
+notes-credentials*
+scratch*.txt
