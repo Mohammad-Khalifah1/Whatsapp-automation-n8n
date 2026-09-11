@@ -172,7 +172,9 @@ function applySheetFormatting() {
 
   var headers = headers_(sheet);
   var col = function (n) { return headers.indexOf(n) + 1; };
-  var lastRow = Math.max(sheet.getMaxRows(), 500);
+  // Bound the validated range to real rows plus a small margin, for the same
+  // reason: validation over a huge empty range pollutes it.
+  var lastRow = Math.max(sheet.getLastRow() + 50, 60);
 
   // --- status dropdown ---
   var statusCol = col('status');
@@ -268,12 +270,18 @@ function applySheetFormatting() {
 
   // Agents tab: checkboxes, because the routing engine fails CLOSED on any
   // value it does not recognise — a typed "yes" would silently unroute someone.
+  //
+  // Applied ONLY to rows that actually hold an agent. A BOOLEAN rule over a
+  // large empty range makes Sheets write FALSE into every blank cell, which
+  // then reads back as hundreds of phantom rows. That happened once; this is
+  // the fix.
   var ag = ss.getSheetByName(AGENTS_TAB);
   if (ag) {
     var ah = headers_(ag);
+    var agentRows = Math.max(agentNames_().length, 1);
     ['active', 'available'].forEach(function (n) {
       var c = ah.indexOf(n) + 1;
-      if (c > 0) ag.getRange(2, c, Math.max(ag.getMaxRows() - 1, 50), 1).insertCheckboxes();
+      if (c > 0) ag.getRange(2, c, agentRows, 1).insertCheckboxes();
     });
     ag.getRange(1, 1, 1, ah.length)
       .setBackground('#26404f').setFontColor('#ffffff').setFontWeight('bold');

@@ -27,7 +27,12 @@ const ROOT = path.join(__dirname, '..', '..');
 const TEMPLATES = path.join(ROOT, 'sheets-templates');
 const WORKFLOWS = path.join(ROOT, 'n8n', 'workflows');
 
-const TABS = ['Agents', 'Conversations', 'Messages', 'Log', 'Categories'];
+const TABS = ['Agents', 'Conversations', 'Messages', 'Log'];
+
+// n8n adds row_number to every row it READS from a sheet, and accepts it as a
+// matching key on an update, where it means the physical row. It is not, and
+// must not become, a column in the spreadsheet.
+const VIRTUAL_COLUMNS = ['row_number'];
 
 let failures = 0;
 let checks = 0;
@@ -145,7 +150,8 @@ function main() {
 
     // --- every column a workflow writes must exist in the schema ---
     const used = workflowColumns(tab);
-    const unknown = Array.from(used).filter((c) => csv.indexOf(c) === -1);
+    const unknown = Array.from(used)
+      .filter((c) => csv.indexOf(c) === -1 && VIRTUAL_COLUMNS.indexOf(c) === -1);
 
     if (used.size === 0) {
       ok('no workflow writes to this tab');

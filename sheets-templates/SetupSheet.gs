@@ -33,10 +33,10 @@ var SCHEMA = {
   ],
   Conversations: [
     'customer_name', 'customer_phone', 'assigned_agent_name', 'status',
+    'last_message', 'last_message_type', 'last_message_direction',
     'product', 'quantity', 'first_message_at', 'last_activity_at',
-    'last_message', 'wa_link', 'unread', 'reply_text', 'reply_status',
-    'conversation_id', 'assigned_agent_id', 'business_phone_number_id',
-    'last_message_id', 'last_message_direction',
+    'reply_text', 'reply_status', 'unread', 'wa_link', 'conversation_id',
+    'assigned_agent_id', 'business_phone_number_id', 'last_message_id',
     'last_customer_message_at', 'last_agent_message_at', 'created_at',
     'updated_at', 'closed_at', 'unassigned_reason', 'reply_error',
     'reply_sent_at'
@@ -45,8 +45,7 @@ var SCHEMA = {
     'message_id', 'dedupe_key', 'conversation_id', 'direction',
     'sender_phone', 'recipient_phone', 'message_type', 'text', 'timestamp',
     'status', 'status_updated_at', 'agent_id', 'sent_via', 'supported',
-    'processing_status', 'correlation_id', 'raw_event_reference', 'created_at',
-    'category'
+    'processing_status', 'correlation_id', 'raw_event_reference', 'created_at'
   ],
   Log: [
     'event_id', 'event_type', 'conversation_id', 'message_id', 'source',
