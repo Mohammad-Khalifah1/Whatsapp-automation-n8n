@@ -26,6 +26,7 @@
     },
     {
       "parameters": {
+        "authentication": "serviceAccount",
         "documentId": {
           "__rl": true,
           "value": "={{ $env.GOOGLE_SHEET_ID }}",
@@ -49,7 +50,13 @@
         0
       ],
       "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
     },
     {
       "parameters": {
@@ -68,6 +75,7 @@
     {
       "parameters": {
         "operation": "append",
+        "authentication": "serviceAccount",
         "documentId": {
           "__rl": true,
           "value": "={{ $env.GOOGLE_SHEET_ID }}",
@@ -75,7 +83,7 @@
         },
         "sheetName": {
           "__rl": true,
-          "value": "Conversations_Archive",
+          "value": "Archive",
           "mode": "name"
         },
         "columns": {
@@ -93,11 +101,18 @@
         0
       ],
       "onError": "stopWorkflow",
-      "notes": "onError=stopWorkflow is deliberate: if the copy fails, the delete MUST NOT run, or the data is gone."
+      "notes": "onError=stopWorkflow is deliberate: if the copy fails, the delete MUST NOT run, or the data is gone.",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "delete",
+        "authentication": "serviceAccount",
         "documentId": {
           "__rl": true,
           "value": "={{ $env.GOOGLE_SHEET_ID }}",
@@ -122,11 +137,18 @@
       ],
       "onError": "continueErrorOutput",
       "executeOnce": false,
-      "notes": "Runs ONLY after a successful archive copy. Items arrive sorted by row_number DESCENDING so deletes do not shift rows still to be processed."
+      "notes": "Runs ONLY after a successful archive copy. Items arrive sorted by row_number DESCENDING so deletes do not shift rows still to be processed.",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "append",
+        "authentication": "serviceAccount",
         "documentId": {
           "__rl": true,
           "value": "={{ $env.GOOGLE_SHEET_ID }}",
@@ -134,7 +156,7 @@
         },
         "sheetName": {
           "__rl": true,
-          "value": "Events",
+          "value": "Log",
           "mode": "name"
         },
         "columns": {
@@ -147,7 +169,82 @@
             "timestamp": "={{ $now.toISO() }}",
             "status": "ARCHIVED",
             "details": "={{ JSON.stringify({ closed_at: $json.closed_at, customer_phone: $json.customer_phone }) }}"
-          }
+          },
+          "schema": [
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_type",
+              "displayName": "event_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "conversation_id",
+              "displayName": "conversation_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "details",
+              "displayName": "details",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
         },
         "options": {}
       },
@@ -159,7 +256,13 @@
         580,
         0
       ],
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
     },
     {
       "parameters": {

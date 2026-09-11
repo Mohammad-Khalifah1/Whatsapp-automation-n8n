@@ -161,6 +161,57 @@ function buildPrelude(libFiles) {
   return parts.join('\n');
 }
 
+/**
+ * The n8n credential every Google Sheets node uses. Only the id and name are
+ * referenced — the service-account key itself lives in n8n's encrypted store,
+ * never in this repository.
+ */
+const GOOGLE_CREDENTIAL = {
+  id: 'googleSheetsWaSupport',
+  name: 'Google Sheets - WhatsApp Support',
+};
+
+/**
+ * Google Sheets v4 rejects `mappingMode: 'defineBelow'` unless a matching
+ * `schema` array is supplied. The failure —
+ *   "`columns.schema` is required when `columns.mappingMode` is `defineBelow`"
+ * — is routed to the node's error output, where an unconnected branch swallows
+ * it, so the workflow still reports success and the sheet stays empty.
+ *
+ * Deriving the schema from the column map (rather than hand-maintaining one
+ * beside it) means the two cannot drift when a field is added.
+ */
+function withSheetSchema(node) {
+  // Attach the Google credential here rather than as a post-build step, so
+  // `build-workflows.js --check` compares like with like and cannot report
+  // freshly generated files as stale.
+  //
+  // The id is stable and created by scripts/setup/import-credentials, so the
+  // reference resolves on any instance that has imported it. No secret is
+  // stored in the workflow — only the credential's id and display name.
+  node.credentials = {
+    googleApi: { id: GOOGLE_CREDENTIAL.id, name: GOOGLE_CREDENTIAL.name },
+  };
+
+  const cols = node.parameters && node.parameters.columns;
+  if (!cols || cols.mappingMode !== 'defineBelow' || !cols.value) return node;
+  const matching = cols.matchingColumns || [];
+  cols.schema = Object.keys(cols.value).map((name) => ({
+    id: name,
+    displayName: name,
+    required: false,
+    defaultMatch: matching.indexOf(name) !== -1,
+    display: true,
+    type: 'string',
+    canBeUsedToMatch: true,
+    removed: false,
+  }));
+  if (!cols.matchingColumns) cols.matchingColumns = [];
+  cols.attemptToConvertTypes = false;
+  cols.convertFieldsToString = true;
+  return node;
+}
+
 /** Helper to build a Code node. */
 function codeNode(name, id, position, libFiles, body, opts) {
   const options = opts || {};
@@ -640,6 +691,7 @@ function buildMessageProcessor() {
   // ---- Duplicate check against the Messages sheet ----
   nodes.push({
     parameters: {
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Messages', mode: 'name' },
       filtersUI: {
@@ -733,6 +785,7 @@ function buildMessageProcessor() {
   // ---- Status update branch ----
   nodes.push({
     parameters: {
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Messages', mode: 'name' },
       filtersUI: { values: [{ lookupColumn: 'message_id', lookupValue: '={{ $json.message_id }}' }] },
@@ -819,6 +872,7 @@ function buildMessageProcessor() {
   nodes.push({
     parameters: {
       operation: 'update',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Messages', mode: 'name' },
       columns: {
@@ -852,6 +906,7 @@ function buildMessageProcessor() {
   // ---- WhatsApp Business App echo branch (Coexistence) ----
   nodes.push({
     parameters: {
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       filtersUI: {
@@ -974,6 +1029,7 @@ function buildMessageProcessor() {
   nodes.push({
     parameters: {
       operation: 'update',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       columns: {
@@ -1004,6 +1060,7 @@ function buildMessageProcessor() {
   nodes.push({
     parameters: {
       operation: 'append',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Messages', mode: 'name' },
       columns: {
@@ -1041,8 +1098,9 @@ function buildMessageProcessor() {
   nodes.push({
     parameters: {
       operation: 'append',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
-      sheetName: { __rl: true, value: 'Events', mode: 'name' },
+      sheetName: { __rl: true, value: 'Log', mode: 'name' },
       columns: {
         mappingMode: 'defineBelow',
         value: {
@@ -1152,6 +1210,7 @@ function buildConversationAndAssignment() {
 
   nodes.push({
     parameters: {
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       filtersUI: {
@@ -1293,6 +1352,7 @@ function buildConversationAndAssignment() {
 
   nodes.push({
     parameters: {
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Agents', mode: 'name' },
       options: { returnAllMatches: true },
@@ -1359,6 +1419,7 @@ function buildConversationAndAssignment() {
   nodes.push({
     parameters: {
       operation: 'update',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Agents', mode: 'name' },
       columns: {
@@ -1402,7 +1463,14 @@ function buildConversationAndAssignment() {
         "    unassigned_reason: ctx.assigned ? '' : (ctx.unassigned_reason || ''),",
         '    updated_at: nowIso,',
         '  });',
-        "  return [{ json: Object.assign({}, ctx, { sheet_operation: 'append', conversation_row: row }) }];",
+        '  // CRITICAL: the row must be FLAT on the item.',
+        '  // The Sheets node uses autoMapInputData, which maps only TOP-LEVEL',
+        '  // fields to columns. Returning the row nested under conversation_row',
+        '  // made the node append an EMPTY row and still report success — a',
+        '  // silent data-loss bug found by checking the sheet, not the logs.',
+        '  // Context fields are spread first so row values win on any clash,',
+        '  // and unmatched extras are ignored by the Sheets node.',
+        "  return [{ json: Object.assign({}, ctx, row, { sheet_operation: 'append' }) }];",
         '}',
         '',
         'const update = Object.assign({}, ctx.conversation_update, {',
@@ -1417,7 +1485,7 @@ function buildConversationAndAssignment() {
         "  update.unassigned_reason = ctx.assigned ? '' : (ctx.unassigned_reason || '');",
         '}',
         '',
-        "return [{ json: Object.assign({}, ctx, { sheet_operation: 'update', conversation_row: update }) }];",
+        "return [{ json: Object.assign({}, ctx, update, { sheet_operation: 'update' }) }];",
       ].join('\n')
     )
   );
@@ -1448,6 +1516,7 @@ function buildConversationAndAssignment() {
   nodes.push({
     parameters: {
       operation: 'append',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       columns: { mappingMode: 'autoMapInputData', value: {} },
@@ -1464,6 +1533,7 @@ function buildConversationAndAssignment() {
   nodes.push({
     parameters: {
       operation: 'update',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       columns: { mappingMode: 'autoMapInputData', value: {}, matchingColumns: ['conversation_id'] },
@@ -1480,6 +1550,7 @@ function buildConversationAndAssignment() {
   nodes.push({
     parameters: {
       operation: 'append',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Messages', mode: 'name' },
       columns: {
@@ -1516,8 +1587,9 @@ function buildConversationAndAssignment() {
   nodes.push({
     parameters: {
       operation: 'append',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
-      sheetName: { __rl: true, value: 'Events', mode: 'name' },
+      sheetName: { __rl: true, value: 'Log', mode: 'name' },
       columns: {
         mappingMode: 'defineBelow',
         value: {
@@ -1796,6 +1868,7 @@ function buildOutgoingMessage() {
   nodes.push({
     parameters: {
       operation: 'append',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Messages', mode: 'name' },
       columns: {
@@ -1828,6 +1901,7 @@ function buildOutgoingMessage() {
   nodes.push({
     parameters: {
       operation: 'update',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       columns: {
@@ -1939,6 +2013,7 @@ function buildUnassignedRetry() {
 
   nodes.push({
     parameters: {
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       filtersUI: { values: [{ lookupColumn: 'status', lookupValue: 'WAITING_FOR_AGENT' }] },
@@ -1955,6 +2030,7 @@ function buildUnassignedRetry() {
 
   nodes.push({
     parameters: {
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Agents', mode: 'name' },
       options: { returnAllMatches: true },
@@ -2045,6 +2121,7 @@ function buildUnassignedRetry() {
   nodes.push({
     parameters: {
       operation: 'update',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       columns: {
@@ -2072,6 +2149,7 @@ function buildUnassignedRetry() {
   nodes.push({
     parameters: {
       operation: 'update',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Agents', mode: 'name' },
       columns: {
@@ -2192,8 +2270,9 @@ function buildErrorHandler() {
   nodes.push({
     parameters: {
       operation: 'append',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
-      sheetName: { __rl: true, value: 'Events', mode: 'name' },
+      sheetName: { __rl: true, value: 'Log', mode: 'name' },
       columns: { mappingMode: 'autoMapInputData', value: {} },
       options: {},
     },
@@ -2262,6 +2341,7 @@ function buildReplyFromSheet() {
 
   nodes.push({
     parameters: {
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       options: { returnAllMatches: true },
@@ -2440,6 +2520,7 @@ function buildReplyFromSheet() {
   nodes.push({
     parameters: {
       operation: 'update',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       columns: {
@@ -2474,6 +2555,7 @@ function buildReplyFromSheet() {
   nodes.push({
     parameters: {
       operation: 'append',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Messages', mode: 'name' },
       columns: {
@@ -2509,6 +2591,7 @@ function buildReplyFromSheet() {
   nodes.push({
     parameters: {
       operation: 'update',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       columns: {
@@ -2606,6 +2689,7 @@ function buildArchive() {
 
   nodes.push({
     parameters: {
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       options: { returnAllMatches: true },
@@ -2676,8 +2760,9 @@ function buildArchive() {
   nodes.push({
     parameters: {
       operation: 'append',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
-      sheetName: { __rl: true, value: 'Conversations_Archive', mode: 'name' },
+      sheetName: { __rl: true, value: 'Archive', mode: 'name' },
       columns: { mappingMode: 'autoMapInputData', value: {} },
       options: {},
     },
@@ -2694,6 +2779,7 @@ function buildArchive() {
   nodes.push({
     parameters: {
       operation: 'delete',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       toDelete: 'rows',
@@ -2714,8 +2800,9 @@ function buildArchive() {
   nodes.push({
     parameters: {
       operation: 'append',
+      authentication: 'serviceAccount',
       documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
-      sheetName: { __rl: true, value: 'Events', mode: 'name' },
+      sheetName: { __rl: true, value: 'Log', mode: 'name' },
       columns: {
         mappingMode: 'defineBelow',
         value: {
@@ -2806,6 +2893,10 @@ function main() {
   let drift = 0;
   for (const wf of WORKFLOWS) {
     const built = wf.build();
+    // Every Sheets node that maps columns explicitly needs a derived schema.
+    for (const node of built.nodes) {
+      if (node.type === 'n8n-nodes-base.googleSheets') withSheetSchema(node);
+    }
     const json = JSON.stringify(built, null, 2) + '\n';
     const target = path.join(OUT_DIR, wf.file);
 

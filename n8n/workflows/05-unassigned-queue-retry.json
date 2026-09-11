@@ -24,6 +24,7 @@
     },
     {
       "parameters": {
+        "authentication": "serviceAccount",
         "documentId": {
           "__rl": true,
           "value": "={{ $env.GOOGLE_SHEET_ID }}",
@@ -55,10 +56,17 @@
         0
       ],
       "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
     },
     {
       "parameters": {
+        "authentication": "serviceAccount",
         "documentId": {
           "__rl": true,
           "value": "={{ $env.GOOGLE_SHEET_ID }}",
@@ -82,7 +90,13 @@
         0
       ],
       "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
     },
     {
       "parameters": {
@@ -101,6 +115,7 @@
     {
       "parameters": {
         "operation": "update",
+        "authentication": "serviceAccount",
         "documentId": {
           "__rl": true,
           "value": "={{ $env.GOOGLE_SHEET_ID }}",
@@ -123,7 +138,71 @@
           },
           "matchingColumns": [
             "conversation_id"
-          ]
+          ],
+          "schema": [
+            {
+              "id": "conversation_id",
+              "displayName": "conversation_id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "assigned_agent_id",
+              "displayName": "assigned_agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "assigned_agent_name",
+              "displayName": "assigned_agent_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "unassigned_reason",
+              "displayName": "unassigned_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
         },
         "options": {}
       },
@@ -135,11 +214,18 @@
         580,
         0
       ],
-      "onError": "continueErrorOutput"
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "update",
+        "authentication": "serviceAccount",
         "documentId": {
           "__rl": true,
           "value": "={{ $env.GOOGLE_SHEET_ID }}",
@@ -160,7 +246,51 @@
           },
           "matchingColumns": [
             "agent_id"
-          ]
+          ],
+          "schema": [
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "open_conversations",
+              "displayName": "open_conversations",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_assigned_at",
+              "displayName": "last_assigned_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
         },
         "options": {}
       },
@@ -172,7 +302,13 @@
         840,
         0
       ],
-      "onError": "continueErrorOutput"
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
     },
     {
       "parameters": {

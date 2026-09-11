@@ -30,6 +30,7 @@
     {
       "parameters": {
         "operation": "append",
+        "authentication": "serviceAccount",
         "documentId": {
           "__rl": true,
           "value": "={{ $env.GOOGLE_SHEET_ID }}",
@@ -37,7 +38,7 @@
         },
         "sheetName": {
           "__rl": true,
-          "value": "Events",
+          "value": "Log",
           "mode": "name"
         },
         "columns": {
@@ -55,7 +56,13 @@
         0
       ],
       "onError": "continueRegularOutput",
-      "notes": "If Sheets itself is the thing that failed, this will also fail — the n8n execution log remains the source of truth."
+      "notes": "If Sheets itself is the thing that failed, this will also fail — the n8n execution log remains the source of truth.",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
     },
     {
       "parameters": {
