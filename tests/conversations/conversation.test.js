@@ -329,3 +329,40 @@ describe('inactivity policy (scenario: configurable auto-close, MVP does not aut
     }
   });
 });
+
+describe('sheet row must be FLAT on the item (production regression)', () => {
+  // A deployed run reported success while appending an EMPTY row. The Sheets
+  // node uses autoMapInputData, which maps only TOP-LEVEL item fields to
+  // columns; the row was nested under `conversation_row`, so nothing matched.
+  // Nothing errored — the bug was only visible by looking at the sheet.
+
+  it('every Conversations column exists at the top level of the built row', () => {
+    const row = buildNewConversationRow({
+      customer_phone: '962791234567',
+      business_phone_number_id: '106540352242922',
+      now_iso: '2026-09-11T10:00:00.000Z',
+    });
+    // Spread exactly as the workflow does: context first, row second.
+    const item = Object.assign({}, { correlation_id: 'corr-x' }, row, { sheet_operation: 'append' });
+
+    for (const col of ['conversation_id', 'customer_phone', 'status', 'unread', 'wa_link',
+                       'created_at', 'updated_at', 'last_activity_at']) {
+      assert.ok(Object.prototype.hasOwnProperty.call(item, col),
+        'column missing from the top level: ' + col);
+      assert.ok(typeof item[col] !== 'object',
+        'column must be a scalar, not nested: ' + col);
+    }
+  });
+
+  it('row values win over context values on a name clash', () => {
+    const ctx = { customer_phone: '0791234567', status: 'SOMETHING_ELSE' };
+    const row = buildNewConversationRow({
+      customer_phone: '962791234567',
+      business_phone_number_id: 'B1',
+      status: STATUS.UNANSWERED,
+    });
+    const item = Object.assign({}, ctx, row);
+    assert.equal(item.customer_phone, '962791234567', 'normalized value must win');
+    assert.equal(item.status, STATUS.UNANSWERED);
+  });
+});
