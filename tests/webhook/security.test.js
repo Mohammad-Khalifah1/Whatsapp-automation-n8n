@@ -215,3 +215,33 @@ describe('secret redaction (scenario 25: credentials must not appear in logs)', 
     assert.equal(out.text, 'مرحبا');
   });
 });
+
+describe('signature verification fails closed (production regression)', () => {
+  // A real deployment accepted a FORGED, unsigned webhook because
+  // META_APP_SECRET was empty and the code inferred "not required" from
+  // "not configured". Absence of a secret must be a misconfiguration, never
+  // permission. These tests pin that behaviour.
+
+  it('rejects an unsigned payload when no app secret is configured', () => {
+    const body = '{"object":"whatsapp_business_account"}';
+    const r = verifySignature(body, '', '', { required: true });
+    assert.notOk(r.ok, 'an unconfigured secret must NOT mean "accept anything"');
+    assert.equal(r.reason, 'APP_SECRET_NOT_CONFIGURED');
+    assert.equal(r.statusCode, 500, 'surfaces as a server misconfiguration');
+  });
+
+  it('rejects a forged payload that carries no signature at all', () => {
+    const forged = '{"object":"whatsapp_business_account","entry":[{"id":"forged"}]}';
+    const r = verifySignature(forged, '', APP_SECRET, { required: true });
+    assert.notOk(r.ok);
+    assert.equal(r.statusCode, 401);
+  });
+
+  it('only skips verification on an EXPLICIT opt-out', () => {
+    const body = '{"a":1}';
+    assert.notOk(verifySignature(body, '', '', { required: true }).ok,
+      'default must be closed');
+    assert.ok(verifySignature(body, '', '', { required: false }).ok,
+      'explicit opt-out is the only way through');
+  });
+});
