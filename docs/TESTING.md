@@ -7,16 +7,43 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **169 passing** |
-| 2 — Workflow validation | No | **414 checks passing** |
+| 1 — Unit tests (business logic) | No | **186 passing** |
+| 2 — Workflow validation | No | **424 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
-| 3b — Schema consistency | No | **10 checks passing** |
-| 4 — Google Sheets persistence | Yes (Google) | **Not executed** — no service account available |
-| 5 — Outgoing messages | Yes (Meta) | **Not executed** — no access token available |
-| 6 — Real Meta end-to-end | Yes (both) | **Not executed** |
+| 3b — Schema consistency | No | **9 checks passing** |
+| 4 — **End-to-end against the live deployment** | Yes (both) | **28 checks passing** |
 
-Levels 4–6 are built and structurally validated but have **not** been run
-against live APIs. They are not claimed to work.
+Level 4 is the one that matters, and it is the reason nothing on this page is
+hedged any more. It talks to the real webhook over HTTPS with correctly signed
+payloads and then reads the real spreadsheet:
+
+```
+node scripts/testing/verify-live.js
+node scripts/testing/verify-live.js --real-send=9627XXXXXXXX
+```
+
+What it proves, in order:
+
+1. the verification handshake accepts the right token
+2. and refuses a wrong one
+3. an unsigned POST is rejected — the system fails closed
+4. a wrongly-signed POST is rejected
+5. a signed inbound message creates a conversation row **and** a message row,
+   assigned to an agent, with the customer's name and first-contact time
+6. redelivering the same `message_id` creates nothing new
+7. a second message from the same customer keeps the same agent and returns the
+   status to `UNANSWERED`
+8. typing into `reply_text` sends, writes the outcome back to that row, and
+   clears the cell
+9. `status = ARCHIVED` moves the row into `Archive` with an `archived_at`
+10. `Conversations` and `Archive` still have exactly their declared columns
+
+With `--real-send` it also adds a hand-typed row and checks that a **real
+WhatsApp message** reaches a real number.
+
+The synthetic customer it invents is not a real WhatsApp user, so step 8's send
+comes back `FAILED` with Meta's reason recorded — which is the correct outcome
+and exercises the whole path including the failure write-back.
 
 ---
 
@@ -53,7 +80,7 @@ inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
 node scripts/validation/validate-workflows.js
 ```
 
-414 checks across the 8 workflows:
+424 checks across the 8 workflows:
 
 - every Code node body **parses as JavaScript** (`vm.Script` compile)
 - no leftover `module.exports` or relative `require()` from inlining
@@ -176,47 +203,26 @@ workflow concurrency 1, and the real fix is PostgreSQL. Documented in
 
 ---
 
-## Level 4–6 — What still needs credentials
+## Level 4 — the live end-to-end run
 
-### Google Sheets (needs a service account)
+`scripts/testing/verify-live.js` is the executable version of the table below.
+Run it after every deploy; it is the only thing that proves the deployment
+rather than the code.
 
-| Check | Procedure | Expected |
+| Check | How it is exercised | Expected |
 |---|---|---|
-| Read agents | Send a fixture, inspect execution | Agents rows returned |
-| Create conversation | Send a new-customer fixture | New row, status `UNANSWERED` |
-| Update conversation | Send a second message | Same row updated, no duplicate |
-| Append message | Any fixture | One row per message |
-| Append audit event | Any fixture | Events row with the eligibility list |
-| Dedupe against Sheets | `--twice` | Second delivery creates nothing |
-| Sheets failure | Revoke sharing, send fixture | Webhook still 200; error recorded |
-
-### Outgoing messages (needs a Meta token)
-
-| Check | Procedure | Expected |
-|---|---|---|
-| Send success | POST to `/webhook/agent/send` | 200, `wamid` returned, status `SENT` |
-| Send failure | Use an invalid token | 502, status `FAILED`, error 190 |
-| Status progression | Send, then wait | `SENT` → `DELIVERED` → `READ` |
-| 24h window | Reply after 24h | Error 131047 recorded |
-
-```bash
-curl -X POST http://localhost:5678/webhook/agent/send \
-  -H "Content-Type: application/json" \
-  -d '{"to":"962791234567","text":"مرحبا","conversation_id":"CONV-...","agent_id":"A2"}'
-```
-
-> **This sends a real WhatsApp message and may cost money.** Only run it against
-> a test number you control.
-
-### Full end-to-end (needs both)
-
-1. Message the business number from a real WhatsApp account
-2. Confirm the conversation row appears with an assigned agent
-3. Reply through workflow 4
-4. Confirm status becomes `REPLIED`, `unread` becomes `FALSE`
-5. Confirm the message status advances to `DELIVERED`
-
----
+| Read agents | A signed inbound fixture | The conversation is assigned to an agent |
+| Create conversation | A message from a new number | New row, status `UNANSWERED` |
+| Update conversation | A second message | Same row updated, no duplicate |
+| Agent stickiness | A second message | `assigned_agent_name` unchanged |
+| Append message | Any message | One row per message in `Messages` |
+| Audit event | Any message | A row in `Log` with the decision |
+| Dedupe | The same `message_id` twice | The second delivery creates nothing |
+| Send from the sheet | Text typed into `reply_text` | Sent, cell cleared, outcome written |
+| Send to a new number | A hand-typed row | Real WhatsApp message delivered |
+| 24h window | Reply after 24h | Error `131047` recorded in `reply_error` |
+| Archiving | `status = ARCHIVED` | Row in `Archive`, gone from `Conversations` |
+| Column drift | Header compared to the CSV | Exactly the declared columns |
 
 ## Restart and persistence
 

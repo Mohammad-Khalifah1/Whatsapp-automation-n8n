@@ -34,32 +34,62 @@ Nobody has to change tools to get tracking. That was the whole problem before.
 ### The one path that is still invisible
 
 Clicking `wa.me` and replying from a **personal** WhatsApp account. Coexistence
-tracks the *business number*, not the person. The Apps Script warns about this
+tracks the *business number*, not the person. The optional in-sheet menu warns about this
 whenever someone opens a chat from the sheet.
 
 ---
 
 ## Replying from the sheet
 
-Two ways, both landing in the same place:
+**Type the message into `reply_text` and press Enter.** That is the whole
+instruction. Within a minute it is sent over the Cloud API, the cell is cleared,
+and the outcome appears in `reply_status`.
 
-**Type in the cell.** Put text in `reply_text`, leave `reply_status` blank.
-Within a minute it is sent and the cell is cleared.
+Do not set `reply_status` yourself — it is what the system writes back, not a
+command. (It used to be treated as a guard, which meant setting it to `SENT`,
+the obvious way to say "send this", silently dropped the message. It no longer
+does anything of the sort.)
 
-**Use the menu.** Select a row → *WhatsApp Support → Reply to selected
-conversation…* → type → OK. Better for long messages, and it shows who you are
-replying to.
+### Messaging a number that is not in the sheet
+
+Add a row, fill in `customer_phone` and `reply_text`, leave everything else
+blank. The message goes out the same way and the row becomes a real conversation.
+
+Meta's 24-hour rule applies: a free-form message only reaches someone who wrote
+to you within the last 24 hours. Outside that window Meta rejects it and the row
+reads `FAILED` with error `131047`. Reaching an older contact needs an approved
+template, which this system does not send — see
+[CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
 
 ### What you see afterwards
 
 | `reply_status` | Meaning |
 |---|---|
 | *(blank)* with text present | Queued — will send within a minute |
-| `SENT` | Delivered to the Cloud API; `reply_text` cleared |
-| `FAILED` | Not sent. `reply_error` says why; **your text is kept** so you can fix it |
+| `SENT` | Accepted by the Cloud API; `reply_text` cleared |
+| `FAILED` | Not sent. `reply_error` says why; the row is otherwise untouched |
 
-The interlock matters: without `reply_status`, every poll would resend the same
-message until someone cleared the cell by hand.
+Nothing is ever sent twice: the cell is emptied the moment the message goes out,
+so text sitting in `reply_text` always means "not sent yet".
+
+### Handing a conversation to someone else
+
+Pick a different name in `assigned_agent_name`. The dropdown is fed from the
+`Agents` tab, so names cannot be mistyped — which matters, because routing and
+the dashboard both key on it.
+
+The system does **not** reassign a conversation on its own once it has an owner.
+Follow-up messages from the same customer stay with the same agent; only the
+status returns to `UNANSWERED` so it reappears in the queue.
+
+### Archiving
+
+Set `status` to `ARCHIVED`. Within a minute the row is copied to the `Archive`
+tab with an `archived_at` timestamp and removed from `Conversations`. Nothing is
+deleted — the copy happens before the removal.
+
+Conversations left `CLOSED` longer than `ARCHIVE_AFTER_DAYS` are swept the same
+way automatically.
 
 ### Why one minute, not instant
 
@@ -71,7 +101,8 @@ the agent inbox is for — or use the Business App, which is already instant.
 
 ## Filtering — what managers actually need
 
-Run the Apps Script and the Conversations tab arrives already colour-coded:
+Run `node scripts/setup/apply-sheet-layout.js` and the Conversations tab arrives
+already colour-coded:
 
 | Colour | Meaning |
 |---|---|

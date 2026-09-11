@@ -7,7 +7,7 @@ are never tested).
 
 ```bash
 node scripts/setup/build-workflows.js         # generate
-node scripts/validation/validate-workflows.js # 414 checks
+node scripts/validation/validate-workflows.js # 424 checks
 node scripts/setup/import-workflows.js        # import (idempotent)
 ```
 

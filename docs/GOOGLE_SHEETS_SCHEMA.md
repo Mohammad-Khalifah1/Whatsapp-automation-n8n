@@ -1,11 +1,24 @@
 # Google Sheets Schema
 
-Five sheets in one spreadsheet. Ready-to-paste header rows and sample data are
-in [`sheets-templates/`](../sheets-templates/).
+Six tabs in one spreadsheet: four a person uses, two the system maintains.
+Ready-to-paste header rows and sample data are in
+[`sheets-templates/`](../sheets-templates/).
 
-`Categories` is only read by the MVP workflow
-([MVP_WORKFLOW.md](MVP_WORKFLOW.md)); workflows 1-8 ignore it, and ignore the
-`category` column it fills in.
+| Tab | Who touches it | What it holds |
+|---|---|---|
+| `Dashboard` | read only | Live totals, computed by formula from the tabs below |
+| `Conversations` | **this is where you work** | One row per customer |
+| `Agents` | edited by a manager | The routing configuration, one row per team member |
+| `Archive` | read, occasionally | Conversations that have been archived |
+| `Messages` | hidden; system | One row per message, and the duplicate check |
+| `Log` | hidden; system | System events and errors |
+
+`Messages` and `Log` are hidden by default because nobody edits them. They are
+still written and read by the workflows every minute; hiding a tab changes
+nothing about how the API sees it. Unhide either from the sheet tab bar.
+
+Every tab carries a note on cell A1 explaining what it is for and how to use it.
+Hover A1 to read it.
 
 **Golden rule:** one row per *thing*.
 One row per conversation in `Conversations`. One row per message in `Messages`.
@@ -14,19 +27,37 @@ that is what makes the conversation view readable by a manager.
 
 ---
 
-## Fastest setup: the Apps Script
+## Setting the sheet up
 
-Instead of creating tabs by hand, paste
-[`sheets-templates/SetupSheet.gs`](../sheets-templates/SetupSheet.gs) into
-*Extensions -> Apps Script* and run `setupEverything`.
+```
+node scripts/setup/apply-sheet-layout.js            # show what it would change
+node scripts/setup/apply-sheet-layout.js --dry-run
+```
 
-It creates every tab with the right columns, freezes headers, turns
-`active`/`available`/`unread` into real checkboxes, adds a status dropdown,
-colours rows by status, flags anything unanswered for over an hour in red, and
-adds a **WhatsApp Support** menu with:
+One command creates every tab with the right columns, freezes and styles the
+header, adds the dropdowns, colours each value, sets column widths, hides the
+system columns and the system tabs, writes the note on A1 of each tab, and puts
+the tabs in the order they are used.
 
-| Menu item | What it does |
-|---|---|
+It is safe to re-run. Existing rows are re-mapped **by column name**, so adding
+or reordering a column never shifts a value under the wrong heading, and no row
+is dropped. If row 1 does not look like a header it stops rather than migrating,
+because mapping by name from a non-header blanks every row — which is exactly
+what happened once, and why the guard exists.
+
+It authenticates with the same service account the workflows use, so a new
+deployment needs no manual step in the spreadsheet at all.
+
+[`sheets-templates/SheetTools.gs`](../sheets-templates/SheetTools.gs) is still
+there for anyone who wants an in-sheet **WhatsApp Support** menu (reply dialog,
+open chat, recalculate agent load). It has to be pasted into *Extensions → Apps
+Script* and authorised by hand. **Nothing depends on it** — archiving, dropdowns
+and colours all work without it.
+
+Verify the schema stays consistent across the CSVs, the Apps Script and the
+workflows:
+
+---|---|
 | Reply to selected conversation… | Type a reply in a dialog; sent within a minute |
 | Open WhatsApp chat for selected row | Opens the `wa.me` link, with a warning about untracked personal replies |
 | Mark selected as CLOSED / Reopen | Bulk status changes with correct timestamps |
@@ -47,8 +78,8 @@ node scripts/validation/check-schema-consistency.js
 ## Manual setup
 
 1. Create a new Google Sheet.
-2. Create five tabs named exactly: `Agents`, `Conversations`, `Messages`,
-   `Log`, `Categories`. Names are case-sensitive and are referenced by the
+2. Create the tabs named exactly: `Agents`, `Conversations`, `Messages`,
+   `Log`, `Archive`, `Dashboard`. Names are case-sensitive and are referenced by the
    workflows.
 3. Paste the header row from the matching file in `sheets-templates/` into
    row 1 of each tab.
@@ -82,8 +113,8 @@ an agent means adding a row here.
 | `open_conversations` | number | **system** | Denormalized counter. Do not edit by hand. |
 | `last_assigned_at` | ISO-8601 UTC | **system** | Tie-breaker input. Blank = never assigned. |
 | `role` | text | human | Informational, e.g. `agent`, `supervisor` |
-| `working_hours` | text | human | Informational in the MVP — **not enforced** |
-| `timezone` | text | human | Informational in the MVP — **not enforced** |
+| `working_hours` | text | human | Informational — **not enforced** |
+| `timezone` | text | human | Informational — **not enforced** |
 | `created_at` | ISO-8601 UTC | human | |
 | `updated_at` | ISO-8601 UTC | **system** | |
 
@@ -127,50 +158,85 @@ at 3 open, and her `last_assigned_at` is older.
 
 ## Sheet 2 — `Conversations`
 
-One row per conversation. This is the sheet managers actually live in.
+One row per customer. This is the tab people actually live in, so the columns
+are ordered for reading: who, what they said, what kind of message, which
+direction, when — then the controls, then everything the system maintains.
 
-| Column | Type | Written by | Notes |
-|---|---|---|---|
-| `conversation_id` | text | system | `CONV-<biz>-<customer>-<epoch>`. Primary key. |
-| `customer_phone` | text | system | E.164, no `+` |
-| `customer_name` | text | system | WhatsApp profile name; may be blank |
-| `business_phone_number_id` | text | system | Which of your numbers received it |
-| `assigned_agent_id` | text | system | Blank while `WAITING_FOR_AGENT` |
-| `assigned_agent_name` | text | system | Denormalized for readability |
-| `status` | enum | system | See below |
-| `last_message` | text | system | Preview of the most recent message |
-| `last_message_id` | text | system | `wamid...` |
-| `last_message_direction` | `inbound`/`outbound` | system | Who spoke last |
-| `last_customer_message_at` | ISO-8601 UTC | system | |
-| `last_agent_message_at` | ISO-8601 UTC | system | Blank until a reply is sent **via the API** |
-| `last_activity_at` | ISO-8601 UTC | system | Max of the two above. Drives inactivity. |
-| `unread` | TRUE/FALSE | system | TRUE when the customer spoke last |
-| `created_at` | ISO-8601 UTC | system | |
-| `updated_at` | ISO-8601 UTC | system | |
-| `closed_at` | ISO-8601 UTC | system | Blank unless `CLOSED`; cleared on reopen |
-| `wa_link` | URL | system | `https://wa.me/<e164>` |
-| `unassigned_reason` | text | system | Why nobody was assigned; blank when assigned |
-| `reply_text` | text | **human** | **Type here to send a WhatsApp reply** — see below |
-| `reply_status` | text | system | Blank = pending, then `SENT` or `FAILED` |
-| `reply_error` | text | system | Why a reply failed |
-| `reply_sent_at` | ISO-8601 UTC | system | When it was sent |
-| `category` | text | **system** | What the customer is asking about. Written by the MVP workflow from the `Categories` tab; blank under workflows 1-8 |
+The columns from `conversation_id` onward are hidden by default. They are real
+columns with real data; unhide them from the column headers when tracing
+something.
+
+| # | Column | Type | Written by | Notes |
+|---|---|---|---|---|
+| 1 | `customer_name` | text | system | WhatsApp profile name; may be blank |
+| 2 | `customer_phone` | text | system | E.164, no `+`. Primary key in practice. |
+| 3 | `assigned_agent_name` | dropdown | **human** or system | Dropdown fed from the `Agents` tab. Change it to hand the conversation over. |
+| 4 | `status` | dropdown | **human** or system | See below. Set `ARCHIVED` to move the row out. |
+| 5 | `last_message` | text | system | What was said last |
+| 6 | `last_message_type` | dropdown | system | `text`, `image`, `audio`, … A row reading `image` with no text is a customer who sent a photo, not one who sent nothing. |
+| 7 | `last_message_direction` | dropdown | system | `inbound` = the customer sent it, `outbound` = your team did |
+| 8 | `product` | text | **human** | Never touched by the system |
+| 9 | `quantity` | text | **human** | Never touched by the system |
+| 10 | `first_message_at` | ISO-8601 | system | First contact. Written once, never updated — response time is measured from here. |
+| 11 | `last_activity_at` | ISO-8601 | system | Drives inactivity and archiving |
+| 12 | `reply_text` | text | **human** | **Type here to send a WhatsApp message** — see below |
+| 13 | `reply_status` | dropdown | system | `SENT` or `FAILED`, written by the system |
+| 14 | `unread` | TRUE/FALSE | system | TRUE when the customer spoke last |
+| 15 | `wa_link` | URL | system | `https://wa.me/<e164>` |
+| 16 | `conversation_id` | text | system | `CONV-<biz>-<customer>-<epoch>` |
+| 17 | `assigned_agent_id` | text | system | Blank while `WAITING_FOR_AGENT` |
+| 18 | `business_phone_number_id` | text | system | Which of your numbers received it |
+| 19 | `last_message_id` | text | system | `wamid...` |
+| 20 | `last_customer_message_at` | ISO-8601 | system | |
+| 21 | `last_agent_message_at` | ISO-8601 | system | Blank until a reply is sent |
+| 22 | `created_at` | ISO-8601 | system | |
+| 23 | `updated_at` | ISO-8601 | system | |
+| 24 | `closed_at` | ISO-8601 | system | Blank unless `CLOSED`; cleared on reopen |
+| 25 | `unassigned_reason` | text | system | Why nobody was assigned; blank when assigned |
+| 26 | `reply_error` | text | system | Why a reply failed |
+| 27 | `reply_sent_at` | ISO-8601 | system | When it was sent |
+
+Timestamps are ISO-8601 **with an explicit UTC offset**, in the timezone set by
+`TZ` (`Asia/Amman` here), so the sheet shows the time the team actually saw.
+The offset travels with the value, so no timestamp is ambiguous and every one
+of them sorts correctly.
 
 ### Replying from the sheet
 
-Type a message into **`reply_text`** and leave `reply_status` blank. Within a
-minute, workflow 7 sends it over the Cloud API, clears the cell, and sets
-`reply_status` to `SENT`.
+Type a message into **`reply_text`**. Within a minute, workflow 7 sends it over
+the Cloud API, **clears the cell**, and writes the outcome into `reply_status`:
+`SENT`, or `FAILED` with the reason in `reply_error`.
 
-`reply_status` is the interlock that prevents double-sending: once it says
-`SENT`, `SENDING` or `FAILED`, that text is never sent again. Without it every
-poll would resend the same message until someone cleared the cell.
+**`reply_text` being non-empty is the instruction to send.** Nothing else needs
+setting. `reply_status` is an *outcome*, not a command — an earlier version
+treated it as a guard, which meant anyone who set it to `SENT` themselves, the
+obvious way to say "send this", had their message silently dropped.
 
-On failure the text is **deliberately left in place** so the author can see and
-correct it; `reply_error` says what went wrong.
+Double-sending is prevented by the clear, not by a status: the cell is emptied
+the moment the message goes out, so text sitting in `reply_text` always means
+"not sent yet".
+
+**To message a number that is not in the sheet**, add a row and fill in
+`customer_phone` and `reply_text`. The rest is filled in for you. Note Meta's
+24-hour rule: a free-form message can only reach someone who wrote to you in the
+last 24 hours. Outside that window Meta rejects it and the row reads `FAILED`
+with error `131047`. See [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
 
 Every reply sent this way is recorded in `Messages` with
 `sent_via = google_sheet`.
+
+### Archiving
+
+Set `status` to `ARCHIVED`. Within a minute the row is copied to `Archive` with
+an `archived_at` timestamp and removed from `Conversations`. The copy happens
+before the delete, so an interruption leaves a duplicate rather than a hole.
+
+Conversations left `CLOSED` for longer than `ARCHIVE_AFTER_DAYS` are swept the
+same way automatically.
+
+`Archive` has exactly the same columns as `Conversations`, plus `archived_at` —
+enforced by `scripts/validation/check-schema-consistency.js`, so the two tabs
+cannot drift apart.
 
 ### Status values
 
@@ -179,7 +245,7 @@ Every reply sent this way is recorded in `Messages` with
 | `WAITING_FOR_AGENT` | Nobody could take it | **Staffing problem — look now** |
 | `UNANSWERED` | Assigned, customer waiting | **Response-time clock is running** |
 | `REPLIED` | Agent answered last | Waiting on customer |
-| `WAITING_FOR_CUSTOMER` | Reserved synonym of `REPLIED` | Not written by the MVP |
+| `WAITING_FOR_CUSTOMER` | Reserved synonym of `REPLIED` | Not written by the system |
 | `CLOSED` | Finished | — |
 
 "Open" is not a status; it is `status != CLOSED`.
@@ -306,38 +372,6 @@ row → decision context → n8n execution for the raw bytes if truly needed.
 | corr-a1b2c3d4e5f60718 | AGENT_ASSIGNED | CONV-1065…-9627…-1788969600000 | assignment_engine | ASSIGNED | `[{"agent_id":"A1","eligible":false,"reasons":["AT_CAPACITY"],"open":5,"max":5},{"agent_id":"A2","eligible":true,"reasons":[],"open":3,"max":5}]` |
 
 That row answers "why did A2 get it and not A1" without any guesswork.
-
----
-
-## Sheet 5 — `Categories`
-
-Routing configuration for the MVP workflow's classifier. **Edited by the
-business, never by the system** — add a product line by adding a row, with no
-rebuild, no re-import and no developer.
-
-| Column | Type | Notes |
-|---|---|---|
-| `category_id` | text | Stable key, e.g. `C-PRICE`. Never reuse. |
-| `name` | text | What lands in the `category` column |
-| `keywords` | text | Comma-separated. `,` `،` `\|` `;` and newlines all work |
-| `priority` | number | **Lower wins a tie.** Complaints at 5 beat pricing at 20 |
-| `active` | TRUE/FALSE | Uncheck to switch a category off without deleting it |
-| `notes` | text | Free text for whoever maintains the list |
-
-`setupEverything` seeds seven starter categories — complaint, support, price,
-order, delivery, warranty, general — but only into an **empty** tab. Re-running
-it never overwrites categories you have tuned.
-
-The matching rules, the Arabic normalization, and the cases where a message is
-deliberately left unclassified are in
-[MVP_WORKFLOW.md](MVP_WORKFLOW.md#the-categories-tab).
-
-### Why a tab and not a config file
-
-Category lists change with the business, not with the code. Keywords are the one
-part of this system whose correctness only the people reading the messages can
-judge — so they live where those people already work, and changing them needs no
-deploy.
 
 ---
 

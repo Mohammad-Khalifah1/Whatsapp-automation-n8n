@@ -87,7 +87,7 @@ node tests/run-tests.js
 
 ```bash
 node scripts/setup/build-workflows.js       # generates n8n/workflows/*.json
-node scripts/validation/validate-workflows.js   # 414 checks
+node scripts/validation/validate-workflows.js   # 424 checks
 node scripts/setup/import-workflows.js      # imports into the container
 ```
 
@@ -143,10 +143,19 @@ Open each workflow and assign:
 
 ## Step 6 — Set up the spreadsheet
 
-Follow [GOOGLE_SHEETS_SCHEMA.md](GOOGLE_SHEETS_SCHEMA.md): create four tabs
-named `Agents`, `Conversations`, `Messages`, `Log`, paste the header rows
-from [`sheets-templates/`](../sheets-templates/), freeze row 1, and put the
-spreadsheet id in `GOOGLE_SHEET_ID`.
+Create an empty spreadsheet, share it with the service account's email as an
+**Editor**, put its id in `GOOGLE_SHEET_ID`, then run:
+
+```bash
+node scripts/setup/apply-sheet-layout.js --dry-run   # see what it would do
+node scripts/setup/apply-sheet-layout.js
+```
+
+That creates every tab with the right columns, the dropdowns, the colours, the
+hidden system columns, the note on each A1 and the tab order. It is safe to
+re-run at any time: rows are re-mapped by column name, so nothing shifts and
+nothing is dropped. Details in
+[GOOGLE_SHEETS_SCHEMA.md](GOOGLE_SHEETS_SCHEMA.md).
 
 Add your real agents to the `Agents` tab. Set `open_conversations` to `0` and
 leave `last_assigned_at` blank.
@@ -171,19 +180,24 @@ In the n8n UI:
    same agent. Do not skip it —
    [ASSIGNMENT_ALGORITHM.md](ASSIGNMENT_ALGORITHM.md#concurrency-and-race-conditions)
    explains why.
-3. **Publish** workflows 1, 2 and 3 (always required). Publish 4, 5, 7 and 8
-   only once their credentials are configured — a scheduled workflow with no
-   credential fails on every tick and fills the execution log with noise.
+3. **Publishing is automatic.** `node scripts/setup/import-workflows.js`
+   imports all eight and then publishes all eight. Restart n8n afterwards for
+   the published versions to take effect.
 
 > **n8n 2.x uses a draft/published model.** A workflow only runs once
 > *published*, and a sub-workflow called by Execute Workflow must be published
 > too — otherwise the caller fails with
 > `Workflow is not active and cannot be executed`.
 >
-> Publishing from the UI is instant. The CLI equivalent
-> (`n8n publish:workflow --id=<id>`) works but is slow and requires an n8n
-> restart afterwards. `import:workflow --activeState=fromJson` only works in
-> queue or multi-main mode, not in this single-instance deployment.
+> **An import writes the DRAFT of every workflow it touches**, which leaves all
+> of them unpublished — including the ones you did not change. Publishing only
+> the workflow you edited therefore takes the webhook **offline**. This was
+> verified the hard way: `GET /webhook/whatsapp/webhook` returned 404 until
+> every id was republished. That is why the import script republishes the whole
+> set every time; pass `--no-publish` only if you know why you want that.
+>
+> `import:workflow --activeState=fromJson` only works in queue or multi-main
+> mode, not in this single-instance deployment.
 
 ---
 

@@ -80,7 +80,7 @@ running quietly diverges. Inlining at build time makes the tested code and the
 running code byte-identical by construction.
 
 It also makes the logic testable without Meta or Google credentials — which is
-why there are 169 passing tests on a machine with no API keys.
+why there are 186 passing tests on a machine with no API keys.
 
 **Trade-off accepted.** Editing logic requires a rebuild and re-import; you
 cannot fix business logic by typing into the n8n UI. That is a feature: a fix
@@ -306,6 +306,116 @@ suite runs in about 15 ms, so none of those matter yet.
 
 ---
 
+## D-014 — A Sheets write names every column it writes, and means it
+
+**Decision.** Google Sheets nodes use `defineBelow` with an explicit column map,
+never `autoMapInputData`. Conversation writes read every column from one object,
+`write_row`, and an update carries the whole row: what the sheet already holds,
+with the changed fields laid over it.
+
+**Why.** Two failures, both found by reading the live sheet rather than the logs:
+
+1. `autoMapInputData` on an **append** creates a column for every unrecognised
+   top-level field. The item at that point in workflow 3 carries the whole
+   pipeline context, so a live `Conversations` tab grew from 26 columns to 67,
+   with internal fields like `phone_normalized_ok` sitting there as real
+   columns.
+2. With an explicit map, an expression that resolves to `undefined` writes an
+   **empty cell** — it does not mean "leave this alone". An update that only
+   meant to change the last message therefore blanked the customer's name,
+   phone and assigned agent. Every follow-up message unassigned its own
+   conversation.
+
+`scripts/validation/validate-workflows.js` now fails the build if any append
+uses `autoMapInputData`, so neither can come back quietly.
+
+**Trade-off accepted.** An update is a full-row write, so a human edit made in
+the seconds between the read and the write is overwritten. That window is the
+same one already documented for assignment concurrency, and Sheets offers no
+compare-and-set to close it.
+
+---
+
+## D-015 — A node reads from a named node, not from `$json`
+
+**Decision.** Any node whose input comes from a Google Sheets node reads its
+values via `$("Source Node").item.json`, declared centrally in `ITEM_SOURCES` in
+the build script.
+
+**Why.** `$json` is whatever the previous node emitted. A Sheets write emits the
+row it wrote, not the item that went in — so `$json.message_id` downstream
+silently became `undefined`. The result was `Messages` rows containing only a
+direction, and `Log` rows whose `event_type` held a status. Nothing errored.
+
+---
+
+## D-016 — Timestamps are local time with an explicit offset
+
+**Decision.** Every timestamp the system writes goes through `localIso()` in
+`scripts/lib/time.js`: ISO-8601 rendered in the timezone `TZ` names, with the
+offset attached (`2026-09-11T20:16:52.839+03:00`).
+
+**Why.** `toISOString()` always renders UTC. For a team in Amman that put 15:57
+in the sheet for a message that arrived at 18:57 — while n8n's own expression
+timestamps, which honour `GENERIC_TIMEZONE`, wrote `18:57+03:00` in the next
+column. Two clocks in one spreadsheet, and the Dashboard's date formulas compare
+these values as text.
+
+**Why this is not a DST hazard.** An offset-bearing ISO-8601 value names exactly
+one instant; the offset travels with the value. The ambiguity a naive local
+string would introduce does not arise. The one real cost is that lexicographic
+ordering across a change of offset would be off by the offset — Jordan has been
+permanently UTC+3 since 2022, so it does not arise here either.
+
+---
+
+## D-017 — `reply_text` is the instruction; `reply_status` is the outcome
+
+**Decision.** A non-empty `reply_text` means "send this". `reply_status` is
+written by the system and is never read as a guard.
+
+**Why.** The guard used to skip any row whose `reply_status` was `SENT` or
+`FAILED`. Setting `reply_status` to `SENT` is the obvious way for a person to
+say "send this", and doing so caused the message to be silently dropped. Safety
+against double-sending does not need the status: the system clears `reply_text`
+the moment the message goes out, so text sitting in the cell always means "not
+sent yet".
+
+---
+
+## D-018 — The sheet's layout is applied by a script, not pasted by hand
+
+**Decision.** `scripts/setup/apply-sheet-layout.js` owns the tabs, columns,
+dropdowns, colours, widths, hidden columns, tab order and the note on each A1.
+`sheets-templates/SheetTools.gs` remains available for an in-sheet menu, but
+nothing depends on it.
+
+**Why.** Apps Script has to be pasted into the spreadsheet and authorised by a
+human before it does anything, which made archiving and the dropdowns a manual
+setup step that could be skipped. A Node script authenticating as the same
+service account the workflows already use makes a new deployment need no manual
+step in the spreadsheet at all.
+
+**Guard.** If row 1 does not look like a header, the script stops instead of
+migrating. Re-mapping by column name from a non-header maps everything to blank
+— which emptied a live tab once, and is why the guard exists.
+
+---
+
+## D-019 — Six tabs, four of them visible
+
+**Decision.** `Dashboard`, `Conversations`, `Agents`, `Archive` are visible;
+`Messages` and `Log` are hidden.
+
+**Why.** `Messages` cannot be merged into `Conversations`: it is one row per
+message against one row per customer, and it is the duplicate check that nine
+workflow nodes depend on. Removing it would mean a redelivered webhook creates a
+second copy of the same message. `Log` is the same kind of thing for errors.
+Neither is ever edited, so hiding them gives the smallest surface a person has
+to understand without giving up anything the system needs.
+
+---
+
 ## Deliberately deferred
 
 | Deferred | Why | Where it is designed |
@@ -317,5 +427,5 @@ suite runs in about 15 ms, so none of those matter yet.
 | Media download and storage | `media_id` and `mime_type` are captured, so files can be fetched later | [ARCHITECTURE.md](ARCHITECTURE.md#message-type-support) |
 | Template messages (>24h replies) | Needs Meta template approval; the failure is detected and reported (error 131047) | [ERROR_HANDLING.md](ERROR_HANDLING.md) |
 | Automatic conversation closing | Destructive; needs operational evidence first | D-009 above |
-| Multi-language agent UI | The MVP surface is a spreadsheet | — |
+| Multi-language agent UI | The surface is a spreadsheet | — |
 | SLA timers and alerting | Needs real response-time data first | [FUTURE_AGENT_INBOX.md](FUTURE_AGENT_INBOX.md) |

@@ -5,6 +5,108 @@ executed and observed.
 
 ---
 
+## [0.4.0] — 2026-09-11 — Live, verified end to end
+
+The system now runs against real Meta and real Google credentials on a Hostinger
+VPS, and `scripts/testing/verify-live.js` proves it: **28 checks passing**,
+including a real WhatsApp message sent from the spreadsheet.
+
+### Fixed — three bugs that only the live sheet revealed
+
+**A Sheets append was creating columns.** `autoMapInputData` adds a column for
+every top-level field it does not recognise, and the item at that point carried
+the whole pipeline context. The live `Conversations` tab had grown from 26
+columns to 67, with fields like `phone_normalized_ok` sitting in it as real
+columns. Every conversation write now maps its columns explicitly, and the
+workflow validator fails the build if an append uses auto-mapping.
+
+**An update was blanking the row it updated.** With an explicit column map, an
+expression that resolves to `undefined` writes an *empty cell*; it does not mean
+"leave this alone". A follow-up message from a customer therefore erased their
+name, phone and assigned agent — which is why the assigned agent appeared to
+change on every message. Updates now carry the whole row: the values already in
+the sheet, with the changed fields laid over them.
+
+**Nodes were reading `$json` after a Sheets write.** A Sheets node emits the row
+it wrote, not the item that went in, so `$json.message_id` downstream was
+`undefined`. `Messages` rows contained only a direction and `Log` rows had a
+status in `event_type`. Those nodes now read from a named source node, declared
+in one place in the build script.
+
+### Fixed — the send-from-sheet trap
+
+`reply_status` was treated as a guard: a row whose status was `SENT` was skipped.
+Setting it to `SENT` is the obvious way for a person to say "send this", and
+doing so silently dropped the message. **A non-empty `reply_text` is now the
+only instruction needed.** Double-sending is prevented by clearing the cell when
+the message goes out, not by a status.
+
+The outcome is also written back to the **physical row** the text came from, so
+a hand-typed row for a number that already exists no longer updates the wrong
+one.
+
+### Fixed — publishing took the webhook offline
+
+`import:workflow` writes the draft of every workflow it touches, unpublishing
+all of them. Publishing only the edited workflow left `GET /webhook/whatsapp/webhook`
+returning 404. `scripts/setup/import-workflows.js` now republishes all eight
+every time.
+
+### Changed — timestamps are local time
+
+Every timestamp goes through `localIso()` in the new `scripts/lib/time.js`:
+ISO-8601 in the timezone `TZ` names, with the offset attached. The sheet was
+showing 15:57 for a message that arrived at 18:57, next to n8n's own expression
+timestamps which were already local. The offset travels with the value, so no
+timestamp is ambiguous.
+
+### Added — `scripts/setup/apply-sheet-layout.js`
+
+One command applies the whole sheet layout: six tabs in order, canonical
+columns, dropdowns, colours by value, column widths, hidden system columns, and
+a note on each tab's A1 explaining what the tab is for. Safe to re-run — rows
+are re-mapped by column name — and it stops rather than migrating if row 1 does
+not look like a header.
+
+This replaces the pasted-by-hand Apps Script as the setup path.
+`sheets-templates/SheetTools.gs` is still there for the in-sheet menu, but
+nothing depends on it: archiving, dropdowns and colours all work without it.
+
+### Added — `scripts/testing/verify-live.js`
+
+End-to-end verification against the running deployment: signed webhooks over
+HTTPS, then reading the real spreadsheet. Signature enforcement, conversation
+creation, assignment, stickiness, idempotency, reply-from-sheet, archiving and
+column drift. `--real-send=<E.164>` additionally sends one genuine WhatsApp
+message.
+
+### Added — `docs/CLIENT_ONBOARDING.md`
+
+What to ask a client for, what the system costs to run, and whether it has to be
+a VPS. Every figure checked against the vendor's own documentation.
+
+### Changed — the Conversations tab
+
+Reordered so the columns a person reads come first, and `last_message_type` was
+added: a row reading `image` with no text is a customer who sent a photo, not
+one who sent nothing. `Archive` mirrors it exactly, plus `archived_at`, enforced
+by the schema checker.
+
+### Removed — the MVP workflow and the request classifier
+
+`00-mvp-inbound.json` was a second, parallel implementation of workflows 1-3 on
+its own webhook path. Meta never pointed at it, the `Categories` tab it needed
+did not exist in the live spreadsheet, and it was the single largest source of
+"why are there so many files". Removed with `scripts/lib/classify.js`,
+`tests/classify/`, `tests/mvp/`, `docs/MVP_WORKFLOW.md` and
+`sheets-templates/Categories.csv`.
+
+The entry for [0.3.0] below describes them as they were when they were built.
+It is left as written — it is a record of what happened, not a description of
+the current system.
+
+---
+
 ## [0.3.0] — 2026-09-11 — One-workflow MVP, request classification
 
 ### Workflow 0 — the whole inbound path in one workflow
