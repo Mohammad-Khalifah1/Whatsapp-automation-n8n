@@ -15,7 +15,9 @@ is waiting and for how long.
 | Area | State |
 |---|---|
 | Docker + n8n environment | **Working, verified** — n8n 2.38.5, healthy, persistent volume |
-| Core business logic | **Working, 169 unit tests passing** |
+| Core business logic | **Working, 231 unit tests passing** |
+| **MVP workflow (workflow 0)** | **Built; webhook path verified live** — handshake, signature, ack and the full node graph were executed against a running n8n. Sheets writes still need credentials. See [docs/MVP_WORKFLOW.md](docs/MVP_WORKFLOW.md) |
+| Request classification (`Categories` tab) | **Built, 22 unit tests** — MVP workflow only |
 | Webhook receiver (verify + signature + ack) | **Working, verified live with real HTTP calls** |
 | n8n workflows (8) | **Built, validated, imported and published** |
 | Reply from the sheet (workflow 7) | **Built, NOT yet verified** — needs credentials |
@@ -50,7 +52,7 @@ node scripts/setup/build-workflows.js
 node scripts/setup/import-workflows.js
 
 # 5. Run the tests
-node tests/run-tests.js                   # 169 unit tests, no credentials needed
+node tests/run-tests.js                   # 231 unit tests, no credentials needed
 node scripts/validation/validate-workflows.js
 ```
 
@@ -88,6 +90,12 @@ Google Sheets  (Agents · Conversations · Messages · Events)
 [8] Archive Conversations ─── nightly, keeps the working sheet small
 ```
 
+**Or all of 1-3 as a single workflow.** `00-mvp-inbound.json` collapses receive,
+parse and resolve into one 23-node workflow, adds request classification, and
+needs no load counter. It has its own webhook path, so it coexists with the
+pipeline above rather than replacing it —
+**[docs/MVP_WORKFLOW.md](docs/MVP_WORKFLOW.md)**.
+
 Full detail: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ---
@@ -96,12 +104,13 @@ Full detail: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 **1. Google Sheets is not a transactional database.**
 It has no atomic compare-and-set, so two conversations arriving in the same
-instant can both be assigned to the same agent. The MVP mitigates this by
-serializing the assignment workflow (concurrency 1), which removes the race on
-a single n8n instance — it does not make Sheets transactional. The honest
-analysis is in [docs/ASSIGNMENT_ALGORITHM.md](docs/ASSIGNMENT_ALGORITHM.md),
-and the migration path is in
-[docs/GOOGLE_SHEETS_TO_POSTGRES.md](docs/GOOGLE_SHEETS_TO_POSTGRES.md).
+instant can both be assigned to the same agent. Workflow 3 mitigates this by
+serializing assignment (`concurrency: 1`), which removes the race on a single
+n8n instance — it does not make Sheets transactional. Workflow 0 sidesteps it
+instead, by counting open conversations from the rows rather than maintaining a
+counter, so there is no shared value to corrupt. The honest analysis is in
+[docs/ASSIGNMENT_ALGORITHM.md](docs/ASSIGNMENT_ALGORITHM.md), and the migration
+path is in [docs/GOOGLE_SHEETS_TO_POSTGRES.md](docs/GOOGLE_SHEETS_TO_POSTGRES.md).
 
 **2. Replies must come from the business number, not a personal account.**
 Meta only emits webhooks for messages involving your WABA number. With
@@ -136,6 +145,8 @@ replying *after* 24 hours requires a paid template message. Full breakdown:
 │
 ├── n8n/
 │   ├── workflows/              GENERATED — do not hand-edit
+│   │   00-mvp-inbound.json     the whole inbound path in ONE workflow
+│   │   01-08…                  the original split pipeline
 │   └── fixtures/               10 real-shape Meta webhook payloads
 │
 ├── scripts/
@@ -145,7 +156,7 @@ replying *after* 24 hours requires a paid template message. Full breakdown:
 │   └── testing/                fixture sender, live webhook tests
 │
 ├── sheets-templates/           CSV headers + one-click Apps Script setup
-└── tests/                      169 tests, zero npm dependencies
+└── tests/                      231 tests, zero npm dependencies
 ```
 
 **`scripts/lib/` is the single source of truth for business logic.** n8n Code
@@ -160,6 +171,7 @@ code and the running code identical.
 
 | Document | What it covers |
 |---|---|
+| [MVP_WORKFLOW.md](docs/MVP_WORKFLOW.md) | **The one-workflow inbound path** — half the nodes, no load counter, and request classification |
 | [OPERATING_GUIDE.md](docs/OPERATING_GUIDE.md) | **Start here for daily use** — the three reply paths, filtering, speed, archiving |
 | [COEXISTENCE.md](docs/COEXISTENCE.md) | Making WhatsApp Business App replies visible to the system |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, data flow, state machine, phone normalization |

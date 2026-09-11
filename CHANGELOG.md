@@ -5,6 +5,90 @@ executed and observed.
 
 ---
 
+## [0.3.0] — 2026-09-11 — One-workflow MVP, request classification
+
+### Workflow 0 — the whole inbound path in one workflow
+
+Workflows 1, 2 and 3 split receive / parse / resolve across three workflows
+joined by Execute Workflow calls. `00-mvp-inbound.json` does the same work in
+one: 23 nodes instead of 44, and no sub-workflow hops.
+
+It does not replace anything. Its own workflow id (`whatsappMvp00001`), its own
+webhook path (`/webhook/whatsapp/mvp`), and it only ever READS the `Agents` tab.
+Both it and workflows 1-8 can be imported and active at once; Meta posts to one
+URL, so only that one works. Full detail in [docs/MVP_WORKFLOW.md](docs/MVP_WORKFLOW.md).
+
+### Agent load is counted, not stored
+
+Workflow 3 increments `Agents.open_conversations`, which Google Sheets cannot do
+atomically — hence its `concurrency: 1` and the Apps Script's repair tool.
+
+Workflow 0 counts open conversations from the `Conversations` rows it has
+already read. No second copy of the truth, so nothing to drift and no write to
+serialize. `countOpenConversationsByAgent()` and `withLiveLoad()` are additive:
+workflow 3 is untouched and still uses the counter.
+
+Within one batched webhook the count is incremented in memory as each assignment
+is made, so two customers in a single POST are not both handed to the same idle
+agent.
+
+### Request classification from a `Categories` tab
+
+New `scripts/lib/classify.js`, plus a `Categories` tab and a `category` column on
+`Conversations` and `Messages`. Both columns are appended at the END of their
+header rows, so no existing data shifts and workflows 1-8 ignore them.
+
+The category list lives in the sheet, not the code: the business adds a product
+line by adding a row. Arabic is normalized before matching (diacritics stripped,
+alef / teh-marbuta / alef-maksura variants unified, Arabic-Indic digits
+converted), so one keyword covers the ways people actually type it. Arabic
+keywords match as substrings because the definite article is written joined to
+the noun; Latin keywords match whole words, or a keyword like `ac` would match
+`back`.
+
+The subtle part: messages with no words are NOT classified. An image with a
+caption is classified on its caption, but a bare location is not — its preview
+reads `[location] …`, and matching that would file a confident false positive
+into whatever category owns the keyword `location`.
+
+### A silent data-loss path, found by running it
+
+The first build used `onError: continueErrorOutput` on the Sheets writes with
+nothing wired to the error branch — the same pattern as workflow 3. Run against
+a live n8n with no Sheets credential, `Append Conversation` "finished" in 2 ms,
+wrote nothing, and the execution was logged as `n8n.workflow.success`.
+
+The three data writes and the two reads whose empty result would be
+*indistinguishable from a true answer* (`Read Conversations` → "new customer,
+every agent idle"; `Read Agents` → "nobody works here") now use
+`onError: stopWorkflow`. The same request now records `n8n.workflow.failed`.
+
+`Read Categories`, `Lookup Duplicate` and `Audit Decision` stay non-fatal on
+purpose: an unclassified message, a duplicate row, or a lost audit line are all
+recoverable, where dropping a customer's message is not.
+
+### Verified live against n8n 2.38.5
+
+Handshake with the correct token (200 + challenge echoed), with the wrong token
+(403), unsigned POST (401, fails closed), signed POST (200 `EVENT_RECEIVED`),
+and the full node graph executing in order. The Sheets writes themselves still
+need a service account, same as the rest of the project.
+
+### Tests: 174 -> 231
+
+- `tests/classify/classify.test.js` (22) — normalization, matching, tie-breaks,
+  and the cases where it must refuse to guess
+- `tests/assignment/live-load.test.js` (12) — including a drifted counter
+  routing to the wrong agent where the live count routes correctly
+- `tests/mvp/resolve-node.test.js` (23) — extracts the decision node's
+  **generated JavaScript** from `00-mvp-inbound.json` and runs it against the
+  real Meta fixtures with `$()` and `$env` stubbed. This is the layer that
+  catches composition bugs: one test asserts the stored phone is the normalized
+  one, because the event carries a raw `customer_phone` that maps to the same
+  sheet column and would win if the event were spread into the row.
+
+---
+
 ## [0.2.0] — 2026-09-10 — Coexistence, sheet replies, archiving
 
 ### Coexistence: app replies are no longer invisible

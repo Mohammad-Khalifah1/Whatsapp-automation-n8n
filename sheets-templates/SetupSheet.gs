@@ -32,25 +32,54 @@ var SCHEMA = {
     'role', 'working_hours', 'timezone', 'created_at', 'updated_at'
   ],
   Conversations: [
-    'conversation_id', 'customer_phone', 'customer_name',
-    'business_phone_number_id', 'assigned_agent_id', 'assigned_agent_name',
-    'status', 'last_message', 'last_message_id', 'last_message_direction',
-    'last_customer_message_at', 'last_agent_message_at', 'last_activity_at',
-    'unread', 'created_at', 'updated_at', 'closed_at', 'wa_link',
-    'unassigned_reason', 'reply_text', 'reply_status', 'reply_error',
+    'customer_name', 'customer_phone', 'assigned_agent_name', 'status',
+    'product', 'quantity', 'first_message_at', 'last_activity_at',
+    'last_message', 'wa_link', 'unread', 'reply_text', 'reply_status',
+    'conversation_id', 'assigned_agent_id', 'business_phone_number_id',
+    'last_message_id', 'last_message_direction',
+    'last_customer_message_at', 'last_agent_message_at', 'created_at',
+    'updated_at', 'closed_at', 'unassigned_reason', 'reply_error',
     'reply_sent_at'
   ],
   Messages: [
     'message_id', 'dedupe_key', 'conversation_id', 'direction',
     'sender_phone', 'recipient_phone', 'message_type', 'text', 'timestamp',
     'status', 'status_updated_at', 'agent_id', 'sent_via', 'supported',
-    'processing_status', 'correlation_id', 'raw_event_reference', 'created_at'
+    'processing_status', 'correlation_id', 'raw_event_reference', 'created_at',
+    'category'
   ],
   Log: [
     'event_id', 'event_type', 'conversation_id', 'message_id', 'source',
     'timestamp', 'status', 'error', 'details'
+  ],
+  // Routing configuration for the MVP workflow's classifier. Edited by the
+  // business, never by the system — add a product line by adding a row.
+  Categories: [
+    'category_id', 'name', 'keywords', 'priority', 'active', 'notes'
   ]
 };
+
+/**
+ * Starter categories, written ONLY into an empty Categories tab.
+ *
+ * These are request types, not product names, because every business has
+ * different products but the same handful of reasons customers write in.
+ * Replace them with your own product lines — that is the point of the tab.
+ *
+ * `priority` breaks ties: when a message matches keywords from two categories,
+ * the LOWER number wins. Complaints are 5 so that "the price is wrong, I have a
+ * problem" files as a complaint rather than a pricing enquiry. Keep the
+ * catch-all last with a large number.
+ */
+var STARTER_CATEGORIES = [
+  ['C-COMPLAINT', 'شكوى', 'شكوى,مشكلة,زعلان,سيء,ما وصل,تأخر,متأخر,رديء,complaint,problem,late,damaged', 5, true, 'أعلى أولوية — تكسر التعادل مع أي فئة أخرى'],
+  ['C-SUPPORT', 'دعم فني', 'ما بشتغل,مابشتغل,عطل,خربان,صيانة,تركيب,اعطال,فحص,support,repair,install,broken,not working', 15, true, 'طلبات ما بعد البيع'],
+  ['C-PRICE', 'استفسار سعر', 'سعر,اسعار,بكم,كم سعر,تسعيرة,عرض سعر,كلفة,price,cost,quote,how much', 20, true, 'أكثر نوع رسائل متوقع'],
+  ['C-ORDER', 'طلب شراء', 'بدي اشتري,اشتري,اطلب,طلبية,شراء,حجز,order,buy,purchase,booking', 25, true, ''],
+  ['C-DELIVERY', 'توصيل وشحن', 'توصيل,شحن,متى يوصل,وين الطلب,تتبع,delivery,shipping,tracking', 30, true, ''],
+  ['C-WARRANTY', 'كفالة وإرجاع', 'كفالة,ضمان,ارجاع,استبدال,استرجاع,warranty,return,exchange,refund', 35, true, ''],
+  ['C-GENERAL', 'استفسار عام', 'استفسار,سؤال,معلومات,دوام,عنوان,فرع,اوقات,info,question,address,hours', 90, true, 'شبكة أمان — ضعها آخر أولوية دائماً']
+];
 
 var CONVERSATION_STATUSES = [
   'WAITING_FOR_AGENT', 'UNANSWERED', 'REPLIED', 'WAITING_FOR_CUSTOMER', 'CLOSED'
@@ -83,6 +112,8 @@ function setupEverything() {
   // and only conversations are archived on a schedule.
   report.push(ensureSheet_(ss, 'Archive',
       SCHEMA.Conversations.concat(['archived_at'])));
+
+  report.push(seedCategories_(ss));
 
   applyConversationRules_(ss);
   applyAgentRules_(ss);
@@ -129,6 +160,34 @@ function ensureSheet_(ss, name, headers) {
 
   return (created ? 'Created  ' : 'Updated  ') + name +
          ' (' + headers.length + ' columns)';
+}
+
+/**
+ * Write the starter categories, but ONLY into a tab that has no data rows.
+ *
+ * Re-running setupEverything must never overwrite categories the business has
+ * tuned — that would silently undo their work and change how every future
+ * message is classified. An empty tab is the only safe case.
+ */
+function seedCategories_(ss) {
+  var sheet = ss.getSheetByName('Categories');
+  if (!sheet) return 'Skipped  Categories (tab missing)';
+
+  if (sheet.getLastRow() > 1) {
+    return 'Kept     Categories (' + (sheet.getLastRow() - 1) + ' existing rows untouched)';
+  }
+
+  sheet.getRange(2, 1, STARTER_CATEGORIES.length, SCHEMA.Categories.length)
+       .setValues(STARTER_CATEGORIES);
+
+  // `active` as a real checkbox: typed text here silently disables a category.
+  sheet.getRange(2, SCHEMA.Categories.indexOf('active') + 1,
+                 Math.max(sheet.getMaxRows() - 1, 1), 1).insertCheckboxes();
+
+  sheet.setColumnWidth(SCHEMA.Categories.indexOf('keywords') + 1, 420);
+  sheet.setFrozenRows(1);
+
+  return 'Seeded   Categories (' + STARTER_CATEGORIES.length + ' starter rows)';
 }
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -300,7 +359,7 @@ function protectSystemColumns_(ss) {
   var systemCols = [
     'conversation_id', 'last_message', 'last_message_id',
     'last_customer_message_at', 'last_agent_message_at', 'last_activity_at',
-    'created_at', 'updated_at', 'reply_status', 'reply_sent_at'
+    'created_at', 'updated_at', 'reply_status', 'reply_sent_at', 'category'
   ];
 
   // Warning-only, not a hard lock: a hard lock would also block the service

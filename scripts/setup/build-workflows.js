@@ -50,6 +50,10 @@ const OUT_DIR = path.join(ROOT, 'n8n', 'workflows');
  * Format matches n8n's own 16-character alphanumeric ids.
  */
 const WORKFLOW_ID = {
+  // The consolidated MVP. Its own id and its own webhook path, so it can be
+  // imported and activated alongside workflows 1-8 without either disturbing
+  // the other. See docs/MVP_WORKFLOW.md.
+  mvp: 'whatsappMvp00001',
   receiver: 'whatsappRecv0001',
   processor: 'whatsappProc0002',
   conversation: 'whatsappConv0003',
@@ -2872,9 +2876,813 @@ function buildArchive() {
 }
 
 // ===========================================================================
+// Workflow 0 — MVP: the whole inbound path in ONE workflow
+// ===========================================================================
+/**
+ * Workflows 1, 2 and 3 split receive / parse / resolve across three workflows
+ * joined by Execute Workflow calls. That split is defensible, but it costs two
+ * sub-workflow hops per message, three places to look when something breaks,
+ * and 44 nodes to keep in sync.
+ *
+ * This is the same inbound path as one workflow and 21 nodes:
+ *
+ *   verify -> ack 200 -> parse -> dedupe -> resolve conversation
+ *          -> classify -> assign -> write Conversations + Messages + Log
+ *
+ * Two deliberate differences from workflow 3, not just a merge:
+ *
+ *   1. AGENT LOAD IS COUNTED, NOT STORED. Workflow 3 increments
+ *      `Agents.open_conversations` and needs concurrency 1 plus a repair tool
+ *      because the counter drifts. This counts open conversations from the
+ *      Conversations rows it has already read, so there is no second copy of
+ *      the truth to disagree with and no write to serialize.
+ *
+ *   2. EVERY MESSAGE IS CLASSIFIED against the `Categories` tab, so managers
+ *      can see what customers are asking about, not just who is waiting.
+ *
+ * It coexists with workflows 1-8: its own workflow id, its own webhook path
+ * (`whatsapp/mvp`), and only additive sheet columns. Point Meta at whichever
+ * URL you want to run; nothing breaks if both are imported and active.
+ */
+function buildMvpWorkflow() {
+  const nodes = [];
+  const connections = {};
+
+  // -- Meta verification handshake (GET) -----------------------------------
+  nodes.push({
+    parameters: {
+      httpMethod: 'GET',
+      path: 'whatsapp/mvp',
+      responseMode: 'responseNode',
+      options: {},
+    },
+    id: 'mvp-wh-get',
+    name: 'Meta Verification (GET)',
+    type: 'n8n-nodes-base.webhook',
+    typeVersion: NODE_VERSION.webhook,
+    position: [-640, -300],
+    webhookId: 'a1b2c3d4-0000-4000-8000-whatsappmvpg',
+  });
+
+  nodes.push(
+    codeNode(
+      'Verify Handshake',
+      'mvp-verify-handshake',
+      [-400, -300],
+      ['security.js'],
+      [
+        'const item = $input.first().json;',
+        'const query = item.query || {};',
+        '',
+        'const result = verifyWebhookHandshake(query, $env.WEBHOOK_VERIFY_TOKEN);',
+        '',
+        '// Never log the token itself — only whether it matched.',
+        'console.log(JSON.stringify({',
+        "  event: 'webhook_verification',",
+        '  ok: result.ok,',
+        '  reason: result.reason,',
+        '}));',
+        '',
+        'return [{ json: result }];',
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      respondWith: 'text',
+      responseBody: '={{ $json.body }}',
+      options: { responseCode: '={{ $json.statusCode }}' },
+    },
+    id: 'mvp-respond-get',
+    name: 'Respond Challenge',
+    type: 'n8n-nodes-base.respondToWebhook',
+    typeVersion: NODE_VERSION.respondToWebhook,
+    position: [-160, -300],
+  });
+
+  // -- Live events (POST) ---------------------------------------------------
+  nodes.push({
+    parameters: {
+      httpMethod: 'POST',
+      path: 'whatsapp/mvp',
+      responseMode: 'responseNode',
+      // CRITICAL: the HMAC must be computed over the exact bytes Meta sent.
+      // Without rawBody, n8n re-serializes the JSON and every signature fails.
+      options: { rawBody: true },
+    },
+    id: 'mvp-wh-post',
+    name: 'Meta Events (POST)',
+    type: 'n8n-nodes-base.webhook',
+    typeVersion: NODE_VERSION.webhook,
+    position: [-640, 0],
+    webhookId: 'a1b2c3d4-0000-4000-8000-whatsappmvpp',
+  });
+
+  nodes.push(
+    codeNode(
+      'Verify Signature',
+      'mvp-verify-signature',
+      [-400, 0],
+      ['security.js'],
+      [
+        'const item = $input.first();',
+        'const json = item.json || {};',
+        'const headers = json.headers || {};',
+        '',
+        '// n8n lowercases incoming header names.',
+        "const signature = headers['x-hub-signature-256'] || '';",
+        '',
+        '// With `rawBody` enabled n8n puts the PARSED body in json.body and the',
+        '// UNTOUCHED bytes base64-encoded in binary.data.data. The HMAC must be',
+        '// computed over those raw bytes — re-serializing json.body changes key',
+        '// order and whitespace, and every signature would fail.',
+        'let rawBody = null;',
+        'if (item.binary && item.binary.data && item.binary.data.data) {',
+        "  rawBody = Buffer.from(item.binary.data.data, 'base64');",
+        '} else if (json.body !== undefined) {',
+        '  // No raw body available. Signature verification cannot be trusted in',
+        '  // this state; this fallback exists only so local unsigned fixture',
+        '  // testing still works.',
+        "  rawBody = Buffer.from(typeof json.body === 'string' ? json.body : JSON.stringify(json.body), 'utf8');",
+        '}',
+        '',
+        '// FAIL CLOSED. Verification is always required unless it is EXPLICITLY',
+        '// disabled. Absence of an app secret is a misconfiguration, never',
+        '// consent — otherwise forgetting META_APP_SECRET would silently turn a',
+        '// public endpoint into one that accepts forged customer messages.',
+        "const allowUnsigned = String($env.ALLOW_UNSIGNED_WEBHOOKS || '').trim().toLowerCase() === 'true';",
+        '',
+        'if (allowUnsigned) {',
+        '  // Loud, because this must never be true on an internet-facing host.',
+        '  console.log(JSON.stringify({',
+        "    event: 'SECURITY_WARNING',",
+        "    message: 'ALLOW_UNSIGNED_WEBHOOKS=true — signature verification is DISABLED',",
+        '  }));',
+        '}',
+        '',
+        'const verdict = verifySignature(rawBody, signature, $env.META_APP_SECRET, { required: !allowUnsigned });',
+        '',
+        '// Parse from the raw bytes so what we verified is what we act on.',
+        'let parsedBody = null;',
+        'try {',
+        "  parsedBody = rawBody ? JSON.parse(rawBody.toString('utf8')) : (typeof json.body === 'object' ? json.body : null);",
+        '} catch (e) {',
+        "  parsedBody = (typeof json.body === 'object') ? json.body : null;",
+        '}',
+        '',
+        'console.log(JSON.stringify({',
+        "  event: 'webhook_received',",
+        '  signature_ok: verdict.ok,',
+        '  signature_reason: verdict.reason,',
+        '  has_body: parsedBody !== null,',
+        '}));',
+        '',
+        'return [{ json: {',
+        '  signature_ok: verdict.ok,',
+        '  signature_reason: verdict.reason,',
+        '  status_code: verdict.ok ? 200 : verdict.statusCode,',
+        '  body: parsedBody,',
+        '  received_at: new Date().toISOString(),',
+        '} }];',
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          {
+            id: 'mvp-sig-ok',
+            leftValue: '={{ $json.signature_ok }}',
+            rightValue: true,
+            operator: { type: 'boolean', operation: 'true', singleValue: true },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+    id: 'mvp-if-sig',
+    name: 'Signature Valid?',
+    type: 'n8n-nodes-base.if',
+    typeVersion: NODE_VERSION.if,
+    position: [-160, 0],
+  });
+
+  // Fast-ack: respond 200 BEFORE any Sheets I/O, so a slow spreadsheet can
+  // never make Meta retry and double-deliver the message.
+  nodes.push({
+    parameters: {
+      respondWith: 'text',
+      responseBody: 'EVENT_RECEIVED',
+      options: { responseCode: 200 },
+    },
+    id: 'mvp-respond-200',
+    name: 'Ack 200 Immediately',
+    type: 'n8n-nodes-base.respondToWebhook',
+    typeVersion: NODE_VERSION.respondToWebhook,
+    position: [80, -100],
+  });
+
+  nodes.push({
+    parameters: {
+      respondWith: 'text',
+      responseBody: 'invalid signature',
+      options: { responseCode: 401 },
+    },
+    id: 'mvp-respond-401',
+    name: 'Reject 401',
+    type: 'n8n-nodes-base.respondToWebhook',
+    typeVersion: NODE_VERSION.respondToWebhook,
+    position: [80, 140],
+  });
+
+  // -- Parse ----------------------------------------------------------------
+  nodes.push(
+    codeNode(
+      'Parse & Normalize Events',
+      'mvp-parse',
+      [320, -100],
+      ['webhook-parser.js', 'phone.js', 'idempotency.js'],
+      [
+        "const input = $('Verify Signature').first().json;",
+        'const parsed = parseWebhook(input.body || {});',
+        "const defaultCountryCode = $env.DEFAULT_COUNTRY_CODE || '962';",
+        '',
+        'if (!parsed.ok) {',
+        '  console.log(JSON.stringify({',
+        "    event: 'webhook_parse_failed',",
+        '    reason: parsed.reason,',
+        '  }));',
+        '  return [];',
+        '}',
+        '',
+        '// One n8n item per event, so a batched webhook fans out correctly',
+        '// instead of only its first message being processed.',
+        'return parsed.events.map((event) => {',
+        '  const dedupeKey = buildDedupeKey(event);',
+        "  const phoneSource = event.kind === 'status' ? event.recipient_phone : event.customer_phone;",
+        '  const normalized = normalizePhone(phoneSource, { defaultCountryCode });',
+        '',
+        '  return { json: Object.assign({}, event, {',
+        '    dedupe_key: dedupeKey,',
+        '    correlation_id: buildCorrelationId(dedupeKey),',
+        '    customer_phone_e164: normalized.ok ? normalized.e164 : null,',
+        '    phone_normalized_ok: normalized.ok,',
+        '    wa_link: normalized.ok ? normalized.waLink : null,',
+        '    received_at: new Date().toISOString(),',
+        '  }) };',
+        '});',
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      rules: {
+        values: [
+          {
+            conditions: {
+              options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+              conditions: [
+                {
+                  id: 'mvp-is-message',
+                  leftValue: '={{ $json.kind }}',
+                  rightValue: 'message',
+                  operator: { type: 'string', operation: 'equals' },
+                },
+              ],
+              combinator: 'and',
+            },
+            renameOutput: true,
+            outputKey: 'customer_message',
+          },
+        ],
+      },
+      options: { fallbackOutput: 'extra', renameFallbackOutput: 'not_in_mvp' },
+    },
+    id: 'mvp-route',
+    name: 'Route By Event Kind',
+    type: 'n8n-nodes-base.switch',
+    typeVersion: NODE_VERSION.switch,
+    position: [560, -100],
+  });
+
+  nodes.push({
+    parameters: {},
+    id: 'mvp-not-handled',
+    name: 'Not Handled In MVP',
+    type: 'n8n-nodes-base.noOp',
+    typeVersion: NODE_VERSION.noOp,
+    position: [800, 80],
+    notes:
+      'Delivery receipts (sent/delivered/read) and Business App echoes end here. ' +
+      'They are the majority of webhook traffic and logging each one would bloat ' +
+      'the sheet for no MVP benefit. Workflows 2 and 3 handle them — see docs/MVP_WORKFLOW.md.',
+  });
+
+  // -- Reads: one filtered lookup + three reference tabs ---------------------
+  nodes.push({
+    parameters: {
+      authentication: 'serviceAccount',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Messages', mode: 'name' },
+      filtersUI: { values: [{ lookupColumn: 'dedupe_key', lookupValue: '={{ $json.dedupe_key }}' }] },
+      options: { returnAllMatches: true },
+    },
+    id: 'mvp-lookup-dupe',
+    name: 'Lookup Duplicate',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [800, -200],
+    alwaysOutputData: true,
+    onError: 'continueRegularOutput',
+    notes: 'alwaysOutputData=true so "no match" yields an empty item rather than ending the branch.',
+  });
+
+  // executeOnce on the three reference reads: without it, a lookup that
+  // returned 40 rows would make the next Sheets node run 40 times and burn the
+  // 60-reads-per-minute quota on identical requests.
+  //
+  // `onError` is chosen per tab by what an empty result would MEAN, because a
+  // failed read does not look like a failure downstream — it looks like a true
+  // answer of "nothing found":
+  //   Conversations -> "this customer is new, and every agent is idle".
+  //                    That creates a duplicate conversation AND mis-routes it.
+  //   Agents        -> "nobody works here", queueing everything wrongly.
+  //   Categories    -> an unclassified message. Genuinely harmless, and
+  //                    classification must never block routing.
+  const referenceRead = (name, id, tab, position, onError) => ({
+    parameters: {
+      authentication: 'serviceAccount',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: tab, mode: 'name' },
+      options: { returnAllMatches: true },
+    },
+    id,
+    name,
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position,
+    alwaysOutputData: true,
+    executeOnce: true,
+    onError,
+  });
+
+  nodes.push(referenceRead('Read Conversations', 'mvp-read-conv', 'Conversations', [1040, -200], 'stopWorkflow'));
+  nodes.push(referenceRead('Read Agents', 'mvp-read-agents', 'Agents', [1280, -200], 'stopWorkflow'));
+  nodes.push(referenceRead('Read Categories', 'mvp-read-categories', 'Categories', [1520, -200], 'continueRegularOutput'));
+
+  // -- The one decision node ------------------------------------------------
+  nodes.push(
+    codeNode(
+      'Resolve, Classify & Assign',
+      'mvp-resolve',
+      [1760, -200],
+      ['conversation.js', 'assignment.js', 'classify.js'],
+      [
+        "const events = $('Parse & Normalize Events').all()",
+        '  .map((i) => i.json)',
+        "  .filter((e) => e && e.kind === 'message');",
+        '',
+        '// Every dedupe_key the Messages sheet already holds for this batch. The',
+        "// lookup was filtered by each event's own key, so the union of what came",
+        '// back IS the set of keys already stored. No paired-item bookkeeping,',
+        '// and it behaves the same for one message or a batch of ten.',
+        'const alreadyStored = new Set(',
+        "  $('Lookup Duplicate').all()",
+        '    .map((i) => i.json)',
+        '    .filter((r) => r && r.dedupe_key)',
+        '    .map((r) => String(r.dedupe_key))',
+        ');',
+        '',
+        "const conversations = $('Read Conversations').all()",
+        '  .map((i) => i.json).filter((r) => r && r.conversation_id);',
+        "const agentRows = $('Read Agents').all()",
+        '  .map((i) => i.json).filter((a) => a && a.agent_id);',
+        "const categoryRows = $('Read Categories').all()",
+        '  .map((i) => i.json).filter((c) => c && (c.category_id || c.name));',
+        '',
+        'const nowIso = new Date().toISOString();',
+        "const reopenClosed = String($env.REOPEN_CLOSED_CONVERSATIONS || 'true') !== 'false';",
+        "const strategy = $env.ASSIGNMENT_STRATEGY || 'LEAST_OPEN_CONVERSATIONS';",
+        '',
+        '// Load derived from the conversations that actually exist, NOT from the',
+        '// Agents.open_conversations counter. Incremented in memory as we assign,',
+        '// so two messages arriving in ONE webhook cannot both go to one agent.',
+        'const load = countOpenConversationsByAgent(conversations);',
+        '',
+        '// Conversations decided earlier in this same batch, so a customer who',
+        '// sends two messages at once gets one conversation, not two.',
+        'const decidedInBatch = {};',
+        'const out = [];',
+        '',
+        'for (const event of events) {',
+        "  const dedupeKey = String(event.dedupe_key || '');",
+        '  if (alreadyStored.has(dedupeKey)) {',
+        '    // Meta retried something we already stored. Correct action: nothing.',
+        '    console.log(JSON.stringify({',
+        "      event: 'duplicate_skipped',",
+        '      correlation_id: event.correlation_id,',
+        '      dedupe_key: dedupeKey,',
+        '    }));',
+        '    continue;',
+        '  }',
+        '',
+        "  const customerPhone = event.customer_phone_e164 || event.customer_phone || '';",
+        "  const batchKey = String(event.business_phone_number_id || '') + '|' + customerPhone;",
+        '',
+        '  // ---- which conversation does this belong to? ----',
+        '  let existing = decidedInBatch[batchKey] || null;',
+        '  if (!existing) {',
+        '    // Scoped to the same business number: one customer messaging two of',
+        '    // your numbers must get two independent conversations.',
+        '    const mine = conversations.filter((r) =>',
+        "      String(r.business_phone_number_id || '') === String(event.business_phone_number_id || '') &&",
+        "      String(r.customer_phone || '') === String(customerPhone));",
+        '    const byRecency = (a, b) =>',
+        '      Date.parse(b.last_activity_at || 0) - Date.parse(a.last_activity_at || 0);',
+        "    const open = mine.filter((r) => r.status !== 'CLOSED').sort(byRecency);",
+        "    const closed = mine.filter((r) => r.status === 'CLOSED').sort(byRecency);",
+        '    existing = open[0] || (reopenClosed ? closed[0] || null : null);',
+        '  }',
+        '',
+        '  // ---- classify ----',
+        '  // Only real words are classified. A bare image or location has none,',
+        "  // and its preview ('[location] ...') would match a keyword like",
+        '  // "location" and file a confident false positive.',
+        '  const classification = classify(event.has_text ? event.text : null, categoryRows);',
+        '',
+        '  // ---- conversation row ----',
+        '  let row;',
+        '  let needsAssignment;',
+        '',
+        '  if (existing) {',
+        '    const built = buildCustomerMessageUpdate(existing, event, { now_iso: nowIso, reopenClosed });',
+        '    // ONLY the changed fields plus the key. The Sheets node maps every',
+        '    // top-level field it recognises, so sending the whole existing row',
+        '    // back would overwrite a reply a manager typed a second ago.',
+        '    row = Object.assign({ conversation_id: existing.conversation_id }, built.update);',
+        "    needsAssignment = !String(existing.assigned_agent_id || '').trim();",
+        '',
+        '    // Keep the category the conversation already has unless this message',
+        '    // genuinely matched something else. An unmatched follow-up ("tamam,',
+        '    // shukran") must not reset the conversation to the fallback category.',
+        '    if (classification.matched) row.category = classification.category;',
+        '  } else {',
+        '    row = buildNewConversationRow({',
+        '      customer_phone: customerPhone,',
+        '      customer_name: event.customer_name,',
+        '      business_phone_number_id: event.business_phone_number_id,',
+        '      last_message: event.preview,',
+        '      last_message_id: event.message_id,',
+        '      last_customer_message_at: event.timestamp_iso,',
+        '      wa_link: event.wa_link,',
+        '      now_iso: nowIso,',
+        '    });',
+        '    row.category = classification.category;',
+        '    needsAssignment = true;',
+        '  }',
+        '',
+        '  // ---- assign ----',
+        '  let decision = null;',
+        '  if (needsAssignment) {',
+        '    decision = selectAgent(withLiveLoad(agentRows, load), { strategy });',
+        '    if (decision.assigned) {',
+        '      load[decision.agent.agent_id] = (load[decision.agent.agent_id] || 0) + 1;',
+        '      row.assigned_agent_id = decision.agent.agent_id;',
+        '      row.assigned_agent_name = decision.agent.name;',
+        "      row.status = 'UNANSWERED';",
+        "      row.unassigned_reason = '';",
+        '    } else {',
+        '      // Never dropped: it waits in the queue with the reason recorded.',
+        "      row.status = 'WAITING_FOR_AGENT';",
+        "      row.unassigned_reason = decision.reason || '';",
+        '    }',
+        '  }',
+        '',
+        '  const assignedAgentId = row.assigned_agent_id !== undefined',
+        '    ? row.assigned_agent_id',
+        "    : (existing ? existing.assigned_agent_id || '' : '');",
+        '',
+        '  // Remember the decision so the next message in this batch sees it.',
+        '  decidedInBatch[batchKey] = Object.assign({}, existing || {}, row, {',
+        '    business_phone_number_id: event.business_phone_number_id,',
+        '    customer_phone: customerPhone,',
+        '    assigned_agent_id: assignedAgentId,',
+        '  });',
+        '',
+        '  console.log(JSON.stringify({',
+        "    event: 'message_resolved',",
+        '    correlation_id: event.correlation_id,',
+        '    conversation_id: row.conversation_id,',
+        '    created: !existing,',
+        '    category: classification.category,',
+        '    category_reason: classification.reason,',
+        '    assigned_agent_id: assignedAgentId,',
+        "    assignment_reason: decision ? (decision.reason || 'assigned') : 'already_assigned',",
+        '  }));',
+        '',
+        '  // Context the Messages and Log nodes need. Deliberately NOT a spread of',
+        '  // `event`: it carries `customer_phone` in its raw pre-normalization form',
+        '  // and `status` meaning something else entirely, and both are',
+        '  // Conversations column names. Spreading it would silently overwrite good',
+        '  // data with bad. `row` goes LAST so it wins any remaining clash.',
+        '  out.push({ json: Object.assign({',
+        "    sheet_operation: existing ? 'update' : 'append',",
+        '    message_id: event.message_id,',
+        '    dedupe_key: event.dedupe_key,',
+        '    correlation_id: event.correlation_id,',
+        '    message_type: event.message_type,',
+        '    message_text: event.preview,',
+        '    message_timestamp: event.timestamp_iso,',
+        '    supported: event.supported,',
+        '    processing_status: event.processing_status,',
+        '    sender_phone: customerPhone,',
+        "    recipient_phone: event.business_display_phone_number || '',",
+        "    media_id: event.media_id || '',",
+        '    message_category: classification.category,',
+        '    classification_reason: classification.reason,',
+        "    matched_keywords: classification.matched_keywords.join(', '),",
+        '    agent_id: assignedAgentId,',
+        "    log_event_type: decision && !decision.assigned ? 'WAITING_FOR_AGENT' : 'MESSAGE_RECORDED',",
+        '    assignment_audit: decision ? decision.evaluated.map((a) => ({',
+        '      agent_id: a.agent_id,',
+        '      eligible: a.eligible,',
+        '      reasons: a.ineligible_reasons,',
+        '      open: a.open_conversations,',
+        '      max: a.max_open_conversations,',
+        '    })) : [],',
+        '  }, row) });',
+        '}',
+        '',
+        'console.log(JSON.stringify({',
+        "  event: 'batch_done',",
+        '  received: events.length,',
+        '  written: out.length,',
+        '  skipped_duplicates: events.length - out.length,',
+        '}));',
+        '',
+        'return out;',
+      ].join('\n')
+    )
+  );
+
+  // -- Writes ---------------------------------------------------------------
+  nodes.push({
+    parameters: {
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          {
+            id: 'mvp-is-append',
+            leftValue: '={{ $json.sheet_operation }}',
+            rightValue: 'append',
+            operator: { type: 'string', operation: 'equals' },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+    id: 'mvp-if-append',
+    name: 'Create Or Update?',
+    type: 'n8n-nodes-base.if',
+    typeVersion: NODE_VERSION.if,
+    position: [2000, -200],
+  });
+
+  nodes.push({
+    parameters: {
+      operation: 'append',
+      authentication: 'serviceAccount',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      columns: { mappingMode: 'autoMapInputData', value: {} },
+      options: {},
+    },
+    id: 'mvp-append-conv',
+    name: 'Append Conversation',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [2240, -320],
+        // Losing this write loses the customer's message. STOP so the execution is
+    // recorded as failed and the error workflow can see it. The alternative,
+    // continueErrorOutput with nothing wired to the error branch, reports a
+    // SUCCESSFUL execution while the row silently goes nowhere — verified
+    // against a live n8n with no Sheets credential: the node "finished" in 2ms
+    // and the workflow was logged as a success.
+    onError: 'stopWorkflow',
+  });
+
+  nodes.push({
+    parameters: {
+      operation: 'update',
+      authentication: 'serviceAccount',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      columns: { mappingMode: 'autoMapInputData', value: {}, matchingColumns: ['conversation_id'] },
+      options: {},
+    },
+    id: 'mvp-update-conv',
+    name: 'Update Conversation',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [2240, -80],
+        // Losing this write loses the customer's message. STOP so the execution is
+    // recorded as failed and the error workflow can see it. The alternative,
+    // continueErrorOutput with nothing wired to the error branch, reports a
+    // SUCCESSFUL execution while the row silently goes nowhere — verified
+    // against a live n8n with no Sheets credential: the node "finished" in 2ms
+    // and the workflow was logged as a success.
+    onError: 'stopWorkflow',
+  });
+
+  nodes.push({
+    parameters: {
+      operation: 'append',
+      authentication: 'serviceAccount',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Messages', mode: 'name' },
+      columns: {
+        mappingMode: 'defineBelow',
+        value: {
+          message_id: '={{ $json.message_id }}',
+          dedupe_key: '={{ $json.dedupe_key }}',
+          conversation_id: '={{ $json.conversation_id }}',
+          direction: 'inbound',
+          sender_phone: '={{ $json.sender_phone }}',
+          recipient_phone: '={{ $json.recipient_phone }}',
+          message_type: '={{ $json.message_type }}',
+          text: '={{ $json.message_text }}',
+          timestamp: '={{ $json.message_timestamp }}',
+          status: 'RECEIVED',
+          agent_id: '={{ $json.agent_id }}',
+          sent_via: 'meta_cloud_api',
+          supported: '={{ $json.supported }}',
+          processing_status: '={{ $json.processing_status }}',
+          correlation_id: '={{ $json.correlation_id }}',
+          raw_event_reference: '={{ $json.media_id }}',
+          created_at: '={{ $now.toISO() }}',
+          category: '={{ $json.message_category }}',
+        },
+      },
+      options: {},
+    },
+    id: 'mvp-append-msg',
+    name: 'Append Message',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [2480, -200],
+        // Losing this write loses the customer's message. STOP so the execution is
+    // recorded as failed and the error workflow can see it. The alternative,
+    // continueErrorOutput with nothing wired to the error branch, reports a
+    // SUCCESSFUL execution while the row silently goes nowhere — verified
+    // against a live n8n with no Sheets credential: the node "finished" in 2ms
+    // and the workflow was logged as a success.
+    onError: 'stopWorkflow',
+  });
+
+  nodes.push({
+    parameters: {
+      operation: 'append',
+      authentication: 'serviceAccount',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Log', mode: 'name' },
+      columns: {
+        mappingMode: 'defineBelow',
+        value: {
+          event_id: '={{ $json.correlation_id }}',
+          event_type: '={{ $json.log_event_type }}',
+          conversation_id: '={{ $json.conversation_id }}',
+          message_id: '={{ $json.message_id }}',
+          source: 'mvp_workflow',
+          timestamp: '={{ $now.toISO() }}',
+          status: '={{ $json.status }}',
+          error: '={{ $json.unassigned_reason }}',
+          details:
+            '={{ JSON.stringify({ category: $json.category, classification: $json.classification_reason, keywords: $json.matched_keywords, agents: $json.assignment_audit }) }}',
+        },
+      },
+      options: {},
+    },
+    id: 'mvp-audit',
+    name: 'Audit Decision',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [2720, -200],
+    onError: 'continueRegularOutput',
+  });
+
+  nodes.push(
+    stickyNote(
+      [
+        '## Workflow 0 — MVP inbound path',
+        '',
+        'The whole inbound journey in one workflow: verify, ack, parse, dedupe,',
+        'resolve the conversation, classify it, assign an agent, write the rows.',
+        '',
+        '### It does not conflict with workflows 1-8',
+        'Different workflow id, different webhook path (`whatsapp/mvp`), and only',
+        'additive sheet columns. Point Meta at ONE of the two URLs. Both can be',
+        'imported and active at the same time — only the one Meta calls does work.',
+        '',
+        '### Agent load is counted, not stored',
+        'It never writes `Agents.open_conversations`. Load is counted from the',
+        'Conversations rows it already read, so there is no counter to drift and',
+        'no need for concurrency 1.',
+        '',
+        'If you switch BACK to workflows 1-3 afterwards, run "Recalculate agent',
+        'workload" from the sheet menu first — the counter will be stale.',
+      ].join('\n'),
+      [-640, -740],
+      380,
+      660,
+      4
+    )
+  );
+
+  nodes.push(
+    stickyNote(
+      [
+        '## Categories tab drives classification',
+        '',
+        'Every message is matched against the `Categories` tab: category name,',
+        'keywords, priority. Add a product line by adding a row — no rebuild, no',
+        're-import, no developer.',
+        '',
+        'Lower `priority` wins a tie, so a message hitting both a complaint',
+        'keyword and a pricing keyword files as the complaint.',
+        '',
+        'Only messages with real text are classified. An image or a location has',
+        'no words to match and gets the fallback category.',
+      ].join('\n'),
+      [1280, -740],
+      320,
+      560,
+      6
+    )
+  );
+
+  connections['Meta Verification (GET)'] = { main: [[{ node: 'Verify Handshake', type: 'main', index: 0 }]] };
+  connections['Verify Handshake'] = { main: [[{ node: 'Respond Challenge', type: 'main', index: 0 }]] };
+  connections['Meta Events (POST)'] = { main: [[{ node: 'Verify Signature', type: 'main', index: 0 }]] };
+  connections['Verify Signature'] = { main: [[{ node: 'Signature Valid?', type: 'main', index: 0 }]] };
+  connections['Signature Valid?'] = {
+    main: [
+      [{ node: 'Ack 200 Immediately', type: 'main', index: 0 }],
+      [{ node: 'Reject 401', type: 'main', index: 0 }],
+    ],
+  };
+  connections['Ack 200 Immediately'] = { main: [[{ node: 'Parse & Normalize Events', type: 'main', index: 0 }]] };
+  connections['Parse & Normalize Events'] = { main: [[{ node: 'Route By Event Kind', type: 'main', index: 0 }]] };
+  connections['Route By Event Kind'] = {
+    main: [
+      [{ node: 'Lookup Duplicate', type: 'main', index: 0 }],
+      [{ node: 'Not Handled In MVP', type: 'main', index: 0 }],
+    ],
+  };
+  connections['Lookup Duplicate'] = { main: [[{ node: 'Read Conversations', type: 'main', index: 0 }]] };
+  connections['Read Conversations'] = { main: [[{ node: 'Read Agents', type: 'main', index: 0 }]] };
+  connections['Read Agents'] = { main: [[{ node: 'Read Categories', type: 'main', index: 0 }]] };
+  connections['Read Categories'] = { main: [[{ node: 'Resolve, Classify & Assign', type: 'main', index: 0 }]] };
+  connections['Resolve, Classify & Assign'] = { main: [[{ node: 'Create Or Update?', type: 'main', index: 0 }]] };
+  connections['Create Or Update?'] = {
+    main: [
+      [{ node: 'Append Conversation', type: 'main', index: 0 }],
+      [{ node: 'Update Conversation', type: 'main', index: 0 }],
+    ],
+  };
+  connections['Append Conversation'] = { main: [[{ node: 'Append Message', type: 'main', index: 0 }]] };
+  connections['Update Conversation'] = { main: [[{ node: 'Append Message', type: 'main', index: 0 }]] };
+  connections['Append Message'] = { main: [[{ node: 'Audit Decision', type: 'main', index: 0 }]] };
+
+  return {
+    id: WORKFLOW_ID.mvp,
+    name: 'WhatsApp — 0 MVP Inbound',
+    nodes,
+    connections,
+    settings: {
+      executionOrder: 'v1',
+      saveManualExecutions: true,
+      saveExecutionProgress: true,
+      executionTimeout: 300,
+      // No concurrency limit. Workflow 3 needs one because it increments a
+      // counter; this one derives load from rows it reads, so parallel
+      // executions cannot corrupt a shared value.
+    },
+    tags: [],
+  };
+}
+
+// ===========================================================================
 // Build + write
 // ===========================================================================
 const WORKFLOWS = [
+  { file: '00-mvp-inbound.json', build: buildMvpWorkflow },
   { file: '01-webhook-receiver.json', build: buildWebhookReceiver },
   { file: '02-message-processor.json', build: buildMessageProcessor },
   { file: '03-conversation-assignment.json', build: buildConversationAndAssignment },

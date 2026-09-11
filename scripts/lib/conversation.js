@@ -36,6 +36,12 @@ const STATUS = {
   WAITING_FOR_CUSTOMER: 'WAITING_FOR_CUSTOMER',
   /** Explicitly ended. Only a human/automation closes; customers never close. */
   CLOSED: 'CLOSED',
+  /**
+   * Moved out of the working sheet. Set by a human choosing it from the
+   * dropdown, which triggers an immediate move to the Archive tab.
+   * Like CLOSED it is not an open state, so it frees the agent's capacity.
+   */
+  ARCHIVED: 'ARCHIVED',
 };
 
 /** States that count against an agent's open-conversation capacity. */
@@ -189,13 +195,21 @@ function buildNewConversationRow(input) {
     generateConversationId(i.business_phone_number_id, i.customer_phone, Date.parse(nowIso));
 
   return {
-    conversation_id: conversationId,
-    customer_phone: i.customer_phone || '',
+    // --- business-facing, kept first so the sheet reads left to right ---
     customer_name: i.customer_name || '',
-    business_phone_number_id: i.business_phone_number_id || '',
-    assigned_agent_id: i.assigned_agent_id || '',
+    customer_phone: i.customer_phone || '',
     assigned_agent_name: i.assigned_agent_name || '',
     status: i.status || STATUS.WAITING_FOR_AGENT,
+    // Filled in by a human, never by the system. The update builders must not
+    // include these, or a manual entry would be wiped on the next message.
+    product: '',
+    quantity: '',
+    // first_message_at is written once and never updated, so response time can
+    // be measured against when the customer first made contact.
+    first_message_at: i.last_customer_message_at || nowIso,
+    conversation_id: conversationId,
+    business_phone_number_id: i.business_phone_number_id || '',
+    assigned_agent_id: i.assigned_agent_id || '',
     last_message: i.last_message || '',
     last_message_id: i.last_message_id || '',
     last_message_direction: i.last_message_direction || 'inbound',
@@ -311,11 +325,47 @@ function isInactivityCloseEligible(conversation, opts) {
   return { eligible: true, reason: 'INACTIVE_BEYOND_THRESHOLD', idle_hours: idleHours };
 }
 
+/**
+ * Count each agent's currently-open conversations directly from the
+ * Conversations rows.
+ *
+ * This is the alternative to the denormalized `Agents.open_conversations`
+ * counter. The counter has to be incremented on assignment and decremented on
+ * close, and Google Sheets has no atomic compare-and-set, so two executions can
+ * read the same value and both write it back — the drift that
+ * `recalculateAgentLoad()` in the Apps Script exists to repair. Deriving the
+ * number from the rows that actually exist cannot drift, because there is no
+ * second copy of the truth to disagree with.
+ *
+ * The cost is reading the Conversations tab instead of a single cell. The MVP
+ * workflow already reads that tab to find the customer's existing conversation,
+ * so counting here is free — same rows, one pass.
+ *
+ * @param {Array<object>} rows  Rows from the Conversations sheet.
+ * @returns {object}            Map of agent_id -> open conversation count.
+ */
+function countOpenConversationsByAgent(rows) {
+  const counts = {};
+
+  for (const row of rows || []) {
+    if (!row || typeof row !== 'object') continue;
+
+    const agentId = String(row.assigned_agent_id || '').trim();
+    if (!agentId) continue;                       // unassigned: nobody's load
+    if (!isOpenStatus(String(row.status || '').trim())) continue;
+
+    counts[agentId] = (counts[agentId] || 0) + 1;
+  }
+
+  return counts;
+}
+
 module.exports = {
   STATUS,
   OPEN_STATUSES,
   EVENT,
   isOpenStatus,
+  countOpenConversationsByAgent,
   generateConversationId,
   nextStatus,
   buildNewConversationRow,

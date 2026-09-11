@@ -1,7 +1,11 @@
 # Google Sheets Schema
 
-Four sheets in one spreadsheet. Ready-to-paste header rows and sample data are
+Five sheets in one spreadsheet. Ready-to-paste header rows and sample data are
 in [`sheets-templates/`](../sheets-templates/).
+
+`Categories` is only read by the MVP workflow
+([MVP_WORKFLOW.md](MVP_WORKFLOW.md)); workflows 1-8 ignore it, and ignore the
+`category` column it fills in.
 
 **Golden rule:** one row per *thing*.
 One row per conversation in `Conversations`. One row per message in `Messages`.
@@ -43,8 +47,9 @@ node scripts/validation/check-schema-consistency.js
 ## Manual setup
 
 1. Create a new Google Sheet.
-2. Create four tabs named exactly: `Agents`, `Conversations`, `Messages`,
-   `Log`. Names are case-sensitive and are referenced by the workflows.
+2. Create five tabs named exactly: `Agents`, `Conversations`, `Messages`,
+   `Log`, `Categories`. Names are case-sensitive and are referenced by the
+   workflows.
 3. Paste the header row from the matching file in `sheets-templates/` into
    row 1 of each tab.
 4. **Freeze row 1** on every tab: *View → Freeze → 1 row*.
@@ -149,6 +154,7 @@ One row per conversation. This is the sheet managers actually live in.
 | `reply_status` | text | system | Blank = pending, then `SENT` or `FAILED` |
 | `reply_error` | text | system | Why a reply failed |
 | `reply_sent_at` | ISO-8601 UTC | system | When it was sent |
+| `category` | text | **system** | What the customer is asking about. Written by the MVP workflow from the `Categories` tab; blank under workflows 1-8 |
 
 ### Replying from the sheet
 
@@ -232,6 +238,7 @@ the deduplication store.
 | `correlation_id` | text | Traces one webhook across all sheets and logs |
 | `raw_event_reference` | text | Media id, so the file can be fetched later |
 | `created_at` | ISO-8601 UTC | When we wrote the row |
+| `category` | text | This message's own classification. The conversation's `category` is the latest message that actually matched — per-message values let you see a thread that started as a price enquiry and became a complaint |
 
 ### Why `dedupe_key` and not just `message_id`
 
@@ -299,6 +306,38 @@ row → decision context → n8n execution for the raw bytes if truly needed.
 | corr-a1b2c3d4e5f60718 | AGENT_ASSIGNED | CONV-1065…-9627…-1788969600000 | assignment_engine | ASSIGNED | `[{"agent_id":"A1","eligible":false,"reasons":["AT_CAPACITY"],"open":5,"max":5},{"agent_id":"A2","eligible":true,"reasons":[],"open":3,"max":5}]` |
 
 That row answers "why did A2 get it and not A1" without any guesswork.
+
+---
+
+## Sheet 5 — `Categories`
+
+Routing configuration for the MVP workflow's classifier. **Edited by the
+business, never by the system** — add a product line by adding a row, with no
+rebuild, no re-import and no developer.
+
+| Column | Type | Notes |
+|---|---|---|
+| `category_id` | text | Stable key, e.g. `C-PRICE`. Never reuse. |
+| `name` | text | What lands in the `category` column |
+| `keywords` | text | Comma-separated. `,` `،` `\|` `;` and newlines all work |
+| `priority` | number | **Lower wins a tie.** Complaints at 5 beat pricing at 20 |
+| `active` | TRUE/FALSE | Uncheck to switch a category off without deleting it |
+| `notes` | text | Free text for whoever maintains the list |
+
+`setupEverything` seeds seven starter categories — complaint, support, price,
+order, delivery, warranty, general — but only into an **empty** tab. Re-running
+it never overwrites categories you have tuned.
+
+The matching rules, the Arabic normalization, and the cases where a message is
+deliberately left unclassified are in
+[MVP_WORKFLOW.md](MVP_WORKFLOW.md#the-categories-tab).
+
+### Why a tab and not a config file
+
+Category lists change with the business, not with the code. Keywords are the one
+part of this system whose correctness only the people reading the messages can
+judge — so they live where those people already work, and changing them needs no
+deploy.
 
 ---
 

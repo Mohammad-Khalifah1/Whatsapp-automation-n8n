@@ -242,8 +242,45 @@ function selectAgent(rawAgents, options) {
   };
 }
 
+/**
+ * Overlay live conversation counts onto the agent rows before selection.
+ *
+ * `selectAgent` reads `open_conversations` off each agent row. By default that
+ * value is the denormalized counter maintained in the Agents sheet. Passing the
+ * rows through here first replaces it with a count derived from the
+ * Conversations sheet (see `countOpenConversationsByAgent` in conversation.js),
+ * so selection is based on what is actually open rather than on a counter that
+ * can drift.
+ *
+ * The original counter is preserved as `open_conversations_counter` so an
+ * operator comparing the two can see the drift rather than having it silently
+ * overwritten.
+ *
+ * @param {Array<object>} rawAgents  Rows from the Agents sheet.
+ * @param {object} loadMap           agent_id -> open count.
+ * @returns {Array<object>}          Copies, with open_conversations replaced.
+ */
+function withLiveLoad(rawAgents, loadMap) {
+  const loads = loadMap || {};
+
+  return (rawAgents || []).map(function (agent) {
+    if (!agent || typeof agent !== 'object') return agent;
+    const id = String(agent.agent_id || '').trim();
+    // An agent with no open conversations has no entry in the map, which is
+    // zero — not "unknown". Falling back to the stale counter here would
+    // reintroduce exactly the drift this function removes.
+    const live = Object.prototype.hasOwnProperty.call(loads, id) ? loads[id] : 0;
+
+    return Object.assign({}, agent, {
+      open_conversations: live,
+      open_conversations_counter: agent.open_conversations,
+    });
+  });
+}
+
 module.exports = {
   selectAgent,
+  withLiveLoad,
   evaluateAgent,
   compareLeastOpen,
   compareRoundRobin,

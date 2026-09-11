@@ -98,3 +98,49 @@ scratch*.txt
 /tokens
 /secret
 /auth
+/accesstoken
+/accessToken
+/access_token
+/token
+/apikey
+/api_key
+/appsecret
+/app_secret
+/password*
+/private*
+
+# ==============================================================================
+# Extension-less scratch files at the repo root.
+#
+# Chasing individual names (meta, accesstoken, newtoken, ...) lost the race
+# repeatedly. Ignore every extension-less root file, then re-include the few
+# that belong in version control BY NAME.
+#
+# Deliberately NOT using `!/*.*` to re-include dotted files: that pattern also
+# re-includes .env, keys.txt and SHEETKEYS.TXT. It was tried, it staged .env,
+# and it is exactly the mistake this block exists to prevent.
+# ==============================================================================
+/*
+!/*/
+!/.gitignore
+!/.gitattributes
+!/.env.example
+!/.env.prod.example
+!/*.md
+!/*.yml
+!/*.yaml
+!/*.json
+!/*.js
+!/Caddyfile
+!/LICENSE
+
+# Re-assert the secret rules LAST so nothing above can resurrect them.
+.env
+.env.*
+!.env.example
+!.env.prod.example
+keys.txt
+KEYS.TXT
+*[Kk][Ee][Yy][Ss]*
+*credential*
+*service-account*

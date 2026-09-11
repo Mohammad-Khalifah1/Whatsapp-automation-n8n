@@ -1,0 +1,8 @@
+category_id,name,keywords,priority,active,notes
+C-COMPLAINT,شكوى,"شكوى,مشكلة,زعلان,سيء,ما وصل,تأخر,متأخر,رديء,complaint,problem,late,damaged",5,TRUE,أعلى أولوية — تكسر التعادل مع أي فئة أخرى
+C-SUPPORT,دعم فني,"ما بشتغل,مابشتغل,عطل,خربان,صيانة,تركيب,اعطال,فحص,support,repair,install,broken,not working",15,TRUE,طلبات ما بعد البيع
+C-PRICE,استفسار سعر,"سعر,اسعار,بكم,كم سعر,تسعيرة,عرض سعر,كلفة,price,cost,quote,how much",20,TRUE,أكثر نوع رسائل متوقع
+C-ORDER,طلب شراء,"بدي اشتري,اشتري,اطلب,طلبية,شراء,حجز,order,buy,purchase,booking",25,TRUE,
+C-DELIVERY,توصيل وشحن,"توصيل,شحن,متى يوصل,وين الطلب,تتبع,delivery,shipping,tracking",30,TRUE,
+C-WARRANTY,كفالة وإرجاع,"كفالة,ضمان,ارجاع,استبدال,استرجاع,warranty,return,exchange,refund",35,TRUE,
+C-GENERAL,استفسار عام,"استفسار,سؤال,معلومات,دوام,عنوان,فرع,اوقات,info,question,address,hours",90,TRUE,شبكة أمان — ضعها آخر أولوية دائماً

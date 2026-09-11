@@ -27,7 +27,7 @@ const ROOT = path.join(__dirname, '..', '..');
 const TEMPLATES = path.join(ROOT, 'sheets-templates');
 const WORKFLOWS = path.join(ROOT, 'n8n', 'workflows');
 
-const TABS = ['Agents', 'Conversations', 'Messages', 'Log'];
+const TABS = ['Agents', 'Conversations', 'Messages', 'Log', 'Categories'];
 
 let failures = 0;
 let checks = 0;
