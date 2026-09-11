@@ -46,7 +46,7 @@ var SCHEMA = {
     'status', 'status_updated_at', 'agent_id', 'sent_via', 'supported',
     'processing_status', 'correlation_id', 'raw_event_reference', 'created_at'
   ],
-  Events: [
+  Log: [
     'event_id', 'event_type', 'conversation_id', 'message_id', 'source',
     'timestamp', 'status', 'error', 'details'
   ]
@@ -79,10 +79,10 @@ function setupEverything() {
   }
 
   // Archive tabs mirror their source plus archived_at.
-  report.push(ensureSheet_(ss, 'Conversations_Archive',
+  // One Archive tab, not one per source: fewer tabs is easier to work in,
+  // and only conversations are archived on a schedule.
+  report.push(ensureSheet_(ss, 'Archive',
       SCHEMA.Conversations.concat(['archived_at'])));
-  report.push(ensureSheet_(ss, 'Messages_Archive',
-      SCHEMA.Messages.concat(['archived_at'])));
 
   applyConversationRules_(ss);
   applyAgentRules_(ss);

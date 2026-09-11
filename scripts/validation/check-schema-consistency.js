@@ -27,7 +27,7 @@ const ROOT = path.join(__dirname, '..', '..');
 const TEMPLATES = path.join(ROOT, 'sheets-templates');
 const WORKFLOWS = path.join(ROOT, 'n8n', 'workflows');
 
-const TABS = ['Agents', 'Conversations', 'Messages', 'Events'];
+const TABS = ['Agents', 'Conversations', 'Messages', 'Log'];
 
 let failures = 0;
 let checks = 0;
@@ -160,7 +160,7 @@ function main() {
   }
 
   // --- archive tabs must be a superset of their source ---
-  for (const pair of [['Conversations', 'Conversations_Archive'], ['Messages', 'Messages_Archive']]) {
+  for (const pair of [['Conversations', 'Archive']]) {
     const src = csvColumns(pair[0]);
     const arch = csvColumns(pair[1]);
     if (!arch) { fail(pair[1] + ': template missing'); continue; }
