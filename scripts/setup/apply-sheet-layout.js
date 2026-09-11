@@ -151,7 +151,8 @@ const COLORS = {
 /** Wide enough to read without clicking into the cell. */
 const WIDTHS = {
   customer_name: 170, customer_phone: 130, assigned_agent_name: 150, status: 165,
-  last_message: 340, last_message_type: 130, last_message_direction: 150,
+  last_message: 300, last_message_type: 130, last_message_direction: 150,
+  unanswered_count: 95, unanswered_messages: 340,
   product: 140, quantity: 80, first_message_at: 170, last_activity_at: 170,
   reply_text: 300, reply_status: 115, unread: 80, wa_link: 190,
   name: 150, agent_id: 110, phone: 130, text: 340, message_id: 150,
@@ -192,6 +193,12 @@ const NOTES = {
     'To hand a conversation over: pick a name in assigned_agent_name.',
     'To archive: set status to ARCHIVED - the row moves to Archive within a',
     'minute, and nothing is deleted.',
+    '',
+    'unanswered_messages is everything the customer has said that nobody has',
+    'answered yet, newest first. It grows with each message and is cleared the',
+    'moment a reply goes out - so a row with three lines in it is a customer',
+    'who has written three times and is still waiting. unanswered_count is the',
+    'same thing as a number, for sorting and filtering.',
     '',
     'last_message is what was said last, last_message_type is what kind of',
     'message it was, and last_message_direction says whether the customer sent',
@@ -465,7 +472,8 @@ async function main() {
         range: { sheetId, dimension: 'COLUMNS', startIndex: c, endIndex: c + 1 },
         properties: { pixelSize: WIDTHS[name] }, fields: 'pixelSize' } });
     }
-    for (const name of ['last_message', 'reply_text', 'text', 'details', 'error', 'product']) {
+    for (const name of ['last_message', 'unanswered_messages', 'reply_text', 'text',
+      'details', 'error', 'product']) {
       const c = cols.indexOf(name);
       if (c === -1) continue;
       reqs.push({ repeatCell: {

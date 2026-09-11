@@ -172,34 +172,61 @@ something.
 | 2 | `customer_phone` | text | system | E.164, no `+`. Primary key in practice. |
 | 3 | `assigned_agent_name` | dropdown | **human** or system | Dropdown fed from the `Agents` tab. Change it to hand the conversation over. |
 | 4 | `status` | dropdown | **human** or system | See below. Set `ARCHIVED` to move the row out. |
-| 5 | `last_message` | text | system | What was said last |
-| 6 | `last_message_type` | dropdown | system | `text`, `image`, `audio`, … A row reading `image` with no text is a customer who sent a photo, not one who sent nothing. |
-| 7 | `last_message_direction` | dropdown | system | `inbound` = the customer sent it, `outbound` = your team did |
-| 8 | `product` | text | **human** | Never touched by the system |
-| 9 | `quantity` | text | **human** | Never touched by the system |
-| 10 | `first_message_at` | ISO-8601 | system | First contact. Written once, never updated — response time is measured from here. |
-| 11 | `last_activity_at` | ISO-8601 | system | Drives inactivity and archiving |
-| 12 | `reply_text` | text | **human** | **Type here to send a WhatsApp message** — see below |
-| 13 | `reply_status` | dropdown | system | `SENT` or `FAILED`, written by the system |
-| 14 | `unread` | TRUE/FALSE | system | TRUE when the customer spoke last |
-| 15 | `wa_link` | URL | system | `https://wa.me/<e164>` |
-| 16 | `conversation_id` | text | system | `CONV-<biz>-<customer>-<epoch>` |
-| 17 | `assigned_agent_id` | text | system | Blank while `WAITING_FOR_AGENT` |
-| 18 | `business_phone_number_id` | text | system | Which of your numbers received it |
-| 19 | `last_message_id` | text | system | `wamid...` |
-| 20 | `last_customer_message_at` | ISO-8601 | system | |
-| 21 | `last_agent_message_at` | ISO-8601 | system | Blank until a reply is sent |
-| 22 | `created_at` | ISO-8601 | system | |
-| 23 | `updated_at` | ISO-8601 | system | |
-| 24 | `closed_at` | ISO-8601 | system | Blank unless `CLOSED`; cleared on reopen |
-| 25 | `unassigned_reason` | text | system | Why nobody was assigned; blank when assigned |
-| 26 | `reply_error` | text | system | Why a reply failed |
-| 27 | `reply_sent_at` | ISO-8601 | system | When it was sent |
+| 5 | `unanswered_count` | number | system | How many messages are still waiting for a reply |
+| 6 | `unanswered_messages` | text | system | **Every message nobody has answered yet**, newest first — see below |
+| 7 | `last_message` | text | system | What was said last |
+| 8 | `last_message_type` | dropdown | system | `text`, `image`, `audio`, … A row reading `image` with no text is a customer who sent a photo, not one who sent nothing. |
+| 9 | `last_message_direction` | dropdown | system | `inbound` = the customer sent it, `outbound` = your team did |
+| 10 | `product` | text | **human** | Never touched by the system |
+| 11 | `quantity` | text | **human** | Never touched by the system |
+| 12 | `first_message_at` | ISO-8601 | system | First contact. Written once, never updated — response time is measured from here. |
+| 13 | `last_activity_at` | ISO-8601 | system | Drives inactivity and archiving |
+| 14 | `reply_text` | text | **human** | **Type here to send a WhatsApp message** — see below |
+| 15 | `reply_status` | dropdown | system | `SENT` or `FAILED`, written by the system |
+| 16 | `unread` | TRUE/FALSE | system | TRUE when the customer spoke last |
+| 17 | `wa_link` | URL | system | `https://wa.me/<e164>` |
+| 18 | `conversation_id` | text | system | `CONV-<biz>-<customer>-<epoch>` |
+| 19 | `assigned_agent_id` | text | system | Blank while `WAITING_FOR_AGENT` |
+| 20 | `business_phone_number_id` | text | system | Which of your numbers received it |
+| 21 | `last_message_id` | text | system | `wamid...` |
+| 22 | `last_customer_message_at` | ISO-8601 | system | |
+| 23 | `last_agent_message_at` | ISO-8601 | system | Blank until a reply is sent |
+| 24 | `created_at` | ISO-8601 | system | |
+| 25 | `updated_at` | ISO-8601 | system | |
+| 26 | `closed_at` | ISO-8601 | system | Blank unless `CLOSED`; cleared on reopen |
+| 27 | `unassigned_reason` | text | system | Why nobody was assigned; blank when assigned |
+| 28 | `reply_error` | text | system | Why a reply failed |
+| 29 | `reply_sent_at` | ISO-8601 | system | When it was sent |
 
 Timestamps are ISO-8601 **with an explicit UTC offset**, in the timezone set by
 `TZ` (`Asia/Amman` here), so the sheet shows the time the team actually saw.
 The offset travels with the value, so no timestamp is ambiguous and every one
 of them sorts correctly.
+
+### The messages nobody has answered
+
+`last_message` holds one value, so a customer who writes three times before
+anyone replies leaves only the third visible in that column. The other two are
+not lost — they are in `Messages` — but they are invisible on the tab people
+actually work in, which is where "have we answered them" gets decided.
+
+`unanswered_messages` is everything still owed a reply, newest first, in one
+cell:
+
+```
+19:18  في حدا؟
+19:17  بدي أستفسر عن السعر
+19:17  السلام عليكم
+```
+
+It grows with every inbound message and is cleared the moment a reply goes out.
+Nothing else clears it — in particular, a reply that **failed** leaves it alone,
+because the customer is still waiting. `unanswered_count` is the same thing as a
+number, so the tab can be sorted or filtered by who has been waiting longest and
+the dashboard can count it.
+
+It keeps the newest 10 messages. A customer who sends forty should not make the
+row unreadable.
 
 ### Replying from the sheet
 

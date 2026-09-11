@@ -39,6 +39,20 @@ whenever someone opens a chat from the sheet.
 
 ---
 
+## Seeing what is still unanswered
+
+`unanswered_messages` shows everything the customer has said that nobody has
+answered yet, newest first, in one cell. Three lines means they have written
+three times and are still waiting.
+
+It clears itself when a reply goes out — and only then. A reply that failed
+leaves it exactly as it was, because nothing was actually answered.
+
+Sort or filter on `unanswered_count` to work the queue by who has waited
+longest.
+
+---
+
 ## Replying from the sheet
 
 **Type the message into `reply_text` and press Enter.** That is the whole

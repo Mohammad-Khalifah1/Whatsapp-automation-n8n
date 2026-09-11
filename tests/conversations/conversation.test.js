@@ -7,6 +7,7 @@
 'use strict';
 
 const {
+  appendUnanswered,
   STATUS,
   EVENT,
   isOpenStatus,
@@ -364,5 +365,68 @@ describe('sheet row must be FLAT on the item (production regression)', () => {
     const item = Object.assign({}, ctx, row);
     assert.equal(item.customer_phone, '962791234567', 'normalized value must win');
     assert.equal(item.status, STATUS.UNANSWERED);
+  });
+});
+
+describe('the backlog of messages nobody has answered', () => {
+  const at = (hhmm) => '2026-09-11T' + hhmm + ':00.000+03:00';
+
+  it('keeps every message until someone replies, newest first', () => {
+    let block = '';
+    block = appendUnanswered(block, { text: 'first', timestamp_iso: at('10:00') });
+    block = appendUnanswered(block, { text: 'second', timestamp_iso: at('10:05') });
+    block = appendUnanswered(block, { text: 'third', timestamp_iso: at('10:09') });
+
+    assert.deepEqual(block.split('\n'), [
+      '10:09  third',
+      '10:05  second',
+      '10:00  first',
+    ]);
+  });
+
+  it('shows a photo as a photo, not as an empty message', () => {
+    const block = appendUnanswered('', { message_type: 'image', timestamp_iso: at('11:00') });
+    assert.equal(block, '11:00  [image]');
+  });
+
+  it('caps the list so one talkative customer cannot make the row unreadable', () => {
+    let block = '';
+    for (let i = 0; i < 30; i += 1) {
+      block = appendUnanswered(block, { text: 'message ' + i, timestamp_iso: at('12:00') }, { maxEntries: 10 });
+    }
+    assert.equal(block.split('\n').length, 10);
+    // The newest survive, not the oldest.
+    assert.ok(block.indexOf('message 29') !== -1);
+    assert.ok(block.indexOf('message 0\n') === -1);
+  });
+
+  it('never throws on a message with nothing usable in it', () => {
+    assert.equal(typeof appendUnanswered('', {}), 'string');
+    assert.equal(typeof appendUnanswered(null, null), 'string');
+  });
+
+  it('a customer message adds to the backlog and counts it', () => {
+    const first = buildCustomerMessageUpdate(
+      { status: 'REPLIED', assigned_agent_id: 'A1' },
+      { text: 'are you there', timestamp_iso: at('09:00'), message_id: 'wamid.1' }
+    );
+    assert.equal(first.update.unanswered_count, '1');
+
+    const second = buildCustomerMessageUpdate(
+      { status: 'UNANSWERED', assigned_agent_id: 'A1', unanswered_messages: first.update.unanswered_messages },
+      { text: 'hello?', timestamp_iso: at('09:30'), message_id: 'wamid.2' }
+    );
+    assert.equal(second.update.unanswered_count, '2');
+    assert.ok(second.update.unanswered_messages.indexOf('are you there') !== -1,
+      'the earlier message must still be visible');
+  });
+
+  it('a reply clears the backlog — and that is the only thing that does', () => {
+    const replied = buildAgentMessageUpdate(
+      { status: 'UNANSWERED', assigned_agent_id: 'A1', unanswered_messages: '09:00  hello' },
+      { text: 'sorry for the wait', timestamp_iso: at('10:00'), message_id: 'wamid.3' }
+    );
+    assert.equal(replied.update.unanswered_messages, '');
+    assert.equal(replied.update.unanswered_count, '0');
   });
 });

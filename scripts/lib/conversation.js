@@ -213,6 +213,8 @@ function buildNewConversationRow(input) {
     business_phone_number_id: i.business_phone_number_id || '',
     assigned_agent_id: i.assigned_agent_id || '',
     last_message: i.last_message || '',
+    unanswered_messages: i.unanswered_messages || '',
+    unanswered_count: i.unanswered_messages ? '1' : '0',
     last_message_id: i.last_message_id || '',
     last_message_direction: i.last_message_direction || 'inbound',
     // What kind of message it was. A row reading 'image' with an empty
@@ -233,6 +235,55 @@ function buildNewConversationRow(input) {
 }
 
 /**
+ * The customer's messages that nobody has answered yet, as one readable block.
+ *
+ * WHY THIS EXISTS
+ * `last_message` holds one value, so a customer who writes three times before
+ * anyone replies leaves only the third visible. The first two are not lost -
+ * they are in the Messages tab - but they are invisible on the tab people
+ * actually work in, which is where "we answered them" gets decided. This keeps
+ * everything still owed a reply in front of whoever is looking.
+ *
+ * It is append-only until a reply goes out, and a reply clears it. That is the
+ * whole state machine.
+ *
+ * @param {string} existingBlock  What the cell holds now.
+ * @param {object} message        The inbound message.
+ * @param {object} [opts]
+ * @param {number} [opts.maxEntries=10]  Keep the newest N. A customer who sends
+ *                                       forty messages should not make the row
+ *                                       unreadable.
+ * @param {number} [opts.maxChars=1500]  Hard cap, so one pasted essay cannot
+ *                                       push the cell past what Sheets shows.
+ * @returns {string}
+ */
+function appendUnanswered(existingBlock, message, opts) {
+  const options = opts || {};
+  const maxEntries = options.maxEntries === undefined ? 10 : options.maxEntries;
+  const maxChars = options.maxChars === undefined ? 1500 : options.maxChars;
+
+  const m = message || {};
+  const text = String(m.preview || m.text || '').trim();
+  const type = String(m.message_type || 'text').trim();
+  // An image with no caption must still show as something, or the row reads as
+  // an empty message rather than as a photo waiting for an answer.
+  const body = text !== '' ? text : '[' + (type || 'message') + ']';
+
+  const stamp = m.timestamp_iso ? String(m.timestamp_iso).slice(11, 16) : '';
+  const line = (stamp ? stamp + '  ' : '') + body;
+
+  const existing = String(existingBlock || '').trim();
+  const lines = existing === '' ? [] : existing.split('\n');
+  // Newest first, matching the order of every other view in this system.
+  lines.unshift(line);
+
+  let kept = lines.slice(0, maxEntries);
+  while (kept.length > 1 && kept.join('\n').length > maxChars) kept.pop();
+
+  return kept.join('\n');
+}
+
+/**
  * Compute the field updates to apply to an existing conversation when a new
  * inbound customer message arrives. Returns ONLY changed fields, so the caller
  * writes a minimal update (fewer Sheets cells touched = fewer lost concurrent
@@ -247,8 +298,15 @@ function buildCustomerMessageUpdate(existing, message, opts) {
     hasAgent: !!(current.assigned_agent_id && String(current.assigned_agent_id).trim()),
   });
 
+  // Everything the customer has said that nobody has answered yet.
+  const unanswered = appendUnanswered(current.unanswered_messages, message, {
+    maxEntries: options.maxUnanswered,
+  });
+
   const update = {
     status: transition.next,
+    unanswered_messages: unanswered,
+    unanswered_count: String(unanswered === '' ? 0 : unanswered.split('\n').length),
     last_message: message.preview || message.text || '',
     last_message_id: message.message_id || '',
     last_message_direction: 'inbound',
@@ -287,6 +345,9 @@ function buildAgentMessageUpdate(existing, message, opts) {
 
   const update = {
     status: transition.next,
+    // Answering clears the backlog. This is the only thing that does.
+    unanswered_messages: '',
+    unanswered_count: '0',
     last_message: message.preview || message.text || '',
     last_message_id: message.message_id || '',
     last_message_direction: 'outbound',
@@ -369,6 +430,7 @@ function countOpenConversationsByAgent(rows) {
 }
 
 module.exports = {
+  appendUnanswered,
   STATUS,
   OPEN_STATUSES,
   EVENT,

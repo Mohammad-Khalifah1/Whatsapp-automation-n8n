@@ -185,7 +185,13 @@ const GOOGLE_CREDENTIAL = {
 // column for every unmatched top-level field, and the item at that point in
 // workflow 3 carries the whole pipeline context — which appended 41 internal
 // fields as real columns in a live sheet. Mapping explicitly is the fix.
-const CONVERSATION_COLUMNS = ['customer_name', 'customer_phone', 'assigned_agent_name', 'status', 'last_message', 'last_message_type', 'last_message_direction', 'product', 'quantity', 'first_message_at', 'last_activity_at', 'reply_text', 'reply_status', 'unread', 'wa_link', 'conversation_id', 'assigned_agent_id', 'business_phone_number_id', 'last_message_id', 'last_customer_message_at', 'last_agent_message_at', 'created_at', 'updated_at', 'closed_at', 'unassigned_reason', 'reply_error', 'reply_sent_at'];
+// Read from the template, never inlined as a literal. A hard-coded copy meant
+// that adding a column to Conversations.csv changed the sheet but not the
+// workflows, so the new columns were written as empty cells with nothing to
+// say why.
+const CONVERSATION_COLUMNS = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'sheets-templates', 'Conversations.csv'), 'utf8'
+).split(/\r?\n/)[0].split(',').map((c) => c.trim()).filter(Boolean);
 
 /**
  * Column map for a Conversations write.
@@ -1351,6 +1357,8 @@ function buildConversationAndAssignment() {
         '  customer_name: event.customer_name,',
         '  business_phone_number_id: event.business_phone_number_id,',
         '  last_message: event.preview,',
+        '  // The first message is, by definition, unanswered.',
+        "  unanswered_messages: appendUnanswered('', event),",
         '  last_message_id: event.message_id,',
         '  last_customer_message_at: event.timestamp_iso,',
         '  wa_link: event.wa_link,',
@@ -2856,6 +2864,8 @@ function buildReplyFromSheet() {
         "  reply_error: apiError ? ('[' + apiError.code + '] ' + String(apiError.message).slice(0, 200)) : '',",
         '  sent_at: nowIso,',
         "  new_status: ok ? 'REPLIED' : (row.status || ''),",
+        "  new_unanswered: ok ? '' : (row.unanswered_messages || ''),",
+        "  new_unanswered_count: ok ? '0' : (row.unanswered_count || ''),",
         "  new_last_message: ok ? request.text : (row.last_message || ''),",
         "  new_last_message_id: ok ? messageId : (row.last_message_id || ''),",
         "  new_last_message_type: ok ? 'text' : (row.last_message_type || 'text'),",
@@ -2885,6 +2895,8 @@ function buildReplyFromSheet() {
           reply_error: '={{ $json.reply_error }}',
           reply_sent_at: '={{ $json.sent_at }}',
           status: '={{ $json.new_status }}',
+          unanswered_messages: '={{ $json.new_unanswered }}',
+          unanswered_count: '={{ $json.new_unanswered_count }}',
           last_message: '={{ $json.new_last_message }}',
           last_message_id: '={{ $json.new_last_message_id }}',
           last_message_type: '={{ $json.new_last_message_type }}',

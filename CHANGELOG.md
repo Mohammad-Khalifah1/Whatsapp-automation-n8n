@@ -5,6 +5,41 @@ executed and observed.
 
 ---
 
+## [0.5.0] — 2026-09-11 — Nothing a customer said goes unseen
+
+### Added — the messages nobody has answered
+
+`Conversations` holds one row per CUSTOMER, so `last_message` shows only the
+latest thing they said. A customer who wrote three times before anyone replied
+left two messages invisible on the tab people actually work in — present in
+`Messages`, but not where "have we answered them" gets decided.
+
+`unanswered_messages` now carries everything still owed a reply, newest first,
+in one cell. It grows with each inbound message and is cleared the moment a
+reply goes out. A reply that **failed** leaves it alone, because nothing was
+answered. `unanswered_count` is the same thing as a number, so the queue can be
+sorted by who has waited longest.
+
+Verified live: five messages from one number accumulated in the row, and a real
+WhatsApp reply cleared it and moved the status to REPLIED.
+
+### Fixed — a hard-coded column list
+
+`build-workflows.js` held the Conversations header as a literal array. Adding a
+column to the template changed the sheet but not the workflows, so the new
+columns appeared in the tab and were written as empty cells with nothing to say
+why. It reads the template now, the way the Messages list already did.
+
+### Fixed — column visibility followed positions, not names
+
+The layout script only ever added the hidden flag, so reordering a tab left the
+old positions hidden while different columns had moved into them. That is how
+`status` disappeared from Conversations — a column with a dropdown, a colour
+rule and live data, invisible. Visibility is now set explicitly, both ways, for
+every column on every run.
+
+---
+
 ## [0.4.0] — 2026-09-11 — Live, verified end to end
 
 The system now runs against real Meta and real Google credentials on a Hostinger
