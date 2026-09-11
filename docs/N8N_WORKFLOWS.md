@@ -192,7 +192,7 @@ conversation is the most recently updated non-closed row; if only closed ones
 exist, the most recent reopens (configurable).
 
 **Assignment** is `LEAST_OPEN_CONVERSATIONS` with the documented tie-breaker
-chain. Every excluded agent and the reason is written to the Events sheet.
+chain. Every excluded agent and the reason is written to the Log sheet.
 
 > **Concurrency 1 is not optional.** Google Sheets has no atomic
 > compare-and-set, so two parallel executions can both read "Mohammad has 3
@@ -278,7 +278,7 @@ Stops as soon as no agent is eligible, rather than looping pointlessly.
 |---|---|
 | **Trigger** | Error Trigger |
 | **Input** | n8n's error payload |
-| **Output** | A row in the Events sheet |
+| **Output** | A row in the Log sheet |
 
 Set this as the **Error Workflow** in workflows 1–5, 7 and 8 (*Settings → Error
 Workflow*).
@@ -353,7 +353,7 @@ API, not from a poller.
 | | |
 |---|---|
 | **Input** | The `Conversations` tab |
-| **Output** | Rows moved to `Conversations_Archive`; an audit row per move |
+| **Output** | Rows moved to `Archive`; an audit row per move |
 | **Selects** | `status = CLOSED` **and** closed longer ago than `ARCHIVE_AFTER_DAYS` |
 
 ### Flow

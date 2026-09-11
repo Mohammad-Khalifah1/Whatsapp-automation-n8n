@@ -40,7 +40,7 @@ author can correct it.
 ### Workflow 8 — Archive Old Conversations
 
 Nightly at 03:00, moves conversations `CLOSED` longer than
-`ARCHIVE_AFTER_DAYS` (default 30) into `Conversations_Archive`.
+`ARCHIVE_AFTER_DAYS` (default 30) into `Archive`.
 
 Three safety rules: only `CLOSED` rows; copy-before-delete with
 `onError: stopWorkflow` on the copy so a failed copy can never be followed by a

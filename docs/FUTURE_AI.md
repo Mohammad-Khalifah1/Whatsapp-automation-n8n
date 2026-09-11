@@ -63,7 +63,7 @@ restructuring:
 
 1. **After assignment in workflow 3.** Add a branch that calls an enrichment
    sub-workflow without blocking persistence.
-2. **The Events sheet/table.** AI output can be recorded as events without
+2. **The Log sheet/table.** AI output can be recorded as events without
    changing any existing schema.
 3. **Workflow 4's request shape.** A suggested reply is just a `text` value an
    agent chooses to send — the send path needs no AI awareness at all.

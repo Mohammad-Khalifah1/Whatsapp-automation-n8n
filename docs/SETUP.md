@@ -144,7 +144,7 @@ Open each workflow and assign:
 ## Step 6 — Set up the spreadsheet
 
 Follow [GOOGLE_SHEETS_SCHEMA.md](GOOGLE_SHEETS_SCHEMA.md): create four tabs
-named `Agents`, `Conversations`, `Messages`, `Events`, paste the header rows
+named `Agents`, `Conversations`, `Messages`, `Log`, paste the header rows
 from [`sheets-templates/`](../sheets-templates/), freeze row 1, and put the
 spreadsheet id in `GOOGLE_SHEET_ID`.
 

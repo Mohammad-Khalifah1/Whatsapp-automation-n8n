@@ -67,11 +67,34 @@ ngrok.yml
 # anyway, and an ignored file is far better than a committed one.
 # Real secrets belong in .env (also ignored) or a password manager.
 # ==============================================================================
+# Case variants are listed explicitly: Git is case-sensitive on Linux, so a
+# lowercase-only pattern would silently fail to protect SHEETKEYS.TXT on a
+# colleague's machine or on the server even though it matches on Windows.
 keys.txt
+KEYS.TXT
 keys.*
 *keys.txt
+*KEYS.TXT
+*[Kk]eys.[Tt]xt
+*[Kk][Ee][Yy][Ss]*
 secrets.txt
+*[Ss]ecret*.txt
 token*.txt
 *token.txt
+*[Tt]oken*.txt
+*credential*
+*CREDENTIAL*
 notes-credentials*
 scratch*.txt
+*service-account*
+*.json.key
+
+# Extension-less scratch files people drop credentials into. A pattern list
+# can never be exhaustive, so `git status` before every commit and rely on
+# scripts/validation/validate-workflows.js to scan for secret shapes.
+/meta
+/metaKeys
+/creds
+/tokens
+/secret
+/auth

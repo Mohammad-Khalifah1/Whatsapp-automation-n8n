@@ -388,7 +388,7 @@ sufficient) at a public path.
 |---|---|---|
 | `/healthz` | Service alive | HTTP check |
 | Disk usage | Execution history grows | `df -h` |
-| Failed executions | Silent breakage | n8n UI, Events sheet |
+| Failed executions | Silent breakage | n8n UI, Log sheet |
 | `WAITING_FOR_AGENT` count | Staffing gaps | Conversations sheet |
 | 401s in Caddy logs | Forged webhook attempts | Caddy log |
 | Meta quality rating | Account health | WhatsApp Manager |

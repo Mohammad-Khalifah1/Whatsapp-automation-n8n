@@ -191,7 +191,7 @@ ends in `.iam.gserviceaccount.com`) → **Editor**.
 
 `GOOGLE_SHEET_ID` is wrong, or the tab name does not match. Tab names are
 case-sensitive and must be exactly `Agents`, `Conversations`, `Messages`,
-`Events`.
+`Log`.
 
 ### 429 `Quota exceeded`
 

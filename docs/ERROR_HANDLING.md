@@ -55,7 +55,7 @@ trigger, not storage size.
 
 **Symptom.** Every send fails with error code `190`.
 
-**Handling.** Recorded as `FAILED` with the code in the Events sheet.
+**Handling.** Recorded as `FAILED` with the code in the Log sheet.
 
 **Cause, almost always.** The temporary dashboard token expired after 24 hours.
 Fix by creating a System User token —

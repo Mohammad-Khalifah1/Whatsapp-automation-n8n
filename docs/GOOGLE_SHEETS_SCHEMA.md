@@ -5,7 +5,7 @@ in [`sheets-templates/`](../sheets-templates/).
 
 **Golden rule:** one row per *thing*.
 One row per conversation in `Conversations`. One row per message in `Messages`.
-One row per system event in `Events`. Messages never go in `Conversations` —
+One row per system event in `Log`. Messages never go in `Conversations` —
 that is what makes the conversation view readable by a manager.
 
 ---
@@ -44,7 +44,7 @@ node scripts/validation/check-schema-consistency.js
 
 1. Create a new Google Sheet.
 2. Create four tabs named exactly: `Agents`, `Conversations`, `Messages`,
-   `Events`. Names are case-sensitive and are referenced by the workflows.
+   `Log`. Names are case-sensitive and are referenced by the workflows.
 3. Paste the header row from the matching file in `sheets-templates/` into
    row 1 of each tab.
 4. **Freeze row 1** on every tab: *View → Freeze → 1 row*.
@@ -248,13 +248,13 @@ as duplicates. See
 | `SENT` | **The Cloud API accepted our request.** The customer has *not* necessarily received anything |
 | `DELIVERED` | Meta confirms it reached the customer's device |
 | `READ` | The customer opened it (if they have read receipts on) |
-| `FAILED` | Delivery failed. Check the Events sheet for the error code |
+| `FAILED` | Delivery failed. Check the Log sheet for the error code |
 
 `SENT` ≠ delivered. This distinction is the whole reason status webhooks exist.
 
 ---
 
-## Sheet 4 — `Events`
+## Sheet 4 — `Log`
 
 The audit and operations log. One row per system event.
 
@@ -306,7 +306,7 @@ That row answers "why did A2 get it and not A1" without any guesswork.
 
 Workflow 8 runs nightly at 03:00 and moves conversations that have been
 `CLOSED` for longer than `ARCHIVE_AFTER_DAYS` (default 30) into
-`Conversations_Archive`, keeping the working sheet small and responsive.
+`Archive`, keeping the working sheet small and responsive.
 
 Three safety rules make this non-destructive in practice:
 

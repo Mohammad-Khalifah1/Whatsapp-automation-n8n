@@ -65,7 +65,7 @@
 │ • Agents             │        │ POST /{ver}/{id}/messages│
 │ • Conversations      │        └──────────────────────────┘
 │ • Messages           │
-│ • Events (audit)     │
+│ • Log (audit)       │
 └──────────────────────┘
 ```
 

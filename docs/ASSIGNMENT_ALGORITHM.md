@@ -24,7 +24,7 @@ An agent may receive a new conversation only if **all** of these hold:
 | Has an id | `agent_id` is non-empty | `MALFORMED_RECORD` |
 
 Every excluded agent is recorded **with the reason**, and that list is written
-to the Events sheet. When someone asks "why didn't Sara get this one?", the
+to the Log sheet. When someone asks "why didn't Sara get this one?", the
 answer is in the audit row, not in a guess.
 
 ### Step 2 — ordering

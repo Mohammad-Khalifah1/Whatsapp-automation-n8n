@@ -31,7 +31,7 @@ and none of them is what limits throughput (Google Sheets quotas are).
 
 ## D-002 — Google Sheets as the MVP store
 
-**Decision.** Agents, Conversations, Messages and Events live in Google Sheets.
+**Decision.** Agents, Conversations, Messages and Log live in Google Sheets.
 
 **Why.** It gives non-technical managers a filterable, sortable, editable view
 with zero front-end work, and it lets agents be reconfigured without touching a
@@ -154,7 +154,7 @@ exactly the concurrency problem that is hardest to defend against. Acking first
 removes the most common cause of duplicate processing.
 
 **Trade-off accepted.** A `200` means "accepted", not "processed". Processing
-failures are therefore invisible to Meta and must be found in the Events sheet
+failures are therefore invisible to Meta and must be found in the Log sheet
 and n8n's execution log. This is the correct trade: Meta cannot fix our
 downstream failure by retrying, so asking it to retry helps nobody.
 

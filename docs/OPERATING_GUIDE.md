@@ -151,7 +151,7 @@ billable ones — see
 ## Archiving — keeping the sheet fast
 
 Workflow 8 runs nightly at 03:00 and moves conversations `CLOSED` for longer
-than `ARCHIVE_AFTER_DAYS` (default 30) into `Conversations_Archive`.
+than `ARCHIVE_AFTER_DAYS` (default 30) into `Archive`.
 
 | Setting | Default | Effect |
 |---|---|---|
@@ -179,7 +179,7 @@ guess.
 ### Manual archiving
 
 The same effect without waiting for the schedule: filter to `CLOSED`, select the
-rows, cut, and paste into `Conversations_Archive`. The workflow is a convenience,
+rows, cut, and paste into `Archive`. The workflow is a convenience,
 not a lock-in.
 
 ---
