@@ -74,7 +74,7 @@ every write, which is easy to misread as a credential problem.
 
 ### 1.4 Somewhere to run it
 
-A host with a **public HTTPS URL that is always reachable**. See section 4 for
+A host with a **public HTTPS URL that is always reachable**. See section 3 for
 what does and does not qualify.
 
 ### 1.5 A checklist you can send the client
@@ -233,7 +233,75 @@ promising it to a client will produce lost messages.
 
 ---
 
-## 4. What is not included, and what it would take
+## 4. Every tool and account this uses
+
+Nothing else. There is no hidden service and no paid dependency.
+
+| What | Where | Cost | What it does here |
+|---|---|---|---|
+| **WhatsApp Cloud API** | developers.facebook.com | $0 for support replies | Receives customer messages, sends replies |
+| **Meta Business Suite** | business.facebook.com | $0 | Owns the WhatsApp account, issues the token |
+| **n8n**, self-hosted | docs.n8n.io | $0 | Runs the eight workflows |
+| **Docker + Docker Compose** | docker.com | $0 | One container, one file, one volume |
+| **Google Sheets** | sheets.google.com | $0 | The database and the user interface |
+| **Google Cloud** | console.cloud.google.com | $0 | Only to enable the Sheets API and hold the service account |
+| **A VPS** | any provider | $5–8 / month | Somewhere always-on for the container |
+| **nginx** | nginx.org | $0 | HTTPS in front of n8n |
+| **Let's Encrypt** | letsencrypt.org | $0 | The certificate, renewed automatically |
+| **sslip.io** | sslip.io | $0 | A hostname without registering a domain |
+| **Node.js** | nodejs.org | $0 | Runs the build, validation and verification scripts |
+
+The repository itself has **no npm dependencies**. `node tests/run-tests.js`
+works on a clean machine with nothing installed but Node.
+
+---
+
+## 5. Installing it for a different business
+
+The system is not tied to this client. Everything that identifies one is an
+environment variable or a row in a spreadsheet.
+
+**What changes:** `.env` and the spreadsheet.
+
+```
+1. Create the Meta app, WABA and phone number for the new business
+   -> META_APP_SECRET, META_WABA_ID, META_PHONE_NUMBER_ID, META_ACCESS_TOKEN
+
+2. Create a spreadsheet, share it with the service account as Editor
+   -> GOOGLE_SHEET_ID
+
+3. Copy .env.example to .env and fill it in
+   node scripts/validation/check-env.js        # says what is missing
+
+4. Build the sheet
+   node scripts/setup/apply-sheet-layout.js    # tabs, columns, dropdowns, colours
+   node scripts/setup/build-dashboard.js       # after you add the agents
+
+5. Deploy
+   node scripts/setup/build-workflows.js
+   node scripts/setup/import-workflows.js      # imports AND publishes all eight
+   docker compose restart
+
+6. Point Meta's webhook at https://<host>/webhook/whatsapp/webhook
+   and subscribe the WABA to the app - both, not just the first
+
+7. Prove it
+   node scripts/testing/verify-live.js --real-send=<a number you control>
+```
+
+**What does not change:** no code. Not the workflows, not the business logic,
+not the sheet schema. Adding, removing or rate-limiting an agent is a row in the
+`Agents` tab, not a deployment.
+
+**One VPS can host several businesses.** Each gets its own directory, its own
+`.env`, its own container name, its own webhook path and its own port, exactly
+the way this deployment sits in `/opt/n8n-1` alongside unrelated projects
+without touching them. The cost of the second business is the spreadsheet and
+the Meta account, both $0 — the server is already paid for.
+
+---
+
+## 6. What is not included, and what it would take
 
 | Ask | Reality |
 |---|---|
