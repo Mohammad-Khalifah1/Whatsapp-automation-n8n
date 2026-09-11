@@ -11,6 +11,8 @@
 
 'use strict';
 
+const { localIso } = require('./time');
+
 /**
  * Conversation states.
  *
@@ -189,7 +191,7 @@ function nextStatus(currentStatus, event, ctx) {
  */
 function buildNewConversationRow(input) {
   const i = input || {};
-  const nowIso = i.now_iso || new Date().toISOString();
+  const nowIso = i.now_iso || localIso();
   const conversationId =
     i.conversation_id ||
     generateConversationId(i.business_phone_number_id, i.customer_phone, Date.parse(nowIso));
@@ -213,6 +215,10 @@ function buildNewConversationRow(input) {
     last_message: i.last_message || '',
     last_message_id: i.last_message_id || '',
     last_message_direction: i.last_message_direction || 'inbound',
+    // What kind of message it was. A row reading 'image' with an empty
+    // last_message is a customer who sent a photo, not a customer who sent
+    // nothing - which is the difference between answering and ignoring them.
+    last_message_type: i.last_message_type || 'text',
     last_customer_message_at: i.last_customer_message_at || nowIso,
     last_agent_message_at: '',
     last_activity_at: nowIso,
@@ -234,7 +240,7 @@ function buildNewConversationRow(input) {
  */
 function buildCustomerMessageUpdate(existing, message, opts) {
   const options = opts || {};
-  const nowIso = options.now_iso || new Date().toISOString();
+  const nowIso = options.now_iso || localIso();
   const current = existing || {};
   const transition = nextStatus(current.status || null, EVENT.CUSTOMER_MESSAGE, {
     reopenClosed: options.reopenClosed,
@@ -246,6 +252,7 @@ function buildCustomerMessageUpdate(existing, message, opts) {
     last_message: message.preview || message.text || '',
     last_message_id: message.message_id || '',
     last_message_direction: 'inbound',
+    last_message_type: message.message_type || 'text',
     last_customer_message_at: message.timestamp_iso || nowIso,
     last_activity_at: message.timestamp_iso || nowIso,
     unread: 'TRUE',
@@ -272,7 +279,7 @@ function buildCustomerMessageUpdate(existing, message, opts) {
  */
 function buildAgentMessageUpdate(existing, message, opts) {
   const options = opts || {};
-  const nowIso = options.now_iso || new Date().toISOString();
+  const nowIso = options.now_iso || localIso();
   const current = existing || {};
   const transition = nextStatus(current.status || null, EVENT.AGENT_MESSAGE, {
     hasAgent: true,
@@ -283,6 +290,7 @@ function buildAgentMessageUpdate(existing, message, opts) {
     last_message: message.preview || message.text || '',
     last_message_id: message.message_id || '',
     last_message_direction: 'outbound',
+    last_message_type: message.message_type || 'text',
     last_agent_message_at: message.timestamp_iso || nowIso,
     last_activity_at: message.timestamp_iso || nowIso,
     // The agent has now seen and answered the customer.

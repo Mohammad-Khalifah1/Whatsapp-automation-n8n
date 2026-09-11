@@ -48,7 +48,8 @@ describe('webhook parser — inbound text message (scenario 1)', () => {
   });
 
   it('converts the Unix timestamp to ISO-8601', () => {
-    assert.equal(parsed.events[0].timestamp_iso, '2026-09-09T16:00:00.000Z');
+    assert.equal(Date.parse(parsed.events[0].timestamp_iso),
+      Date.parse('2026-09-09T16:00:00.000Z'));
     assert.equal(parsed.events[0].timestamp_unix, '1788969600');
   });
 });
@@ -174,8 +175,13 @@ describe('webhook parser — malformed input (scenario 11)', () => {
 });
 
 describe('webhook parser — timestamp handling (scenario 21)', () => {
-  it('converts Unix seconds to ISO UTC', () => {
-    assert.equal(metaTimestampToIso('1788969600'), '2026-09-09T16:00:00.000Z');
+  // Timestamps are stored in the business timezone with an EXPLICIT offset.
+  // The instant is what matters and is asserted directly; the rendering
+  // follows whatever TZ the process runs under, which in the container is the
+  // business timezone, so the sheet shows the time the team actually saw.
+  it('converts Unix seconds to the same instant, in local time', () => {
+    assert.equal(Date.parse(metaTimestampToIso('1788969600')),
+      Date.parse('2026-09-09T16:00:00.000Z'));
   });
 
   it('returns null for garbage instead of "Invalid Date"', () => {
@@ -184,9 +190,13 @@ describe('webhook parser — timestamp handling (scenario 21)', () => {
     }
   });
 
-  it('always emits UTC so Asia/Amman DST cannot shift stored timestamps', () => {
+  // An offset-bearing ISO-8601 value names exactly one instant, so a DST
+  // change cannot move a stored timestamp - the offset travels with the value.
+  // A naive local string would have been ambiguous; this is not.
+  it('always carries an explicit UTC offset, so no timestamp is ambiguous', () => {
     const iso = metaTimestampToIso('1788969600');
-    assert.ok(iso.endsWith('Z'), 'must be UTC-suffixed: ' + iso);
+    assert.ok(/(Z|[+-]\d{2}:\d{2})$/.test(iso), 'must carry an offset: ' + iso);
+    assert.equal(new Date(iso).getTime(), Date.parse('2026-09-09T16:00:00.000Z'));
   });
 });
 
@@ -261,7 +271,7 @@ describe('webhook parser — WhatsApp Business App echoes (Coexistence)', () => 
   it('extracts the reply text', () => {
     const p = parseWebhook(loadFixture('echo-agent-reply.json'));
     assert.equal(p.events[0].text, 'أهلا وسهلا، السعر 25 دينار.');
-    assert.equal(p.events[0].timestamp_iso, '2026-09-09T16:05:00.000Z');
+    assert.equal(Date.parse(p.events[0].timestamp_iso), Date.parse('2026-09-09T16:05:00.000Z'));
   });
 
   it('handles a revoke (message deleted from the app) as a control event', () => {

@@ -151,8 +151,9 @@ describe('advisory lock (honest, limited concurrency mitigation)', () => {
   it('builds a claim with a bounded TTL so a crash cannot deadlock the queue', () => {
     const claim = buildLockClaim('assignment', 'exec-1', T0, 30);
     assert.equal(claim.lock_owner, 'exec-1');
-    assert.equal(claim.acquired_at, '2026-09-10T10:00:00.000Z');
-    assert.equal(claim.expires_at, '2026-09-10T10:00:30.000Z');
+    // Stored in local time with an explicit offset; the instant is the contract.
+    assert.equal(Date.parse(claim.acquired_at), T0);
+    assert.equal(Date.parse(claim.expires_at), T0 + 30000);
   });
 
   it('allows claiming when no lock is held', () => {

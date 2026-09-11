@@ -22,6 +22,8 @@
 
 'use strict';
 
+const { localIso } = require('./time');
+
 const crypto = require('crypto');
 
 /**
@@ -141,8 +143,8 @@ function buildLockClaim(resource, ownerExecutionId, nowMs, ttlSeconds) {
   return {
     lock_resource: String(resource),
     lock_owner: String(ownerExecutionId),
-    acquired_at: new Date(now).toISOString(),
-    expires_at: new Date(now + ttl * 1000).toISOString(),
+    acquired_at: localIso(now),
+    expires_at: localIso(now + ttl * 1000),
   };
 }
 

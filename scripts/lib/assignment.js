@@ -19,6 +19,8 @@
 
 'use strict';
 
+const { localIso } = require('./time');
+
 const STRATEGIES = {
   LEAST_OPEN_CONVERSATIONS: 'LEAST_OPEN_CONVERSATIONS',
   ROUND_ROBIN: 'ROUND_ROBIN',
@@ -197,7 +199,7 @@ function selectAgent(rawAgents, options) {
   const opts = options || {};
   const strategy = opts.strategy || STRATEGIES.LEAST_OPEN_CONVERSATIONS;
   const comparator = COMPARATORS[strategy] || compareLeastOpen;
-  const decidedAt = opts.now ? new Date(opts.now).toISOString() : new Date().toISOString();
+  const decidedAt = opts.now ? localIso(opts.now) : localIso();
 
   const list = Array.isArray(rawAgents) ? rawAgents : [];
   const evaluated = list.map((a) => evaluateAgent(a, opts));

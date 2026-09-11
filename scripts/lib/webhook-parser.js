@@ -20,6 +20,8 @@
 
 'use strict';
 
+const { localIso } = require('./time');
+
 /** Message types this system explicitly understands. */
 const SUPPORTED_MESSAGE_TYPES = [
   'text',
@@ -159,7 +161,7 @@ function metaTimestampToIso(ts) {
   if (!isFinite(seconds) || seconds <= 0) return null;
   const d = new Date(seconds * 1000);
   if (isNaN(d.getTime())) return null;
-  return d.toISOString();
+  return localIso(d);
 }
 
 /**
