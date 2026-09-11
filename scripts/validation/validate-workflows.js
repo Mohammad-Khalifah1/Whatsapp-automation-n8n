@@ -191,6 +191,26 @@ function validateWorkflow(file) {
     );
   }
 
+  // --- sheet writes must name their columns ---
+  // A Google Sheets APPEND with mappingMode 'autoMapInputData' creates a new
+  // column for every top-level field it does not recognise. In this project the
+  // item flowing into those nodes carries the whole pipeline context, which is
+  // how a live Conversations tab grew from 26 columns to 67. An append must
+  // therefore name the columns it writes. An UPDATE is safe: it only touches
+  // columns that already exist.
+  for (const node of wf.nodes) {
+    if (!node.type || node.type.indexOf('googleSheets') === -1) continue;
+    const params = node.parameters || {};
+    if (params.operation !== 'append' && params.operation !== 'appendOrUpdate') continue;
+    const mode = params.columns && params.columns.mappingMode;
+    check(
+      'sheet append names its columns: ' + node.name,
+      mode !== 'autoMapInputData',
+      "operation '" + params.operation + "' with autoMapInputData appends unknown " +
+        'fields as new columns; use mappingMode defineBelow'
+    );
+  }
+
   // --- secret scanning ---
   for (const pattern of SECRET_PATTERNS) {
     const hit = pattern.re.exec(raw);

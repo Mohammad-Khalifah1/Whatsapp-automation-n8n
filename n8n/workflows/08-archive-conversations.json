@@ -7,15 +7,14 @@
         "rule": {
           "interval": [
             {
-              "field": "days",
-              "triggerAtHour": 3,
-              "triggerAtMinute": 0
+              "field": "minutes",
+              "minutesInterval": 1
             }
           ]
         }
       },
       "id": "archive-schedule",
-      "name": "Daily At 03:00",
+      "name": "Every Minute",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.4,
       "position": [
@@ -61,7 +60,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/conversation.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/conversation.js -----\n/**\n * Conversation lifecycle: identity, state machine, and field derivation.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/conversation.test.js) and\n * injected into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * Full semantics for every state and transition: docs/ARCHITECTURE.md\n * (\"Conversation State Machine\"). Every state here has documented meaning —\n * no state exists that the docs do not explain.\n */\n\n\n/**\n * Conversation states.\n *\n * The MVP deliberately uses SIX states, not the eight suggested, because two\n * pairs collapse without losing information:\n *   - OPEN is not a distinct state: it is the union of every non-CLOSED state.\n *     Managers filter \"open\" with `status != CLOSED`. Keeping OPEN alongside\n *     ASSIGNED/UNANSWERED would allow contradictory rows (OPEN *and* UNANSWERED).\n *   - ASSIGNED collapses into UNANSWERED: the instant a conversation is assigned\n *     it is by definition awaiting the agent's first reply. A separate ASSIGNED\n *     state would be entered and left in the same execution, so it could never\n *     be observed and would only create ambiguity.\n * This is recorded as a decision in docs/DECISIONS.md.\n */\nconst STATUS = {\n  /** Created but no eligible agent existed. Sits in the unassigned queue. */\n  WAITING_FOR_AGENT: 'WAITING_FOR_AGENT',\n  /** Assigned to an agent; the customer's latest message has no agent reply yet. */\n  UNANSWERED: 'UNANSWERED',\n  /** Agent has replied and their reply is the most recent message. */\n  REPLIED: 'REPLIED',\n  /** Alias of REPLIED from the manager's point of view: ball is in customer's court. */\n  WAITING_FOR_CUSTOMER: 'WAITING_FOR_CUSTOMER',\n  /** Explicitly ended. Only a human/automation closes; customers never close. */\n  CLOSED: 'CLOSED',\n  /**\n   * Moved out of the working sheet. Set by a human choosing it from the\n   * dropdown, which triggers an immediate move to the Archive tab.\n   * Like CLOSED it is not an open state, so it frees the agent's capacity.\n   */\n  ARCHIVED: 'ARCHIVED',\n};\n\n/** States that count against an agent's open-conversation capacity. */\nconst OPEN_STATUSES = [\n  STATUS.WAITING_FOR_AGENT,\n  STATUS.UNANSWERED,\n  STATUS.REPLIED,\n  STATUS.WAITING_FOR_CUSTOMER,\n];\n\n/** Events that drive transitions. */\nconst EVENT = {\n  CUSTOMER_MESSAGE: 'CUSTOMER_MESSAGE',\n  AGENT_MESSAGE: 'AGENT_MESSAGE',\n  AGENT_ASSIGNED: 'AGENT_ASSIGNED',\n  NO_AGENT_AVAILABLE: 'NO_AGENT_AVAILABLE',\n  CLOSE: 'CLOSE',\n  REOPEN: 'REOPEN',\n};\n\nfunction isOpenStatus(status) {\n  return OPEN_STATUSES.indexOf(status) !== -1;\n}\n\n/**\n * Generate a stable internal conversation id.\n *\n * Deliberately NOT the WhatsApp message id: message ids are per-message and\n * change with every message, so using one as a conversation key would create a\n * new \"conversation\" for every inbound message.\n *\n * Format: CONV-<businessPhoneNumberId>-<customerPhone>-<epochMillis>\n * The business number is part of the key so the same customer messaging two\n * different business numbers yields two independent conversations.\n *\n * The timestamp suffix makes ids unique across REOPEN cycles (a customer who\n * returns after a conversation was closed gets a genuinely new conversation\n * row, preserving the closed one for history).\n */\nfunction generateConversationId(businessPhoneNumberId, customerPhone, nowMs) {\n  const ts = nowMs === undefined || nowMs === null ? Date.now() : Number(nowMs);\n  const biz = String(businessPhoneNumberId || 'unknown').replace(/[^A-Za-z0-9]/g, '');\n  const cust = String(customerPhone || 'unknown').replace(/[^A-Za-z0-9]/g, '');\n  return 'CONV-' + biz + '-' + cust + '-' + ts;\n}\n\n/**\n * Decide the next state given the current state and an event.\n *\n * Returns the transition rather than mutating, so it is trivially testable and\n * the caller decides how to persist it.\n *\n * @param {string|null} currentStatus  null/'' means \"no existing conversation\".\n * @param {string} event               One of EVENT.*\n * @param {object} [ctx]\n * @param {boolean} [ctx.reopenClosed=true]  Whether a customer message on a\n *        CLOSED conversation reopens it (see docs/ARCHITECTURE.md).\n * @param {boolean} [ctx.hasAgent=false]     Whether an agent is assigned.\n * @returns {{ next: string, changed: boolean, reason: string }}\n */\nfunction nextStatus(currentStatus, event, ctx) {\n  const options = ctx || {};\n  const reopenClosed = options.reopenClosed === undefined ? true : !!options.reopenClosed;\n  const hasAgent = !!options.hasAgent;\n  const current = currentStatus || null;\n\n  const result = (next, reason) => ({\n    next,\n    changed: next !== current,\n    reason,\n  });\n\n  switch (event) {\n    case EVENT.CUSTOMER_MESSAGE: {\n      // A customer message always means the business owes a reply.\n      if (current === null) {\n        return result(\n          hasAgent ? STATUS.UNANSWERED : STATUS.WAITING_FOR_AGENT,\n          'new_conversation_from_customer_message'\n        );\n      }\n      if (current === STATUS.CLOSED) {\n        if (!reopenClosed) {\n          // Configured not to auto-reopen: stay closed, caller creates a new\n          // conversation instead.\n          return result(STATUS.CLOSED, 'closed_conversation_not_reopened_by_config');\n        }\n        return result(\n          hasAgent ? STATUS.UNANSWERED : STATUS.WAITING_FOR_AGENT,\n          'reopened_by_customer_message'\n        );\n      }\n      if (current === STATUS.WAITING_FOR_AGENT) {\n        // Still nobody to route to; more messages don't change that.\n        return result(STATUS.WAITING_FOR_AGENT, 'still_awaiting_agent');\n      }\n      // REPLIED / WAITING_FOR_CUSTOMER / UNANSWERED -> the customer spoke last.\n      return result(STATUS.UNANSWERED, 'customer_message_awaiting_agent_reply');\n    }\n\n    case EVENT.AGENT_ASSIGNED: {\n      if (current === STATUS.CLOSED) {\n        return result(STATUS.CLOSED, 'cannot_assign_closed_conversation');\n      }\n      return result(STATUS.UNANSWERED, 'agent_assigned_awaiting_first_reply');\n    }\n\n    case EVENT.NO_AGENT_AVAILABLE: {\n      if (current === STATUS.CLOSED) {\n        return result(STATUS.CLOSED, 'closed_conversation_unchanged');\n      }\n      return result(STATUS.WAITING_FOR_AGENT, 'no_eligible_agent');\n    }\n\n    case EVENT.AGENT_MESSAGE: {\n      if (current === STATUS.CLOSED) {\n        // An agent messaging a closed conversation reopens it — they are\n        // deliberately re-engaging the customer.\n        return result(STATUS.REPLIED, 'reopened_by_agent_message');\n      }\n      return result(STATUS.REPLIED, 'agent_replied');\n    }\n\n    case EVENT.CLOSE:\n      return result(STATUS.CLOSED, 'closed');\n\n    case EVENT.REOPEN: {\n      if (current !== STATUS.CLOSED) {\n        return result(current, 'reopen_ignored_not_closed');\n      }\n      return result(\n        hasAgent ? STATUS.UNANSWERED : STATUS.WAITING_FOR_AGENT,\n        'manually_reopened'\n      );\n    }\n\n    default:\n      return result(current === null ? STATUS.WAITING_FOR_AGENT : current, 'unknown_event');\n  }\n}\n\n/**\n * Build the full Conversations row for a brand-new conversation.\n * Field names match docs/GOOGLE_SHEETS_SCHEMA.md exactly (snake_case).\n */\nfunction buildNewConversationRow(input) {\n  const i = input || {};\n  const nowIso = i.now_iso || new Date().toISOString();\n  const conversationId =\n    i.conversation_id ||\n    generateConversationId(i.business_phone_number_id, i.customer_phone, Date.parse(nowIso));\n\n  return {\n    // --- business-facing, kept first so the sheet reads left to right ---\n    customer_name: i.customer_name || '',\n    customer_phone: i.customer_phone || '',\n    assigned_agent_name: i.assigned_agent_name || '',\n    status: i.status || STATUS.WAITING_FOR_AGENT,\n    // Filled in by a human, never by the system. The update builders must not\n    // include these, or a manual entry would be wiped on the next message.\n    product: '',\n    quantity: '',\n    // first_message_at is written once and never updated, so response time can\n    // be measured against when the customer first made contact.\n    first_message_at: i.last_customer_message_at || nowIso,\n    conversation_id: conversationId,\n    business_phone_number_id: i.business_phone_number_id || '',\n    assigned_agent_id: i.assigned_agent_id || '',\n    last_message: i.last_message || '',\n    last_message_id: i.last_message_id || '',\n    last_message_direction: i.last_message_direction || 'inbound',\n    last_customer_message_at: i.last_customer_message_at || nowIso,\n    last_agent_message_at: '',\n    last_activity_at: nowIso,\n    unread: i.unread === undefined ? 'TRUE' : i.unread ? 'TRUE' : 'FALSE',\n    created_at: nowIso,\n    updated_at: nowIso,\n    closed_at: '',\n    wa_link: i.wa_link || '',\n    // Why the conversation is unassigned, when it is. Empty when assigned.\n    unassigned_reason: i.unassigned_reason || '',\n  };\n}\n\n/**\n * Compute the field updates to apply to an existing conversation when a new\n * inbound customer message arrives. Returns ONLY changed fields, so the caller\n * writes a minimal update (fewer Sheets cells touched = fewer lost concurrent\n * edits).\n */\nfunction buildCustomerMessageUpdate(existing, message, opts) {\n  const options = opts || {};\n  const nowIso = options.now_iso || new Date().toISOString();\n  const current = existing || {};\n  const transition = nextStatus(current.status || null, EVENT.CUSTOMER_MESSAGE, {\n    reopenClosed: options.reopenClosed,\n    hasAgent: !!(current.assigned_agent_id && String(current.assigned_agent_id).trim()),\n  });\n\n  const update = {\n    status: transition.next,\n    last_message: message.preview || message.text || '',\n    last_message_id: message.message_id || '',\n    last_message_direction: 'inbound',\n    last_customer_message_at: message.timestamp_iso || nowIso,\n    last_activity_at: message.timestamp_iso || nowIso,\n    unread: 'TRUE',\n    updated_at: nowIso,\n  };\n\n  // Reopening clears the closure timestamp.\n  if (current.status === STATUS.CLOSED && transition.next !== STATUS.CLOSED) {\n    update.closed_at = '';\n  }\n\n  // Refresh the profile name if WhatsApp now gives us one and we had none.\n  if (message.customer_name && !current.customer_name) {\n    update.customer_name = message.customer_name;\n  }\n\n  return { update, transition };\n}\n\n/**\n * Compute updates for an outbound agent message that the API accepted.\n * NOTE: 'accepted by the API' is NOT 'delivered to the customer' — delivery is\n * only known from a later status webhook. See docs/ERROR_HANDLING.md.\n */\nfunction buildAgentMessageUpdate(existing, message, opts) {\n  const options = opts || {};\n  const nowIso = options.now_iso || new Date().toISOString();\n  const current = existing || {};\n  const transition = nextStatus(current.status || null, EVENT.AGENT_MESSAGE, {\n    hasAgent: true,\n  });\n\n  const update = {\n    status: transition.next,\n    last_message: message.preview || message.text || '',\n    last_message_id: message.message_id || '',\n    last_message_direction: 'outbound',\n    last_agent_message_at: message.timestamp_iso || nowIso,\n    last_activity_at: message.timestamp_iso || nowIso,\n    // The agent has now seen and answered the customer.\n    unread: 'FALSE',\n    updated_at: nowIso,\n  };\n\n  if (current.status === STATUS.CLOSED) {\n    update.closed_at = '';\n  }\n\n  return { update, transition };\n}\n\n/**\n * Determine whether a conversation is eligible for inactivity-based closing.\n * The MVP does NOT auto-close: this only marks eligibility so a human or an\n * explicitly enabled scheduled workflow can act. See docs/DECISIONS.md.\n */\nfunction isInactivityCloseEligible(conversation, opts) {\n  const options = opts || {};\n  const hours = Number(options.inactivityHours);\n  const nowMs = options.now ? new Date(options.now).getTime() : Date.now();\n  const c = conversation || {};\n\n  if (!isFinite(hours) || hours <= 0) {\n    return { eligible: false, reason: 'INACTIVITY_DISABLED' };\n  }\n  if (!isOpenStatus(c.status)) {\n    return { eligible: false, reason: 'NOT_OPEN' };\n  }\n  const lastActivity = c.last_activity_at ? Date.parse(String(c.last_activity_at)) : NaN;\n  if (isNaN(lastActivity)) {\n    return { eligible: false, reason: 'NO_VALID_LAST_ACTIVITY' };\n  }\n  const idleHours = (nowMs - lastActivity) / 3600000;\n  if (idleHours < hours) {\n    return { eligible: false, reason: 'STILL_ACTIVE', idle_hours: idleHours };\n  }\n  return { eligible: true, reason: 'INACTIVE_BEYOND_THRESHOLD', idle_hours: idleHours };\n}\n\n/**\n * Count each agent's currently-open conversations directly from the\n * Conversations rows.\n *\n * This is the alternative to the denormalized `Agents.open_conversations`\n * counter. The counter has to be incremented on assignment and decremented on\n * close, and Google Sheets has no atomic compare-and-set, so two executions can\n * read the same value and both write it back — the drift that\n * `recalculateAgentLoad()` in the Apps Script exists to repair. Deriving the\n * number from the rows that actually exist cannot drift, because there is no\n * second copy of the truth to disagree with.\n *\n * The cost is reading the Conversations tab instead of a single cell. The MVP\n * workflow already reads that tab to find the customer's existing conversation,\n * so counting here is free — same rows, one pass.\n *\n * @param {Array<object>} rows  Rows from the Conversations sheet.\n * @returns {object}            Map of agent_id -> open conversation count.\n */\nfunction countOpenConversationsByAgent(rows) {\n  const counts = {};\n\n  for (const row of rows || []) {\n    if (!row || typeof row !== 'object') continue;\n\n    const agentId = String(row.assigned_agent_id || '').trim();\n    if (!agentId) continue;                       // unassigned: nobody's load\n    if (!isOpenStatus(String(row.status || '').trim())) continue;\n\n    counts[agentId] = (counts[agentId] || 0) + 1;\n  }\n\n  return counts;\n}\n\n// ===================== end generated block ================================\n\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.conversation_id);\nconst days = Number($env.ARCHIVE_AFTER_DAYS || 30);\nconst maxBatch = Number($env.ARCHIVE_BATCH_SIZE || 200);\nconst now = Date.now();\n\nif (!isFinite(days) || days <= 0) {\n  console.log(JSON.stringify({ event: 'archive_disabled' }));\n  return [];\n}\n\nconst cutoff = now - days * 86400000;\nconst archivable = [];\n\nfor (const row of rows) {\n  // ONLY closed conversations are ever archived. An open conversation\n  // is live work; archiving it would hide a waiting customer.\n  if (String(row.status || '').toUpperCase() !== 'CLOSED') continue;\n\n  const ts = Date.parse(row.closed_at || row.last_activity_at || row.updated_at || '');\n  // Never archive a row whose date we cannot read — that is how data\n  // gets lost silently.\n  if (isNaN(ts)) continue;\n  if (ts > cutoff) continue;\n\n  archivable.push(row);\n}\n\n// Deleting rows shifts every row beneath it. Sorting DESCENDING by\n// row_number means each delete only moves rows we have already\n// handled, so indices stay valid throughout the batch.\narchivable.sort((a, b) => Number(b.row_number || 0) - Number(a.row_number || 0));\n\nconst batch = archivable.slice(0, maxBatch);\n\nconsole.log(JSON.stringify({\n  event: 'archive_scan',\n  total_rows: rows.length,\n  eligible: archivable.length,\n  batch: batch.length,\n  cutoff_days: days,\n}));\n\nreturn batch.map((r) => ({ json: Object.assign({}, r, { archived_at: new Date(now).toISOString() }) }));"
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js, scripts/lib/conversation.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ----- scripts/lib/conversation.js -----\n/**\n * Conversation lifecycle: identity, state machine, and field derivation.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/conversation.test.js) and\n * injected into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * Full semantics for every state and transition: docs/ARCHITECTURE.md\n * (\"Conversation State Machine\"). Every state here has documented meaning —\n * no state exists that the docs do not explain.\n */\n\n\n\n/**\n * Conversation states.\n *\n * The MVP deliberately uses SIX states, not the eight suggested, because two\n * pairs collapse without losing information:\n *   - OPEN is not a distinct state: it is the union of every non-CLOSED state.\n *     Managers filter \"open\" with `status != CLOSED`. Keeping OPEN alongside\n *     ASSIGNED/UNANSWERED would allow contradictory rows (OPEN *and* UNANSWERED).\n *   - ASSIGNED collapses into UNANSWERED: the instant a conversation is assigned\n *     it is by definition awaiting the agent's first reply. A separate ASSIGNED\n *     state would be entered and left in the same execution, so it could never\n *     be observed and would only create ambiguity.\n * This is recorded as a decision in docs/DECISIONS.md.\n */\nconst STATUS = {\n  /** Created but no eligible agent existed. Sits in the unassigned queue. */\n  WAITING_FOR_AGENT: 'WAITING_FOR_AGENT',\n  /** Assigned to an agent; the customer's latest message has no agent reply yet. */\n  UNANSWERED: 'UNANSWERED',\n  /** Agent has replied and their reply is the most recent message. */\n  REPLIED: 'REPLIED',\n  /** Alias of REPLIED from the manager's point of view: ball is in customer's court. */\n  WAITING_FOR_CUSTOMER: 'WAITING_FOR_CUSTOMER',\n  /** Explicitly ended. Only a human/automation closes; customers never close. */\n  CLOSED: 'CLOSED',\n  /**\n   * Moved out of the working sheet. Set by a human choosing it from the\n   * dropdown, which triggers an immediate move to the Archive tab.\n   * Like CLOSED it is not an open state, so it frees the agent's capacity.\n   */\n  ARCHIVED: 'ARCHIVED',\n};\n\n/** States that count against an agent's open-conversation capacity. */\nconst OPEN_STATUSES = [\n  STATUS.WAITING_FOR_AGENT,\n  STATUS.UNANSWERED,\n  STATUS.REPLIED,\n  STATUS.WAITING_FOR_CUSTOMER,\n];\n\n/** Events that drive transitions. */\nconst EVENT = {\n  CUSTOMER_MESSAGE: 'CUSTOMER_MESSAGE',\n  AGENT_MESSAGE: 'AGENT_MESSAGE',\n  AGENT_ASSIGNED: 'AGENT_ASSIGNED',\n  NO_AGENT_AVAILABLE: 'NO_AGENT_AVAILABLE',\n  CLOSE: 'CLOSE',\n  REOPEN: 'REOPEN',\n};\n\nfunction isOpenStatus(status) {\n  return OPEN_STATUSES.indexOf(status) !== -1;\n}\n\n/**\n * Generate a stable internal conversation id.\n *\n * Deliberately NOT the WhatsApp message id: message ids are per-message and\n * change with every message, so using one as a conversation key would create a\n * new \"conversation\" for every inbound message.\n *\n * Format: CONV-<businessPhoneNumberId>-<customerPhone>-<epochMillis>\n * The business number is part of the key so the same customer messaging two\n * different business numbers yields two independent conversations.\n *\n * The timestamp suffix makes ids unique across REOPEN cycles (a customer who\n * returns after a conversation was closed gets a genuinely new conversation\n * row, preserving the closed one for history).\n */\nfunction generateConversationId(businessPhoneNumberId, customerPhone, nowMs) {\n  const ts = nowMs === undefined || nowMs === null ? Date.now() : Number(nowMs);\n  const biz = String(businessPhoneNumberId || 'unknown').replace(/[^A-Za-z0-9]/g, '');\n  const cust = String(customerPhone || 'unknown').replace(/[^A-Za-z0-9]/g, '');\n  return 'CONV-' + biz + '-' + cust + '-' + ts;\n}\n\n/**\n * Decide the next state given the current state and an event.\n *\n * Returns the transition rather than mutating, so it is trivially testable and\n * the caller decides how to persist it.\n *\n * @param {string|null} currentStatus  null/'' means \"no existing conversation\".\n * @param {string} event               One of EVENT.*\n * @param {object} [ctx]\n * @param {boolean} [ctx.reopenClosed=true]  Whether a customer message on a\n *        CLOSED conversation reopens it (see docs/ARCHITECTURE.md).\n * @param {boolean} [ctx.hasAgent=false]     Whether an agent is assigned.\n * @returns {{ next: string, changed: boolean, reason: string }}\n */\nfunction nextStatus(currentStatus, event, ctx) {\n  const options = ctx || {};\n  const reopenClosed = options.reopenClosed === undefined ? true : !!options.reopenClosed;\n  const hasAgent = !!options.hasAgent;\n  const current = currentStatus || null;\n\n  const result = (next, reason) => ({\n    next,\n    changed: next !== current,\n    reason,\n  });\n\n  switch (event) {\n    case EVENT.CUSTOMER_MESSAGE: {\n      // A customer message always means the business owes a reply.\n      if (current === null) {\n        return result(\n          hasAgent ? STATUS.UNANSWERED : STATUS.WAITING_FOR_AGENT,\n          'new_conversation_from_customer_message'\n        );\n      }\n      if (current === STATUS.CLOSED) {\n        if (!reopenClosed) {\n          // Configured not to auto-reopen: stay closed, caller creates a new\n          // conversation instead.\n          return result(STATUS.CLOSED, 'closed_conversation_not_reopened_by_config');\n        }\n        return result(\n          hasAgent ? STATUS.UNANSWERED : STATUS.WAITING_FOR_AGENT,\n          'reopened_by_customer_message'\n        );\n      }\n      if (current === STATUS.WAITING_FOR_AGENT) {\n        // Still nobody to route to; more messages don't change that.\n        return result(STATUS.WAITING_FOR_AGENT, 'still_awaiting_agent');\n      }\n      // REPLIED / WAITING_FOR_CUSTOMER / UNANSWERED -> the customer spoke last.\n      return result(STATUS.UNANSWERED, 'customer_message_awaiting_agent_reply');\n    }\n\n    case EVENT.AGENT_ASSIGNED: {\n      if (current === STATUS.CLOSED) {\n        return result(STATUS.CLOSED, 'cannot_assign_closed_conversation');\n      }\n      return result(STATUS.UNANSWERED, 'agent_assigned_awaiting_first_reply');\n    }\n\n    case EVENT.NO_AGENT_AVAILABLE: {\n      if (current === STATUS.CLOSED) {\n        return result(STATUS.CLOSED, 'closed_conversation_unchanged');\n      }\n      return result(STATUS.WAITING_FOR_AGENT, 'no_eligible_agent');\n    }\n\n    case EVENT.AGENT_MESSAGE: {\n      if (current === STATUS.CLOSED) {\n        // An agent messaging a closed conversation reopens it — they are\n        // deliberately re-engaging the customer.\n        return result(STATUS.REPLIED, 'reopened_by_agent_message');\n      }\n      return result(STATUS.REPLIED, 'agent_replied');\n    }\n\n    case EVENT.CLOSE:\n      return result(STATUS.CLOSED, 'closed');\n\n    case EVENT.REOPEN: {\n      if (current !== STATUS.CLOSED) {\n        return result(current, 'reopen_ignored_not_closed');\n      }\n      return result(\n        hasAgent ? STATUS.UNANSWERED : STATUS.WAITING_FOR_AGENT,\n        'manually_reopened'\n      );\n    }\n\n    default:\n      return result(current === null ? STATUS.WAITING_FOR_AGENT : current, 'unknown_event');\n  }\n}\n\n/**\n * Build the full Conversations row for a brand-new conversation.\n * Field names match docs/GOOGLE_SHEETS_SCHEMA.md exactly (snake_case).\n */\nfunction buildNewConversationRow(input) {\n  const i = input || {};\n  const nowIso = i.now_iso || localIso();\n  const conversationId =\n    i.conversation_id ||\n    generateConversationId(i.business_phone_number_id, i.customer_phone, Date.parse(nowIso));\n\n  return {\n    // --- business-facing, kept first so the sheet reads left to right ---\n    customer_name: i.customer_name || '',\n    customer_phone: i.customer_phone || '',\n    assigned_agent_name: i.assigned_agent_name || '',\n    status: i.status || STATUS.WAITING_FOR_AGENT,\n    // Filled in by a human, never by the system. The update builders must not\n    // include these, or a manual entry would be wiped on the next message.\n    product: '',\n    quantity: '',\n    // first_message_at is written once and never updated, so response time can\n    // be measured against when the customer first made contact.\n    first_message_at: i.last_customer_message_at || nowIso,\n    conversation_id: conversationId,\n    business_phone_number_id: i.business_phone_number_id || '',\n    assigned_agent_id: i.assigned_agent_id || '',\n    last_message: i.last_message || '',\n    last_message_id: i.last_message_id || '',\n    last_message_direction: i.last_message_direction || 'inbound',\n    // What kind of message it was. A row reading 'image' with an empty\n    // last_message is a customer who sent a photo, not a customer who sent\n    // nothing - which is the difference between answering and ignoring them.\n    last_message_type: i.last_message_type || 'text',\n    last_customer_message_at: i.last_customer_message_at || nowIso,\n    last_agent_message_at: '',\n    last_activity_at: nowIso,\n    unread: i.unread === undefined ? 'TRUE' : i.unread ? 'TRUE' : 'FALSE',\n    created_at: nowIso,\n    updated_at: nowIso,\n    closed_at: '',\n    wa_link: i.wa_link || '',\n    // Why the conversation is unassigned, when it is. Empty when assigned.\n    unassigned_reason: i.unassigned_reason || '',\n  };\n}\n\n/**\n * Compute the field updates to apply to an existing conversation when a new\n * inbound customer message arrives. Returns ONLY changed fields, so the caller\n * writes a minimal update (fewer Sheets cells touched = fewer lost concurrent\n * edits).\n */\nfunction buildCustomerMessageUpdate(existing, message, opts) {\n  const options = opts || {};\n  const nowIso = options.now_iso || localIso();\n  const current = existing || {};\n  const transition = nextStatus(current.status || null, EVENT.CUSTOMER_MESSAGE, {\n    reopenClosed: options.reopenClosed,\n    hasAgent: !!(current.assigned_agent_id && String(current.assigned_agent_id).trim()),\n  });\n\n  const update = {\n    status: transition.next,\n    last_message: message.preview || message.text || '',\n    last_message_id: message.message_id || '',\n    last_message_direction: 'inbound',\n    last_message_type: message.message_type || 'text',\n    last_customer_message_at: message.timestamp_iso || nowIso,\n    last_activity_at: message.timestamp_iso || nowIso,\n    unread: 'TRUE',\n    updated_at: nowIso,\n  };\n\n  // Reopening clears the closure timestamp.\n  if (current.status === STATUS.CLOSED && transition.next !== STATUS.CLOSED) {\n    update.closed_at = '';\n  }\n\n  // Refresh the profile name if WhatsApp now gives us one and we had none.\n  if (message.customer_name && !current.customer_name) {\n    update.customer_name = message.customer_name;\n  }\n\n  return { update, transition };\n}\n\n/**\n * Compute updates for an outbound agent message that the API accepted.\n * NOTE: 'accepted by the API' is NOT 'delivered to the customer' — delivery is\n * only known from a later status webhook. See docs/ERROR_HANDLING.md.\n */\nfunction buildAgentMessageUpdate(existing, message, opts) {\n  const options = opts || {};\n  const nowIso = options.now_iso || localIso();\n  const current = existing || {};\n  const transition = nextStatus(current.status || null, EVENT.AGENT_MESSAGE, {\n    hasAgent: true,\n  });\n\n  const update = {\n    status: transition.next,\n    last_message: message.preview || message.text || '',\n    last_message_id: message.message_id || '',\n    last_message_direction: 'outbound',\n    last_message_type: message.message_type || 'text',\n    last_agent_message_at: message.timestamp_iso || nowIso,\n    last_activity_at: message.timestamp_iso || nowIso,\n    // The agent has now seen and answered the customer.\n    unread: 'FALSE',\n    updated_at: nowIso,\n  };\n\n  if (current.status === STATUS.CLOSED) {\n    update.closed_at = '';\n  }\n\n  return { update, transition };\n}\n\n/**\n * Determine whether a conversation is eligible for inactivity-based closing.\n * The MVP does NOT auto-close: this only marks eligibility so a human or an\n * explicitly enabled scheduled workflow can act. See docs/DECISIONS.md.\n */\nfunction isInactivityCloseEligible(conversation, opts) {\n  const options = opts || {};\n  const hours = Number(options.inactivityHours);\n  const nowMs = options.now ? new Date(options.now).getTime() : Date.now();\n  const c = conversation || {};\n\n  if (!isFinite(hours) || hours <= 0) {\n    return { eligible: false, reason: 'INACTIVITY_DISABLED' };\n  }\n  if (!isOpenStatus(c.status)) {\n    return { eligible: false, reason: 'NOT_OPEN' };\n  }\n  const lastActivity = c.last_activity_at ? Date.parse(String(c.last_activity_at)) : NaN;\n  if (isNaN(lastActivity)) {\n    return { eligible: false, reason: 'NO_VALID_LAST_ACTIVITY' };\n  }\n  const idleHours = (nowMs - lastActivity) / 3600000;\n  if (idleHours < hours) {\n    return { eligible: false, reason: 'STILL_ACTIVE', idle_hours: idleHours };\n  }\n  return { eligible: true, reason: 'INACTIVE_BEYOND_THRESHOLD', idle_hours: idleHours };\n}\n\n/**\n * Count each agent's currently-open conversations directly from the\n * Conversations rows.\n *\n * This is the alternative to the denormalized `Agents.open_conversations`\n * counter. The counter has to be incremented on assignment and decremented on\n * close, and Google Sheets has no atomic compare-and-set, so two executions can\n * read the same value and both write it back — the drift that\n * `recalculateAgentLoad()` in the Apps Script exists to repair. Deriving the\n * number from the rows that actually exist cannot drift, because there is no\n * second copy of the truth to disagree with.\n *\n * The cost is reading the Conversations tab instead of a single cell. The MVP\n * workflow already reads that tab to find the customer's existing conversation,\n * so counting here is free — same rows, one pass.\n *\n * @param {Array<object>} rows  Rows from the Conversations sheet.\n * @returns {object}            Map of agent_id -> open conversation count.\n */\nfunction countOpenConversationsByAgent(rows) {\n  const counts = {};\n\n  for (const row of rows || []) {\n    if (!row || typeof row !== 'object') continue;\n\n    const agentId = String(row.assigned_agent_id || '').trim();\n    if (!agentId) continue;                       // unassigned: nobody's load\n    if (!isOpenStatus(String(row.status || '').trim())) continue;\n\n    counts[agentId] = (counts[agentId] || 0) + 1;\n  }\n\n  return counts;\n}\n\n// ===================== end generated block ================================\n\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.conversation_id);\nconst days = Number($env.ARCHIVE_AFTER_DAYS || 30);\nconst maxBatch = Number($env.ARCHIVE_BATCH_SIZE || 200);\nconst now = Date.now();\n\nif (!isFinite(days) || days <= 0) {\n  console.log(JSON.stringify({ event: 'archive_disabled' }));\n  return [];\n}\n\nconst cutoff = now - days * 86400000;\nconst archivable = [];\n\nfor (const row of rows) {\n  const st = String(row.status || '').toUpperCase();\n\n  // A human choosing ARCHIVED from the dropdown is an explicit\n  // instruction: move it now, regardless of age. This is what makes\n  // the dropdown feel immediate without needing an Apps Script\n  // trigger installed in the spreadsheet.\n  if (st === 'ARCHIVED') { archivable.push(row); continue; }\n\n  // Otherwise only CLOSED rows age out. An open conversation is live\n  // work; archiving it would hide a waiting customer.\n  if (st !== 'CLOSED') continue;\n\n  const ts = Date.parse(row.closed_at || row.last_activity_at || row.updated_at || '');\n  // Never archive a row whose date we cannot read — that is how data\n  // gets lost silently.\n  if (isNaN(ts)) continue;\n  if (ts > cutoff) continue;\n\n  archivable.push(row);\n}\n\n// Deleting rows shifts every row beneath it. Sorting DESCENDING by\n// row_number means each delete only moves rows we have already\n// handled, so indices stay valid throughout the batch.\narchivable.sort((a, b) => Number(b.row_number || 0) - Number(a.row_number || 0));\n\nconst batch = archivable.slice(0, maxBatch);\n\nconsole.log(JSON.stringify({\n  event: 'archive_scan',\n  total_rows: rows.length,\n  eligible: archivable.length,\n  batch: batch.length,\n  cutoff_days: days,\n}));\n\nreturn batch.map((r) => ({ json: Object.assign({}, r, { archived_at: localIso(now) }) }));"
       },
       "id": "select-archivable",
       "name": "Select Archivable",
@@ -87,8 +86,322 @@
           "mode": "name"
         },
         "columns": {
-          "mappingMode": "autoMapInputData",
-          "value": {}
+          "mappingMode": "defineBelow",
+          "value": {
+            "customer_name": "={{ $json['customer_name'] }}",
+            "customer_phone": "={{ $json['customer_phone'] }}",
+            "assigned_agent_name": "={{ $json['assigned_agent_name'] }}",
+            "status": "={{ $json['status'] }}",
+            "last_message": "={{ $json['last_message'] }}",
+            "last_message_type": "={{ $json['last_message_type'] }}",
+            "last_message_direction": "={{ $json['last_message_direction'] }}",
+            "product": "={{ $json['product'] }}",
+            "quantity": "={{ $json['quantity'] }}",
+            "first_message_at": "={{ $json['first_message_at'] }}",
+            "last_activity_at": "={{ $json['last_activity_at'] }}",
+            "reply_text": "={{ $json['reply_text'] }}",
+            "reply_status": "={{ $json['reply_status'] }}",
+            "unread": "={{ $json['unread'] }}",
+            "wa_link": "={{ $json['wa_link'] }}",
+            "conversation_id": "={{ $json['conversation_id'] }}",
+            "assigned_agent_id": "={{ $json['assigned_agent_id'] }}",
+            "business_phone_number_id": "={{ $json['business_phone_number_id'] }}",
+            "last_message_id": "={{ $json['last_message_id'] }}",
+            "last_customer_message_at": "={{ $json['last_customer_message_at'] }}",
+            "last_agent_message_at": "={{ $json['last_agent_message_at'] }}",
+            "created_at": "={{ $json['created_at'] }}",
+            "updated_at": "={{ $json['updated_at'] }}",
+            "closed_at": "={{ $json['closed_at'] }}",
+            "unassigned_reason": "={{ $json['unassigned_reason'] }}",
+            "reply_error": "={{ $json['reply_error'] }}",
+            "reply_sent_at": "={{ $json['reply_sent_at'] }}",
+            "archived_at": "={{ $json.archived_at }}"
+          },
+          "schema": [
+            {
+              "id": "customer_name",
+              "displayName": "customer_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "customer_phone",
+              "displayName": "customer_phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "assigned_agent_name",
+              "displayName": "assigned_agent_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message",
+              "displayName": "last_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message_type",
+              "displayName": "last_message_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message_direction",
+              "displayName": "last_message_direction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "product",
+              "displayName": "product",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "quantity",
+              "displayName": "quantity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "first_message_at",
+              "displayName": "first_message_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_activity_at",
+              "displayName": "last_activity_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_text",
+              "displayName": "reply_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_status",
+              "displayName": "reply_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "unread",
+              "displayName": "unread",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "wa_link",
+              "displayName": "wa_link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "conversation_id",
+              "displayName": "conversation_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "assigned_agent_id",
+              "displayName": "assigned_agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "business_phone_number_id",
+              "displayName": "business_phone_number_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message_id",
+              "displayName": "last_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_customer_message_at",
+              "displayName": "last_customer_message_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_agent_message_at",
+              "displayName": "last_agent_message_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "closed_at",
+              "displayName": "closed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "unassigned_reason",
+              "displayName": "unassigned_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_error",
+              "displayName": "reply_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_sent_at",
+              "displayName": "reply_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "archived_at",
+              "displayName": "archived_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
         },
         "options": {}
       },
@@ -124,7 +437,7 @@
           "mode": "name"
         },
         "toDelete": "rows",
-        "startIndex": "={{ $json.row_number }}",
+        "startIndex": "={{ $(\"Select Archivable\").item.json.row_number }}",
         "numberToDelete": 1
       },
       "id": "archive-delete",
@@ -162,13 +475,13 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "event_id": "={{ \"archive-\" + $json.conversation_id }}",
+            "event_id": "={{ \"archive-\" + $(\"Select Archivable\").item.json.conversation_id }}",
             "event_type": "CONVERSATION_ARCHIVED",
-            "conversation_id": "={{ $json.conversation_id }}",
+            "conversation_id": "={{ $(\"Select Archivable\").item.json.conversation_id }}",
             "source": "archive_workflow",
             "timestamp": "={{ $now.toISO() }}",
             "status": "ARCHIVED",
-            "details": "={{ JSON.stringify({ closed_at: $json.closed_at, customer_phone: $json.customer_phone }) }}"
+            "details": "={{ JSON.stringify({ closed_at: $(\"Select Archivable\").item.json.closed_at, customer_phone: $(\"Select Archivable\").item.json.customer_phone }) }}"
           },
           "schema": [
             {
@@ -282,7 +595,7 @@
     }
   ],
   "connections": {
-    "Daily At 03:00": {
+    "Every Minute": {
       "main": [
         [
           {
