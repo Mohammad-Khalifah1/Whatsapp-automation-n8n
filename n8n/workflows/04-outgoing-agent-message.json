@@ -150,8 +150,9 @@
             "dedupe_key": "={{ \"message:\" + $json.message_id }}",
             "conversation_id": "={{ $json.conversation_id }}",
             "direction": "outbound",
-            "sender_phone": "={{ $env.META_PHONE_NUMBER_ID }}",
+            "sender_phone": "={{ $env.META_BUSINESS_PHONE || $env.META_PHONE_NUMBER_ID }}",
             "recipient_phone": "={{ $json.to }}",
+            "customer_phone": "={{ $json.to }}",
             "message_type": "text",
             "text": "={{ $json.text }}",
             "timestamp": "={{ $json.sent_at }}",
@@ -213,6 +214,16 @@
             {
               "id": "recipient_phone",
               "displayName": "recipient_phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "customer_phone",
+              "displayName": "customer_phone",
               "required": false,
               "defaultMatch": false,
               "display": true,

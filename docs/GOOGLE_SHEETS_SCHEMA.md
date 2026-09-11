@@ -308,6 +308,25 @@ unanswered first is the order a support team should work in.
 
 ## Sheet 3 — `Messages`
 
+**Who is who.** Three columns answer it, and none of them needs you to know the
+direction first:
+
+| Column | Always holds |
+|---|---|
+| `customer_phone` | **The customer**, whichever way the message went |
+| `direction` | `inbound` = they sent it to your business number. `outbound` = your business number sent it to them |
+| `sender_phone` | Whoever sent this one — your business number when `outbound` |
+| `recipient_phone` | Whoever received it — your business number when `inbound` |
+| `status` | The delivery state of **this message**: `RECEIVED` for one that arrived, then `SENT`, `DELIVERED`, `READ` or `FAILED` for one you sent. Not a conversation state. |
+
+`customer_phone` exists because `sender_phone` alone is ambiguous: reading a row
+meant checking `direction` first to work out whose number you were looking at.
+
+The customer's **name** is optional — WhatsApp only supplies it if the customer
+has set a profile name. The **number** is not: it is how a conversation is found
+and how a reply is addressed.
+
+
 One row per WhatsApp message, inbound and outbound. This is the audit trail and
 the deduplication store.
 

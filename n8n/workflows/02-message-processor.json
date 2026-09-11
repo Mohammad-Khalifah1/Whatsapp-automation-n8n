@@ -684,6 +684,7 @@
             "direction": "outbound",
             "sender_phone": "={{ $(\"Apply App Reply\").item.json.business_display_phone_number }}",
             "recipient_phone": "={{ $(\"Apply App Reply\").item.json.customer_phone_e164 }}",
+            "customer_phone": "={{ $(\"Apply App Reply\").item.json.customer_phone_e164 }}",
             "message_type": "={{ $(\"Apply App Reply\").item.json.message_type }}",
             "text": "={{ $(\"Apply App Reply\").item.json.preview }}",
             "timestamp": "={{ $(\"Apply App Reply\").item.json.timestamp_iso }}",
@@ -749,6 +750,16 @@
             {
               "id": "recipient_phone",
               "displayName": "recipient_phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "customer_phone",
+              "displayName": "customer_phone",
               "required": false,
               "defaultMatch": false,
               "display": true,

@@ -152,7 +152,7 @@ const COLORS = {
 const WIDTHS = {
   customer_name: 170, customer_phone: 130, assigned_agent_name: 150, status: 165,
   last_message: 300, last_message_type: 130, last_message_direction: 150,
-  unanswered_count: 95, unanswered_messages: 340,
+  unanswered_count: 95, unanswered_messages: 340, customer_phone: 140,
   product: 140, quantity: 80, first_message_at: 170, last_activity_at: 170,
   reply_text: 300, reply_status: 115, unread: 80, wa_link: 190,
   name: 150, agent_id: 110, phone: 130, text: 340, message_id: 150,
@@ -237,6 +237,16 @@ const NOTES = {
   Messages: [
     'MESSAGES - every message, kept. One row per message, in and out, newest',
     'first.',
+    '',
+    'Who is who:',
+    '  customer_phone  - always the customer, whichever way the message went.',
+    '  direction       - inbound = the customer sent it TO your business number.',
+    '                    outbound = your business number sent it to them.',
+    '  sender_phone    - who sent this one. Your business number when outbound.',
+    '  recipient_phone - who received it. Your business number when inbound.',
+    '  status          - the delivery state of THIS message: RECEIVED for one',
+    '                    that arrived, then SENT, DELIVERED, READ or FAILED for',
+    '                    one you sent. Not a conversation state.',
     '',
     'This is the history. Conversations shows one row per CUSTOMER, so its',
     'last_message column only ever shows the latest thing they said - the',
@@ -441,6 +451,16 @@ async function main() {
 
     // Dropdowns. strict:false keeps a value the API writes that is not in the
     // list from being rejected; it is flagged, not blocked.
+    //
+    // Clear FIRST, across the whole width. A validation rule belongs to a
+    // column POSITION, so inserting two columns shifted every rule right and
+    // left a TRUE/FALSE dropdown sitting on reply_text - a free-text cell the
+    // whole reply feature depends on. Only ever adding rules cannot undo that;
+    // the sheet has to be told what each column is NOT, too.
+    reqs.push({ setDataValidation: {
+      range: { sheetId, startRowIndex: 1, endRowIndex: endRow, startColumnIndex: 0, endColumnIndex: cols.length },
+    } });
+
     const tabEnums = ENUMS[tab.name] || {};
     let dropdowns = 0;
     for (const name of Object.keys(tabEnums)) {

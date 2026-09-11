@@ -43,11 +43,11 @@ var SCHEMA = {
     'reply_sent_at'
   ],
   Messages: [
-    'status', 'direction', 'recipient_phone', 'message_type', 'text',
-    'timestamp', 'status_updated_at', 'agent_id', 'sent_via', 'supported',
-    'processing_status', 'message_id', 'sender_phone', 'created_at',
-    'correlation_id', 'raw_event_reference', 'conversation_id',
-    'dedupe_key'
+    'status', 'direction', 'customer_phone', 'recipient_phone',
+    'message_type', 'text', 'timestamp', 'status_updated_at', 'agent_id',
+    'sent_via', 'supported', 'processing_status', 'message_id',
+    'sender_phone', 'created_at', 'correlation_id', 'raw_event_reference',
+    'conversation_id', 'dedupe_key'
   ],
   Log: [
     'event_id', 'event_type', 'conversation_id', 'message_id', 'source',
