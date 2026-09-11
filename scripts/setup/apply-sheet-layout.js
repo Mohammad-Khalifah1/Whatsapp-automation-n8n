@@ -473,13 +473,18 @@ async function main() {
         cell: { userEnteredFormat: { wrapStrategy: 'WRAP', verticalAlignment: 'TOP' } },
         fields: 'userEnteredFormat(wrapStrategy,verticalAlignment)' } });
     }
-    for (const name of (HIDE_COLUMNS[tab.name] || [])) {
-      const c = cols.indexOf(name);
-      if (c === -1) continue;
+    // Hidden-ness belongs to a column POSITION, not to a column name. Reordering
+    // a tab therefore leaves the old positions hidden while different columns
+    // now sit in them - which is how `status` vanished from Conversations after
+    // the reorder, with nothing in the sheet to say why. So set it explicitly,
+    // both ways, for every column.
+    const hide = HIDE_COLUMNS[tab.name] || [];
+    cols.forEach((name, c) => {
       reqs.push({ updateDimensionProperties: {
         range: { sheetId, dimension: 'COLUMNS', startIndex: c, endIndex: c + 1 },
-        properties: { hiddenByUser: true }, fields: 'hiddenByUser' } });
-    }
+        properties: { hiddenByUser: hide.indexOf(name) !== -1 },
+        fields: 'hiddenByUser' } });
+    });
 
     if (NOTES[tab.name]) {
       reqs.push({ repeatCell: {
