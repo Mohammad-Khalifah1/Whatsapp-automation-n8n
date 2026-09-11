@@ -29,7 +29,6 @@ const CONTAINER_WF_DIR = '/home/node/n8n-workflows';
 
 /** Workflow ids this project owns, in execution order. */
 const EXPECTED_IDS = [
-  'whatsappMvp00001',
   'whatsappRecv0001',
   'whatsappProc0002',
   'whatsappConv0003',
@@ -128,12 +127,27 @@ function main() {
     process.exit(1);
   }
 
+  // An import writes the DRAFT of every workflow it touches, which leaves ALL
+  // of them unpublished - including the ones this deploy did not change.
+  // Publishing only the workflow you edited therefore takes the webhook
+  // offline: verified live, GET /webhook/whatsapp/webhook returned 404 until
+  // every id was republished. So republish the whole set, every time.
+  if (process.argv.indexOf('--no-publish') === -1) {
+    console.log('\nPublishing all ' + EXPECTED_IDS.length + ' workflows...');
+    for (const id of EXPECTED_IDS) {
+      docker(['exec', CONTAINER, 'n8n', 'publish:workflow', '--id=' + id]);
+      console.log('  published ' + id);
+    }
+    console.log('\nRestart n8n so the published versions take effect:');
+    console.log('  docker compose restart');
+  }
+
   console.log('\nNEXT STEPS (require the n8n UI at http://localhost:5678):');
   console.log('  1. Create the Google Sheets service-account credential   -> docs/SETUP.md');
   console.log('  2. Create the "Meta WhatsApp Token" header-auth credential');
   console.log('  3. Assign both credentials to the Sheets / HTTP Request nodes');
   console.log('  4. Set workflow 6 as the Error Workflow on workflows 1-5, 7, 8');
-  console.log('  5. Publish the workflows you need (1,2,3 always; 4,5,7,8 optional)');
+  console.log('  5. Restart n8n:  docker compose restart');
   console.log('');
   console.log('  Workflow 3 already ships with concurrency=1 in its JSON — no manual step.');
 }
