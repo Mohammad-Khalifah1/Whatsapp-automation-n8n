@@ -11,7 +11,8 @@ run and observed.
 | 2 — Workflow validation | No | **424 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
-| 4 — **End-to-end against the live deployment** | Yes (both) | **28 checks passing** |
+| 4 — **End-to-end against the live deployment** | Yes (both) | **26 checks passing** |
+| 5 — **Archiving** | Yes (both) | **17 checks passing** |
 
 Level 4 is the one that matters, and it is the reason nothing on this page is
 hedged any more. It talks to the real webhook over HTTPS with correctly signed
@@ -200,6 +201,47 @@ be. The test asserts that two executions reading identical state pick the same
 agent, which is exactly the failure Google Sheets permits. The mitigation is
 workflow concurrency 1, and the real fix is PostgreSQL. Documented in
 [ASSIGNMENT_ALGORITHM.md](ASSIGNMENT_ALGORITHM.md#concurrency-and-race-conditions).
+
+---
+
+## Archiving has its own run
+
+Archiving is the only operation that DELETES from Conversations, so it gets its
+own script:
+
+```
+node scripts/testing/verify-archive.js
+```
+
+Seventeen checks. The one that matters is the batch: deleting a row shifts every
+row beneath it, so a sweep that does not delete bottom-up removes the wrong
+rows — from the one tab whose entire job is not losing anything. The script
+archives **two of three** conversations at once and then asserts that the third
+is still there, unchanged, and not in Archive.
+
+It also covers both ways a row leaves:
+
+- someone sets `status` to `ARCHIVED`
+- the sweep takes a conversation that has been `CLOSED` longer than
+  `ARCHIVE_AFTER_DAYS` — the unattended path, which is why it is tested
+
+and checks that every column survives the move, including `product` and
+`quantity`, which only a human ever writes.
+
+### Clearing up afterwards
+
+```
+node scripts/testing/clean-test-rows.js --dry-run
+node scripts/testing/clean-test-rows.js
+```
+
+It matches the **names** the verification scripts write, never a pattern over
+phone numbers. That is not fussiness: a regex meant to catch synthetic numbers
+matched a real customer's number and deleted 46 genuine message rows. Nothing in
+a phone number says whether it is real.
+
+Always run the dry run first. If anything does go, Google Sheets keeps version
+history: File → Version history → restore.
 
 ---
 

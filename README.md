@@ -27,7 +27,7 @@ running deployment, not inspected in the code.
 | Idempotency on redelivery | **Verified live** — no duplicate conversation or message row |
 | Reply from the sheet | **Verified live** — including a real message to a real number |
 | Messaging a new number by hand | **Verified live** |
-| Archiving | **Verified live** — `ARCHIVED` moves the row within a minute |
+| Archiving | **Verified live, 17 checks** — both the `ARCHIVED` status and the sweep of long-closed conversations, including a two-row batch that leaves the third row untouched |
 | Newest-first ordering | **Verified live** — both Conversations and Messages |
 | Dashboard | **Live formulas** over Conversations, Messages, Archive and Agents |
 | Coexistence (WhatsApp Business App echoes) | **Built and unit-tested**; needs Coexistence enabled on the number |
@@ -37,6 +37,7 @@ Reproduce all of it:
 ```
 node scripts/testing/verify-live.js
 node scripts/testing/verify-live.js --real-send=9627XXXXXXXX   # sends for real
+node scripts/testing/verify-archive.js                         # 17 archive checks
 ```
 
 See [docs/TESTING.md](docs/TESTING.md) for what each check proves, and

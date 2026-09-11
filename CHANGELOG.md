@@ -5,6 +5,34 @@ executed and observed.
 
 ---
 
+## [0.5.1] — 2026-09-11 — Archiving, proved
+
+### Added — `scripts/testing/verify-archive.js`
+
+Seventeen checks against the running deployment. Archiving is the only
+operation that deletes from Conversations, and the risky part is a batch:
+deleting a row shifts every row beneath it, so a sweep that does not delete
+bottom-up removes the wrong rows — from the one tab whose entire job is not
+losing anything.
+
+The script archives two of three conversations at once and asserts the third is
+still there, unchanged, and not in Archive. It covers both ways a row leaves —
+someone setting `status` to `ARCHIVED`, and the unattended sweep of a
+conversation `CLOSED` longer than `ARCHIVE_AFTER_DAYS` — and checks that every
+column survives the move, including `product` and `quantity`, which only a human
+ever writes. All seventeen pass.
+
+### Added — `scripts/testing/clean-test-rows.js`
+
+Removing fixtures used to be a one-liner matching synthetic phone numbers with a
+regex. `9627[0-9](1[0-9]|21|55)[0-9]{5}` also matched a real customer's number
+and deleted 46 genuine message rows. Nothing in a phone number says whether it
+is real, so the cleaner now matches the **names** the verification scripts
+write, and removes messages only when they belong to a conversation it is
+already removing. `--dry-run` first, always.
+
+---
+
 ## [0.5.0] — 2026-09-11 — Nothing a customer said goes unseen
 
 ### Added — the messages nobody has answered
