@@ -1,0 +1,157 @@
+# WhatsApp Support Routing — PRODUCTION stack (VPS)
+#
+# Differences from the development docker-compose.yml:
+#   - Caddy in front, terminating TLS with automatic Let's Encrypt certificates
+#   - n8n is NOT published to the host; it is reachable only from Caddy on the
+#     internal Docker network. Port 5678 is never exposed to the internet.
+#   - Execution history is pruned, so the SQLite database cannot grow forever
+#   - Log rotation is configured, so logs cannot fill the disk
+#   - Memory limits, so one runaway execution cannot take the host down
+#
+# Usage on the VPS:
+#   cp .env.prod.example .env
+#   nano .env                       # fill in real values
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# See docs/DEPLOYMENT_HOSTINGER.md for the full walkthrough.
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: caddy
+    restart: unless-stopped
+
+    # The only ports open to the internet. 80 is required for the ACME
+    # HTTP challenge and to redirect to HTTPS.
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account keys. Losing this volume means
+      # re-issuing certificates, which is rate-limited by Let's Encrypt.
+      - caddy_data:/data
+      - caddy_config:/config
+
+    environment:
+      # Consumed by the Caddyfile.
+      - DOMAIN=${DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL}
+      - ADMIN_ALLOWED_IPS=${ADMIN_ALLOWED_IPS}
+
+    depends_on:
+      - n8n
+
+    networks:
+      - edge
+
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.38.5
+    container_name: n8n-whatsapp
+    restart: unless-stopped
+
+    # NO `ports:` mapping. n8n is reachable only through Caddy, on the
+    # internal network. This is the single most important production
+    # difference — an exposed n8n editor is a full system compromise.
+    expose:
+      - "5678"
+
+    environment:
+      - TZ=${TZ:-Asia/Amman}
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Amman}
+
+      # n8n must know its real public address to build correct webhook URLs.
+      - N8N_HOST=${DOMAIN}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - N8N_WEBHOOK_URL=https://${DOMAIN}/
+      # Caddy terminates TLS and forwards over plain HTTP on the internal
+      # network; this tells n8n to trust the X-Forwarded-* headers so it does
+      # not generate http:// links or mis-detect the client IP.
+      - N8N_PROXY_HOPS=1
+
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+      - N8N_UNVERIFIED_PACKAGES_ENABLED=false
+      - N8N_RUNNERS_TASK_TIMEOUT=60
+      - N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES=268435456
+      - N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES=1000
+
+      # --- Execution history pruning ---
+      # Without this the SQLite database grows until the disk fills. Execution
+      # data also contains customer messages, so unbounded retention is a data
+      # protection problem as well as a disk one.
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=${EXECUTIONS_RETENTION_HOURS:-336}
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=${EXECUTIONS_MAX_COUNT:-20000}
+      # Keep failures longer than successes — they are what you investigate.
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - EXECUTIONS_DATA_SAVE_ON_PROGRESS=false
+
+      # --- Application configuration ---
+      - META_GRAPH_API_VERSION=${META_GRAPH_API_VERSION:-v26.0}
+      - META_ACCESS_TOKEN=${META_ACCESS_TOKEN}
+      - META_PHONE_NUMBER_ID=${META_PHONE_NUMBER_ID}
+      - META_WABA_ID=${META_WABA_ID}
+      - META_APP_SECRET=${META_APP_SECRET}
+      - WEBHOOK_VERIFY_TOKEN=${WEBHOOK_VERIFY_TOKEN}
+      - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
+      - CONVERSATION_INACTIVITY_HOURS=${CONVERSATION_INACTIVITY_HOURS:-24}
+      - DEFAULT_COUNTRY_CODE=${DEFAULT_COUNTRY_CODE:-962}
+      - ASSIGNMENT_STRATEGY=${ASSIGNMENT_STRATEGY:-LEAST_OPEN_CONVERSATIONS}
+      - REOPEN_CLOSED_CONVERSATIONS=${REOPEN_CLOSED_CONVERSATIONS:-true}
+      - ARCHIVE_AFTER_DAYS=${ARCHIVE_AFTER_DAYS:-30}
+      - ARCHIVE_BATCH_SIZE=${ARCHIVE_BATCH_SIZE:-200}
+
+      # Serializes agent assignment. Google Sheets has no atomic
+      # compare-and-set, so parallel executions can double-assign an agent.
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=${N8N_CONCURRENCY_PRODUCTION_LIMIT:-1}
+
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/home/node/n8n-workflows:ro
+      - ./n8n/fixtures:/home/node/n8n-fixtures:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    # A 1 GB cap on a 4 GB VPS leaves room for Caddy and the OS. A runaway
+    # execution gets OOM-killed and restarted rather than freezing the host.
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+    networks:
+      - edge
+
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  edge:
+    name: whatsapp_edge
+
+volumes:
+  n8n_data:
+    name: n8n_whatsapp_data
+  caddy_data:
+    name: caddy_data
+  caddy_config:
+    name: caddy_config

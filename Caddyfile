@@ -1,0 +1,96 @@
+# Caddy reverse proxy — production.
+#
+# Caddy obtains and renews Let's Encrypt certificates automatically. There is
+# no certbot, no cron job, and nothing to forget in 90 days.
+#
+# THE SECURITY MODEL
+# ------------------
+# Exactly one path needs to be reachable by the public internet: the Meta
+# webhook. Everything else — the n8n editor, the REST API, the agent send
+# endpoint — can send messages as your business or expose customer data, so
+# each is restricted by source IP.
+#
+# The most common production mistake with n8n is exposing the editor. Anyone
+# who reaches it can read your credentials' decrypted output, run arbitrary
+# code in a Code node, and message your customers.
+
+{
+	email {$ACME_EMAIL}
+
+	# Uncomment while testing DNS/firewall to avoid burning Let's Encrypt
+	# rate limits on failed issuance. Browsers will warn; that is expected.
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$DOMAIN} {
+	encode gzip
+
+	log {
+		output file /data/access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+		# Do not log the query string: the webhook verification handshake
+		# carries hub.verify_token in it, and access logs are not a place
+		# for a shared secret.
+		format json
+	}
+
+	# ---------------------------------------------------------------
+	# 1. Meta webhook — PUBLIC. This is the only genuinely open path.
+	# ---------------------------------------------------------------
+	# Meta's IP ranges change without notice, so this cannot be IP-locked.
+	# It is protected instead by the X-Hub-Signature-256 HMAC, which the
+	# workflow verifies on every request and which fails closed.
+	handle /webhook/whatsapp/* {
+		reverse_proxy n8n:5678 {
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	# ---------------------------------------------------------------
+	# 2. Agent send endpoint — RESTRICTED.
+	# ---------------------------------------------------------------
+	# This can send WhatsApp messages as your business. Until the agent
+	# inbox has real authentication, only allow it from known networks.
+	@admin_ips remote_ip {$ADMIN_ALLOWED_IPS}
+
+	handle /webhook/agent/* {
+		handle @admin_ips {
+			reverse_proxy n8n:5678 {
+				header_up X-Forwarded-Proto https
+			}
+		}
+		respond "Forbidden" 403
+	}
+
+	# ---------------------------------------------------------------
+	# 3. Health check — public, but says nothing useful to an attacker.
+	# ---------------------------------------------------------------
+	handle /healthz {
+		reverse_proxy n8n:5678
+	}
+
+	# ---------------------------------------------------------------
+	# 4. Everything else, including the n8n editor — RESTRICTED.
+	# ---------------------------------------------------------------
+	# Returns 404 rather than 403 for unknown sources, so a scanner cannot
+	# confirm that an n8n instance is here.
+	handle {
+		handle @admin_ips {
+			reverse_proxy n8n:5678 {
+				header_up X-Forwarded-Proto https
+			}
+		}
+		respond "Not found" 404
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Do not advertise the server software.
+		-Server
+	}
+}
