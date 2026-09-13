@@ -7,7 +7,7 @@ are never tested).
 
 ```bash
 node scripts/setup/build-workflows.js         # generate
-node scripts/validation/validate-workflows.js # 424 checks
+node scripts/validation/validate-workflows.js # 461 checks
 node scripts/setup/import-workflows.js        # import (idempotent)
 ```
 
@@ -320,13 +320,20 @@ Every Minute
 
 ### Idempotency
 
-`reply_status` is the interlock. Without it, every one-minute poll would resend
-the same text until a human cleared the cell — the customer would receive the
-message repeatedly.
+**Clearing the cell is the interlock.** The moment a message goes out,
+`reply_text` is emptied, so text sitting in that cell always means "not sent
+yet" and the next poll finds nothing to do.
+
+`reply_status` is deliberately **not** a guard. It is an outcome the system
+writes. Treating it as a guard meant that anyone who set it to `SENT`
+themselves — the obvious way for a person to say "send this" — had their
+message silently dropped. A non-empty `reply_text` is now the only instruction
+needed.
 
 On success `reply_text` is cleared and `reply_status` becomes `SENT`.
-On failure `reply_text` is **kept** so the author can see and correct it, and
-`reply_error` explains why.
+On failure `reply_text` is **kept** so the author can see and correct it,
+`reply_error` explains why, and the rest of the row is left exactly as it was —
+including the backlog of unanswered messages, because nothing was answered.
 
 ### Error handling
 

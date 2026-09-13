@@ -5,6 +5,50 @@ executed and observed.
 
 ---
 
+## [0.5.2] — 2026-09-13 — Documentation that cannot quietly go stale
+
+### Added — `scripts/validation/check-docs.js`
+
+Twenty-six checks over the 26 markdown files. Documentation rots quietly, and a
+document that is confidently wrong is worse than none: the reader has no way to
+tell which parts still hold. This checks what can be checked mechanically —
+every relative link resolves, every count of tests, checks, columns and
+workflows matches a real run, nothing still points at a removed file, every
+script is mentioned somewhere, and the prose is English with no tool branding.
+
+It found, and this release fixes:
+
+- four documents quoting 169 or 186 unit tests when there are 192, and three
+  quoting 424 workflow checks when there are 461
+- a changelog entry linking to `docs/MVP_WORKFLOW.md`, deleted in 0.4.0
+- three scripts nothing documented: `deploy-vps.sh`, `scenario-multi-agent.js`,
+  and the checker itself
+
+### Fixed — documentation that described behaviour the system no longer has
+
+`N8N_WORKFLOWS.md` still called `reply_status` the interlock against
+double-sending. It has not been since 0.4.0: clearing `reply_text` is the
+interlock, and treating the status as a guard was what silently dropped messages
+from anyone who set it to `SENT` themselves.
+
+`ENVIRONMENT.md`, `ERROR_HANDLING.md` and `GOOGLE_SHEETS_SCHEMA.md` still said
+timestamps are stored in UTC and always `Z`-suffixed. Since 0.4.0 they carry an
+explicit offset in the business timezone — which is not the DST hazard the old
+text warned about, because the offset travels with the value.
+
+`TESTING.md` had a scenario table marking seven behaviours "not executed — needs
+credentials". All seven have since been executed against the live deployment,
+including a real WhatsApp send and both archiving paths.
+
+### Changed — the README says what the system is for
+
+It opened by naming its own technology. It now opens with the problem: one phone
+holding every conversation, nobody able to see who is still waiting, two people
+answering the same customer or nobody. Then what the team gets instead, who it
+is for, and only then how it is built.
+
+---
+
 ## [0.5.1] — 2026-09-11 — Archiving, proved
 
 ### Added — `scripts/testing/verify-archive.js`
@@ -181,7 +225,7 @@ one: 23 nodes instead of 44, and no sub-workflow hops.
 It does not replace anything. Its own workflow id (`whatsappMvp00001`), its own
 webhook path (`/webhook/whatsapp/mvp`), and it only ever READS the `Agents` tab.
 Both it and workflows 1-8 can be imported and active at once; Meta posts to one
-URL, so only that one works. Full detail in [docs/MVP_WORKFLOW.md](docs/MVP_WORKFLOW.md).
+URL, so only that one works. Full detail in `docs/MVP_WORKFLOW.md`.
 
 ### Agent load is counted, not stored
 

@@ -44,9 +44,16 @@ openssl rand -hex 32
 
 Default `Asia/Amman`. Controls schedule triggers and how n8n displays times.
 
-All timestamps are **stored in UTC** regardless of this setting — this variable
-affects display and cron scheduling only. Storing local time would make DST
-transitions corrupt ordering.
+This setting decides how timestamps are **written**, not just displayed. Every
+timestamp the system stores is ISO-8601 in this timezone with the offset
+attached, e.g. `2026-09-11T20:16:52.839+03:00`.
+
+That is not the same as storing a naive local time. The offset travels with the
+value, so it names exactly one instant and a DST change cannot move a stored
+timestamp. What it buys is a sheet that shows the time the team actually saw a
+message, instead of one three hours behind it — and formulas that can compare a
+stored time against `NOW()` meaningfully, because both are in the same
+timezone.
 
 ### `N8N_HOST`, `N8N_PROTOCOL`, `N8N_WEBHOOK_URL`
 

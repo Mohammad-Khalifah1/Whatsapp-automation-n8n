@@ -111,12 +111,12 @@ an agent means adding a row here.
 | `available` | TRUE/FALSE | human or agent | On shift right now. Short-term switch. |
 | `max_open_conversations` | number | human | Capacity. `0` means "cannot take conversations". |
 | `open_conversations` | number | **system** | Denormalized counter. Do not edit by hand. |
-| `last_assigned_at` | ISO-8601 UTC | **system** | Tie-breaker input. Blank = never assigned. |
+| `last_assigned_at` | ISO-8601 | **system** | Tie-breaker input. Blank = never assigned. |
 | `role` | text | human | Informational, e.g. `agent`, `supervisor` |
 | `working_hours` | text | human | Informational — **not enforced** |
 | `timezone` | text | human | Informational — **not enforced** |
-| `created_at` | ISO-8601 UTC | human | |
-| `updated_at` | ISO-8601 UTC | **system** | |
+| `created_at` | ISO-8601 | human | |
+| `updated_at` | ISO-8601 | **system** | |
 
 ### `active` vs `available`
 
@@ -340,16 +340,16 @@ the deduplication store.
 | `recipient_phone` | text | |
 | `message_type` | text | `text`, `image`, `location`, … |
 | `text` | text | Preview/caption. `[image]`, `[location] …` for media |
-| `timestamp` | ISO-8601 UTC | When Meta says it happened |
+| `timestamp` | ISO-8601 | When Meta says it happened |
 | `status` | enum | `RECEIVED` \| `SENT` \| `DELIVERED` \| `READ` \| `FAILED` |
-| `status_updated_at` | ISO-8601 UTC | Last status change |
+| `status_updated_at` | ISO-8601 | Last status change |
 | `agent_id` | text | For outbound: who sent it |
 | `sent_via` | text | `cloud_api` \| `whatsapp_business_app` \| `google_sheet` |
 | `supported` | TRUE/FALSE | FALSE for message types we do not yet handle |
 | `processing_status` | text | `parsed` \| `unsupported` \| `deferred` |
 | `correlation_id` | text | Traces one webhook across all sheets and logs |
 | `raw_event_reference` | text | Media id, so the file can be fetched later |
-| `created_at` | ISO-8601 UTC | When we wrote the row |
+| `created_at` | ISO-8601 | When we wrote the row |
 | `category` | text | This message's own classification. The conversation's `category` is the latest message that actually matched — per-message values let you see a thread that started as a price enquiry and became a complaint |
 
 ### Why `dedupe_key` and not just `message_id`
@@ -384,7 +384,7 @@ The audit and operations log. One row per system event.
 | `conversation_id` | text | When applicable |
 | `message_id` | text | When applicable |
 | `source` | text | `meta_webhook`, `assignment_engine`, workflow name |
-| `timestamp` | ISO-8601 UTC | |
+| `timestamp` | ISO-8601 | |
 | `status` | text | `ASSIGNED`, `WAITING_FOR_AGENT`, `FAILED` |
 | `error` | text | Error message or unassigned reason, truncated to 500 chars |
 | `details` | text | Compact JSON — see the audit strategy below |
@@ -452,7 +452,7 @@ accumulates in the archive tab.
 
 | Limit | Value | When it bites |
 |---|---|---|
-| Cells per spreadsheet | 10,000,000 | ~350k message rows at 28 columns |
+| Cells per spreadsheet | 10,000,000 | ~520k message rows at 19 columns |
 | Read requests | 300/min/project, **60/min/user** | **This is the real ceiling** |
 | Write requests | 300/min/project, **60/min/user** | |
 | Cell character limit | 50,000 | Why raw payloads are not stored |

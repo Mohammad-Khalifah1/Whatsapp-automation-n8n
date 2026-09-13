@@ -204,9 +204,16 @@ Same. Verified.
 
 ### Timezone errors
 
-All timestamps stored **ISO-8601 UTC**, always `Z`-suffixed. `TZ` and
-`GENERIC_TIMEZONE` affect display and cron only. Storing local time would make
-Amman's DST transitions corrupt ordering twice a year.
+All timestamps are stored as **ISO-8601 with an explicit UTC offset**, in the
+timezone `TZ` names — `2026-09-11T20:16:52.839+03:00`. Because the offset is
+part of the value, it names exactly one instant: a DST change cannot move a
+stored timestamp, and two values written either side of one still compare
+correctly.
+
+Rendering UTC was the earlier behaviour, and it put 15:57 in the sheet for a
+message that arrived at 18:57 — next to n8n's own expression timestamps, which
+already honoured `GENERIC_TIMEZONE`. Two clocks in one spreadsheet is worse than
+either one alone.
 
 Unparseable timestamps return `null` rather than `Invalid Date`, and the
 inactivity check refuses to act on a row whose date it cannot read — so a bad

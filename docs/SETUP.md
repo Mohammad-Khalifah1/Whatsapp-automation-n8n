@@ -87,7 +87,7 @@ node tests/run-tests.js
 
 ```bash
 node scripts/setup/build-workflows.js       # generates n8n/workflows/*.json
-node scripts/validation/validate-workflows.js   # 424 checks
+node scripts/validation/validate-workflows.js   # 461 checks
 node scripts/setup/import-workflows.js      # imports into the container
 ```
 
