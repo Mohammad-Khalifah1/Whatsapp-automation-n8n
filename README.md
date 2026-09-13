@@ -1,12 +1,70 @@
 # WhatsApp Support Routing
 
-A WhatsApp customer-support routing and conversation-tracking system built on
-the Meta WhatsApp Cloud API, n8n, and Google Sheets.
+Turns one WhatsApp business number into a shared inbox a whole team can work
+from — in a Google Sheet, with no app to install and nothing new to learn.
 
-A customer messages your WhatsApp business number. The system creates or finds
-their conversation, assigns the agent with the fewest open conversations,
-records every message, and gives managers a filterable Google Sheet showing who
-is waiting and for how long.
+---
+
+## The problem this solves
+
+A small business puts its WhatsApp number on a poster, and it works: customers
+message. Then it stops working.
+
+One phone holds every conversation, so only whoever is holding it can answer.
+Nobody else knows who is still waiting. Two people answer the same customer, or
+nobody does. When someone is off, their conversations are simply unreachable.
+There is no record of who said what, no way to see how long people waited, and
+no way to tell a busy week from a quiet one. The number becomes a liability
+nobody wants to be responsible for.
+
+Buying a helpdesk fixes that and introduces its own problems: a monthly fee per
+seat, a new tool everyone has to be trained on, and your customer history living
+somewhere you do not control.
+
+## What this does instead
+
+Every message that arrives is written to a **Google Sheet**, one row per
+customer, and handed automatically to the team member with the fewest open
+conversations — who then keeps that customer until the conversation is done.
+
+Everyone on the team opens the same sheet. To answer someone, they type into a
+cell. Within a minute the customer receives it on WhatsApp, exactly as if it had
+been typed on the phone.
+
+| What the team gets | How |
+|---|---|
+| A shared inbox | One Google Sheet. Everyone already knows how to use it. |
+| Work split fairly, automatically | Each new customer goes to whoever has the fewest open conversations |
+| Nobody dropped | A row shows every message still waiting for an answer — not just the last one |
+| No two people answering the same customer | Each conversation has one owner, and it does not move |
+| A reply without leaving the sheet | Type in `reply_text`; the customer gets it within a minute |
+| An answer to "how are we doing?" | A dashboard of live figures: who is waiting, for how long, per agent |
+| Nothing lost | Every message ever sent or received is kept. Archiving moves rows; it never deletes them |
+
+## Who it is for
+
+A business of **2 to 20 people** handling customer questions on WhatsApp:
+a shop, a clinic, a workshop, a delivery service, an agency. Small enough that a
+per-seat helpdesk is not worth it; big enough that one phone is no longer
+enough.
+
+It runs on a **$5–8/month server**, and WhatsApp charges nothing for replying to
+customers who messaged you. There is no per-seat fee and no license to buy —
+see [docs/CLIENT_ONBOARDING.md](docs/CLIENT_ONBOARDING.md) for the full costing,
+checked against each vendor's own documentation.
+
+## What it is, technically
+
+A WhatsApp customer-support routing and conversation-tracking system built on
+the Meta WhatsApp Cloud API, n8n and Google Sheets. A customer messages your
+business number; the system finds or creates their conversation, assigns an
+agent, records every message, and keeps the sheet a manager actually reads up to
+date.
+
+Nothing is invented for the sake of it: the "database" is a spreadsheet because
+a spreadsheet is the interface the business already has, and the honest limits
+of that choice are written down in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) rather than glossed over.
 
 ---
 
@@ -18,7 +76,7 @@ running deployment, not inspected in the code.
 | Area | State |
 |---|---|
 | Docker + n8n environment | **Live** — n8n 2.38.5 on a VPS, behind nginx and Let's Encrypt |
-| Core business logic | **186 unit tests passing** |
+| Core business logic | **192 unit tests passing** |
 | Webhook receiver | **Verified live** — the handshake echoes the challenge; unsigned and wrongly-signed POSTs are refused |
 | Inbound message to a sheet row | **Verified live** |
 | Automatic assignment | **Verified live** — the eligible agent with the fewest open conversations |
@@ -64,7 +122,7 @@ node scripts/setup/build-workflows.js
 node scripts/setup/import-workflows.js
 
 # 5. Run the tests
-node tests/run-tests.js                   # 186 unit tests, no credentials needed
+node tests/run-tests.js                   # 192 unit tests, no credentials needed
 node scripts/validation/validate-workflows.js
 ```
 
@@ -224,7 +282,7 @@ replying *after* 24 hours requires a paid template message. Full breakdown:
 │   └── testing/                fixture sender, live end-to-end verification
 │
 ├── sheets-templates/           CSV headers + an optional in-sheet menu
-└── tests/                      186 tests, zero npm dependencies
+└── tests/                      192 tests, zero npm dependencies
 ```
 
 **`scripts/lib/` is the single source of truth for business logic.** n8n Code
