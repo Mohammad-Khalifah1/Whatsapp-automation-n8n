@@ -55,58 +55,111 @@ Only Caddy is, and it exposes only the one path Meta needs.
 
 ## Costs
 
-Honest numbers, no rounding down.
+> **Full, independently verified breakdown: [COSTS.md](COSTS.md).** That document
+> supersedes this section, covers every layer with alternatives, and lists what
+> could not be verified. This is the deployment-relevant summary only.
 
-### Recurring
+### The Hostinger renewal jump
 
-| Item | Cost | Notes |
-|---|---|---|
-| Hostinger VPS KVM 1 (1 vCPU, 4 GB) | **$6.49/mo** on a 24-month term | Comfortably enough for this workload |
-| Domain | **$10–15/year** | ~$1/month |
-| TLS (Let's Encrypt) | **$0** | Automated by Caddy |
-| n8n Community | **$0** | Self-hosted |
-| Google Sheets API | **$0** | Within quota |
-| Meta Cloud API hosting | **$0** | Meta hosts it |
-| **Total** | **≈ $7.50/month** | |
+From Hostinger's own page. The promotional rate requires prepaying 24 months.
 
-### WhatsApp messaging
+| Plan | Spec | Promo | **Renewal** | Jump |
+|---|---|---|---|---|
+| KVM 1 | 1 vCPU / 4 GB / 50 GB | $6.49 | **$11.99** | +85% |
+| KVM 2 | 2 vCPU / 8 GB / 100 GB | $8.99 | **$14.99** | +67% |
+| KVM 4 | 4 vCPU / 16 GB | $12.99 | **$28.99** | +123% |
 
-| Category | Cost |
+Fine print, verbatim: *"Renews at $11.99/mo for 2 years. Cancel anytime."* The
+increase is real; the lock-in is not.
+
+**Hetzner is cheaper than Hostinger at renewal and carries no promotional term
+at all**: CX23 (2 vCPU / 4 GB / 40 GB / 20 TB) at €5.49 + €0.50 for the primary
+IPv4, flat. CX33 (4 vCPU / 8 GB) at €8.49 + €0.50. Worth comparing before the
+next renewal.
+
+### Messaging: what is confirmed and what is not
+
+**Confirmed, in force today** - Jordan sits in Meta's *Rest of Middle East*
+region (market code `MDE`):
+
+| Message type | Rate today |
 |---|---|
-| **Service messages** (replies inside the 24h window) | **Free** since 1 Nov 2024 |
-| Utility templates inside an open window | Free |
-| Templates outside the window | **Paid**, varies by country |
-| Marketing templates | **Paid** |
+| **Service** - free-form agent reply inside the 24h window | **$0.00** |
+| Utility template | $0.0091 |
+| Authentication template | $0.0091 |
+| Marketing template | $0.0341 |
+| Inbound, customer to business | $0.00, unlimited |
 
-**For an inbound support desk that replies within 24 hours, messaging is free.**
+Utility templates delivered **inside** an open customer service window are free,
+verbatim from Meta, with the billing webhook showing `"billable": false`.
+
+**Not confirmed** - the reported 1 October 2026 change:
+
+> Multiple BSPs report that service messages become chargeable from 1 October
+> 2026 after 1,000 free per business phone number per month, and that a payment
+> method must be on file by 30 September 2026. **None of this appears on any
+> Meta page that can be fetched.** As of 2026-09-13 the only downloadable rate
+> cards are labelled *effective July 1, 2026*; the October section is prose with
+> no numbers and still says rates would be announced "no later than September 1,
+> 2026".
+
+Iraq, Kuwait and Oman also leave *Rest of Middle East* on 1 October 2026, and a
+residual "Rest of" rate is exactly what gets re-priced when its membership
+changes. **Download the rate card from Meta's pricing page and confirm Jordan's
+service rate yourself before committing a budget.**
+
+### Realistic monthly totals
+
+Today's regime, before Jordanian tax:
+
+| Volume | Meta | Everything else | Subtotal | + tax and FX (x1.289) |
+|---|---|---|---|---|
+| 30 conversations/day | $0 | $16.79 | $16.79 | **~ $22** |
+| 100 conversations/day | $0 | $63.26 | $63.26 | **~ $82** |
+| 300 conversations/day | $0 | $125.26 | $125.26 | **~ $161** |
+
+If the reported October change lands at $0.0091 per service message, add $15.80
+/ $73.89 / $239.88 respectively - which would make Meta 51-66% of the bill.
+
+**Jordanian tax applies to every foreign invoice** - 16% general sales tax on
+imported services, self-assessed by you, plus 10% withholding on payments to
+non-residents. Gross multiplier **x1.289**. Full detail and statute references in
+[COSTS.md](COSTS.md#jordanian-tax--the-29-nobody-prices).
 
 ### The costs people do not expect
 
-1. **VPS renewal roughly doubles.** KVM 1 renews at about **$11.99/month** after
-   the promotional term — a ~85% increase. Budget for it now rather than being
-   surprised in two years.
-2. **Late replies cost money.** Past the 24-hour window a free-form reply is
-   impossible; only a billable template works. Slow response time converts a
-   free conversation into a paid one. This is a real financial reason to watch
-   the `UNANSWERED` queue.
-3. **Backups may be an add-on.** Confirm whether automated backups are included
-   in your plan or billed separately.
-4. **Meta re-prices per market.** From 1 October 2026 additional countries move
-   to standalone rate cards. Only relevant if you send templates.
-5. **A dedicated phone number.** The number cannot already be on WhatsApp, so
-   you may need a new SIM or a virtual number.
-6. **Maintenance time.** Realistically about **an hour a month**: n8n updates,
-   checking backups, and rotating credentials. Not a cash cost, but it is not
-   zero.
+1. **Jordanian tax on foreign invoices.** 16% GST self-assessed plus 10%
+   withholding - a x1.289 gross multiplier on Meta, Hetzner, Anthropic and
+   Google alike. Missing from every earlier estimate of this system.
+2. **The VPS renewal roughly doubles** - see the table above. Hetzner is cheaper
+   than Hostinger's renewal and has no promotional term at all.
+3. **Do not buy the domain at Hostinger.** A .com is $0.01 the first year and
+   **$19.99** on renewal; Porkbun is $11.08 flat. And one failed auto-renew
+   costs about **$211** to restore - $40 registry fee plus Porkbun's $200 - with
+   the webhook down throughout.
+4. **Prompt caching does not apply to this workload.** Claude Haiku 4.5 needs a
+   4,096-token minimum cacheable prefix; this system's stable prefix is ~1,500.
+   Budget the uncached rate: $8.78/month at 30 conversations a day, $87.75 at 300.
+5. **Sentry's free tier is one user.** A team sharing error visibility is $26/month.
+6. **A dedicated phone number.** It cannot already be on WhatsApp, so a new SIM
+   or virtual number may be needed. Meta charges nothing for registration.
+7. **Coexistence caps throughput.** A number used with both the Business app and
+   the Cloud API is fixed at **20 messages/second**, instead of the 80 mps
+   default that auto-upgrades to 1,000 mps free.
+8. **Maintenance time is the largest real cost** - 4 to 16 hours a month, on no
+   invoice.
 
 ### What would actually raise the bill
 
 | Change | Impact |
 |---|---|
-| Above ~10 msg/min | Postgres needed → VPS KVM 2 (~$8.99 promo) |
-| Marketing campaigns | Per-message template charges |
-| Media storage | Object storage costs |
-| Agent inbox | Possibly a second small service |
+| More replies per conversation | Free today. If the October change lands, $0.0091 each past 1,000/month |
+| Above ~10 msg/min sustained | Postgres needed - free on the existing box |
+| Adding Chatwoot | 4 GB RAM and 4 cores, rated to 10,000 conversations/day - the existing KVM 1 qualifies. Also needs transactional email |
+| Auto-reply with AI | $8.78-$87.75/month on Claude Haiku 4.5, uncached |
+| Marketing campaigns | $0.0341 per delivered template |
+| Inbound Arabic voice notes | Unpriced - needs speech-to-text, not in any estimate yet |
+| Replying after the 24-hour window | A billable template instead of a free-form reply |
 
 ---
 

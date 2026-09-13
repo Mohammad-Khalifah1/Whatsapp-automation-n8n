@@ -250,13 +250,40 @@ their **personal** WhatsApp is invisible to the system.
 
 ## Running costs
 
-For an inbound support desk where agents reply within 24 hours, **Meta charges
-nothing for the messages** — service messages have been free since 1 Nov 2024.
-Realistic total is **$7–12/month** (a small VPS plus a domain).
+Every figure below comes from the vendor's own page, re-checked independently.
+Full breakdown, alternatives for every layer, and what could not be verified:
+**[docs/COSTS.md](docs/COSTS.md)**.
 
-The costs that surprise people are the VPS renewal jump and the fact that
-replying *after* 24 hours requires a paid template message. Full breakdown:
-[docs/DEPLOYMENT_HOSTINGER.md](docs/DEPLOYMENT_HOSTINGER.md#costs).
+**Today's regime.** An inbound desk that replies inside the 24-hour window pays
+Meta nothing for messaging. Jordan is in Meta's *Rest of Middle East* region:
+service $0, utility and authentication $0.0091, marketing $0.0341, inbound free.
+
+| Volume | Meta | Everything else | + Jordanian tax and FX |
+|---|---|---|---|
+| 30 conversations/day | $0 | $16.79 | **~ $22/month** |
+| 100 conversations/day | $0 | $63.26 | **~ $82/month** |
+| 300 conversations/day | $0 | $125.26 | **~ $161/month** |
+
+n8n, Google Sheets, Let's Encrypt, Caddy, Telegram notifications, uptime
+monitoring and off-site backups are genuinely $0. The VPS and domain together
+are about $8/month. The AI auto-reply line is $8.78-$87.75 depending on volume.
+
+> **Two things every earlier estimate of this project got wrong.**
+> Jordanian tax adds **16% self-assessed GST plus 10% withholding** to every
+> foreign invoice - a x1.289 gross multiplier that appeared in no previous
+> figure. And **prompt caching does not apply** to this workload: Claude Haiku
+> 4.5 needs a 4,096-token minimum cacheable prefix and this system's stable
+> prefix is ~1,500, so the AI line is ~40% higher than commonly quoted.
+
+**The 1 October 2026 change is reported, not published.** Multiple BSPs say
+service messages become chargeable that day after 1,000 free per business phone
+number per month, with a payment-method deadline of 30 September. No Meta page
+states it and no October rate card is downloadable. If it lands at $0.0091,
+Meta becomes 51-66% of the bill - see
+[COSTS.md](docs/COSTS.md#meta-rates--confirmed-vs-unpublished) before budgeting.
+
+Maintenance time - 4 to 16 hours a month - is the largest real cost and appears
+on no invoice.
 
 ---
 
@@ -297,6 +324,8 @@ code and the running code identical.
 
 | Document | What it covers |
 |---|---|
+| [COSTS.md](docs/COSTS.md) | **Every running cost, verified against vendor pages** — plus alternatives per layer, and the 1 Oct 2026 change that ends free service messages |
+| [ALTERNATIVES.md](docs/ALTERNATIVES.md) | **A cheaper or freer replacement for every layer** — with licences, real free-tier limits, and what to do if you resell this |
 | [CLIENT_ONBOARDING.md](docs/CLIENT_ONBOARDING.md) | **Deploying this for a client** — what to ask them for, what it costs, whether it has to be a VPS |
 | [OPERATING_GUIDE.md](docs/OPERATING_GUIDE.md) | **Start here for daily use** — the three reply paths, filtering, speed, archiving |
 | [COEXISTENCE.md](docs/COEXISTENCE.md) | Making WhatsApp Business App replies visible to the system |

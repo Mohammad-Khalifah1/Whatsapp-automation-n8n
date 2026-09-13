@@ -187,8 +187,10 @@ sending anything to an external provider.
 
 ## Cost
 
-Unlike the rest of this system — where messaging is free and hosting is about
-$7/month — AI has **per-message marginal cost**.
+AI has a **per-message marginal cost**, and since 1 October 2026 so does
+messaging itself — see [COSTS.md](COSTS.md). At Claude Haiku 4.5 rates with
+prompt caching the AI line runs about $6.49/month at 30 conversations a day and
+$52.65 at 300.
 
 Before enabling anything:
 

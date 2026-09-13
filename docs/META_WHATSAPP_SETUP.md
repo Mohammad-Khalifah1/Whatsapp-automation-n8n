@@ -250,22 +250,33 @@ the `UNANSWERED` filter in the Conversations sheet.
 
 ## Costs
 
-Verified from [Meta's pricing documentation](https://developers.facebook.com/docs/whatsapp/pricing)
-on 2026-09-09:
+Full verified breakdown, Jordan's rates, and what is still unpublished:
+**[COSTS.md](COSTS.md)**.
 
-| Message category | Billing |
-|---|---|
-| **Service** (replies inside the 24h window) | **Free** since 1 Nov 2024 |
-| **Utility** templates inside an open window | Free |
-| **Utility** templates outside the window | Paid |
-| **Authentication** templates | Paid |
-| **Marketing** templates | Always paid |
+**Confirmed, in force today.** Jordan is in *Rest of Middle East* (`MDE`):
 
-There is **no free monthly allowance** — the model is per-message since
-1 July 2025 (it was per-conversation before).
+| Message category | Billing | Jordan rate |
+|---|---|---|
+| **Service** (replies inside the 24h window) | **Free** since 1 Nov 2024 | **$0.00** |
+| **Utility** templates inside an open window | **Free** - `"billable": false` | $0.00 |
+| **Utility** templates outside the window | Paid | $0.0091 |
+| **Authentication** templates | Paid outside the window | $0.0091 |
+| **Marketing** templates | Always paid | $0.0341 |
+| **Inbound** (customer to business) | Free, unlimited | $0.00 |
 
-**For an inbound support desk where agents reply within 24 hours, messaging
-costs nothing.** Costs appear only when re-engaging customers after the window
+**Reported but unpublished.** Multiple BSPs report that from 1 October 2026
+service messages become chargeable after 1,000 free per business phone number
+per month, with a payment-method deadline of 30 September 2026. **No Meta page
+states this, and no October rate card is downloadable** - as of 2026-09-13 the
+only cards published are labelled *effective July 1, 2026*. Confirm from the
+rate card yourself before budgeting.
+
+The model is per-message since 1 July 2025 (it was per-conversation before).
+
+**Today, an inbound support desk that replies within 24 hours pays nothing for
+messaging.** Whether that survives 1 October 2026 is reported but unconfirmed -
+see [COSTS.md](COSTS.md#meta-rates--confirmed-vs-unpublished).
+
 or sending marketing.
 
 Meta moves additional countries onto standalone rate cards from 1 October 2026;
