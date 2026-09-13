@@ -165,7 +165,7 @@
           "schema": []
         },
         "options": {
-          "waitForSubWorkflow": false
+          "waitForSubWorkflow": true
         }
       },
       "id": "call-processor",

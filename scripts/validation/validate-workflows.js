@@ -191,6 +191,29 @@ function validateWorkflow(file) {
     );
   }
 
+  // --- no node may fail quietly ---
+  // continueErrorOutput sends a failure down the node's SECOND output. With
+  // nothing wired there, the branch ends and n8n records the execution as a
+  // SUCCESS. Eleven nodes were set that way, including every write that records
+  // a conversation or a message, and the result was customer messages that
+  // vanished with a 200 returned to Meta and a green execution in the log.
+  const wiredErrorOutputs = new Set();
+  for (const name of Object.keys(wf.connections || {})) {
+    const outputs = (wf.connections[name] || {}).main || [];
+    outputs.forEach((targets, index) => {
+      if (index > 0 && targets && targets.length) wiredErrorOutputs.add(name);
+    });
+  }
+  for (const node of wf.nodes) {
+    if (node.onError !== 'continueErrorOutput') continue;
+    check(
+      'error output is wired, or the node fails loudly: ' + node.name,
+      wiredErrorOutputs.has(node.name),
+      'continueErrorOutput with nothing wired to the error output makes a ' +
+        'failure look like a success'
+    );
+  }
+
   // --- sheet writes must name their columns ---
   // A Google Sheets APPEND with mappingMode 'autoMapInputData' creates a new
   // column for every top-level field it does not recognise. In this project the

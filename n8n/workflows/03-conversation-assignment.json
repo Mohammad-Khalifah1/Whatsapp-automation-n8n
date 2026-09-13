@@ -55,7 +55,10 @@
           "id": "googleSheetsWaSupport",
           "name": "Google Sheets - WhatsApp Support"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -131,13 +134,16 @@
         -120
       ],
       "alwaysOutputData": true,
-      "onError": "continueErrorOutput",
+      "onError": "stopWorkflow",
       "credentials": {
         "googleApi": {
           "id": "googleSheetsWaSupport",
           "name": "Google Sheets - WhatsApp Support"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -233,14 +239,17 @@
         1000,
         -220
       ],
-      "onError": "continueErrorOutput",
+      "onError": "stopWorkflow",
       "notes": "NOT atomic. Google Sheets has no compare-and-set. Mitigated by running this workflow with concurrency 1. See docs/ASSIGNMENT_ALGORITHM.md.",
       "credentials": {
         "googleApi": {
           "id": "googleSheetsWaSupport",
           "name": "Google Sheets - WhatsApp Support"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -642,13 +651,16 @@
         1780,
         -120
       ],
-      "onError": "continueErrorOutput",
+      "onError": "stopWorkflow",
       "credentials": {
         "googleApi": {
           "id": "googleSheetsWaSupport",
           "name": "Google Sheets - WhatsApp Support"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -1005,13 +1017,16 @@
         1780,
         120
       ],
-      "onError": "continueErrorOutput",
+      "onError": "stopWorkflow",
       "credentials": {
         "googleApi": {
           "id": "googleSheetsWaSupport",
           "name": "Google Sheets - WhatsApp Support"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -1234,13 +1249,16 @@
         2040,
         0
       ],
-      "onError": "continueErrorOutput",
+      "onError": "stopWorkflow",
       "credentials": {
         "googleApi": {
           "id": "googleSheetsWaSupport",
           "name": "Google Sheets - WhatsApp Support"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -1381,7 +1399,10 @@
           "id": "googleSheetsWaSupport",
           "name": "Google Sheets - WhatsApp Support"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -1431,7 +1452,10 @@
           "id": "googleSheetsWaSupport",
           "name": "Google Sheets - WhatsApp Support"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -1818,8 +1842,7 @@
     "executionOrder": "v1",
     "saveManualExecutions": true,
     "saveExecutionProgress": true,
-    "executionTimeout": 300,
-    "concurrency": 1
+    "executionTimeout": 300
   },
   "tags": []
 }

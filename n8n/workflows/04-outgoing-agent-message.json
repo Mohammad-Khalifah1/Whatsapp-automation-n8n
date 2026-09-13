@@ -312,7 +312,10 @@
           "id": "googleSheetsWaSupport",
           "name": "Google Sheets - WhatsApp Support"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -455,7 +458,10 @@
           "id": "googleSheetsWaSupport",
           "name": "Google Sheets - WhatsApp Support"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {

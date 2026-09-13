@@ -228,6 +228,49 @@ function logColumnMap() {
   return value;
 }
 
+/**
+ * Every Google Sheets node retries before it gives up.
+ *
+ * The Sheets quota is 60 reads per minute per user, and the service account is
+ * one user. A burst of messages arriving together, on top of two workflows that
+ * poll every minute, goes over it — and a node that fails once loses that
+ * customer's message for good: HTTP 200 already went back to Meta, so there is
+ * no redelivery coming.
+ *
+ * Three tries, two seconds apart, turns a rate limit into a pause instead of a
+ * loss. It costs nothing when nothing is wrong.
+ */
+/**
+ * A Sheets node must never fail quietly.
+ *
+ * `continueErrorOutput` sends a failure down the node's SECOND output. If
+ * nothing is wired to that output, the branch just ends — and n8n records the
+ * execution as a SUCCESS. Eleven nodes were set that way, including every write
+ * that records a conversation or a message.
+ *
+ * The result, under a burst of messages arriving together: HTTP 200 back to
+ * Meta, execution logged as successful, and no row anywhere. Nothing to find,
+ * nothing to alert on, nothing to retry. The customer was simply never heard.
+ *
+ * So: if a node's error output is wired, leave it alone — someone handled it
+ * deliberately. If it is not, fail loudly. A failed execution is visible in the
+ * n8n log, triggers the error workflow, and gets recorded in the Log tab. A
+ * swallowed one is not.
+ */
+function failLoudly(node, wiredErrorOutputs) {
+  if (node.onError === 'continueErrorOutput' && !wiredErrorOutputs.has(node.name)) {
+    node.onError = 'stopWorkflow';
+  }
+  return node;
+}
+
+function withRetry(node) {
+  node.retryOnFail = true;
+  node.maxTries = 3;
+  node.waitBetweenTries = 2000;
+  return node;
+}
+
 function withSheetSchema(node) {
   // Attach the Google credential here rather than as a post-build step, so
   // `build-workflows.js --check` compares like with like and cannot report
@@ -536,7 +579,15 @@ function buildWebhookReceiver() {
         mode: 'id',
       },
       workflowInputs: { mappingMode: 'defineBelow', value: {}, matchingColumns: [], schema: [] },
-      options: { waitForSubWorkflow: false },
+      // WAIT for it. The ack has already gone out - Respond to Webhook ran
+      // two nodes ago - so waiting costs Meta nothing and cannot cause a retry.
+      //
+      // Fire-and-forget looked equivalent and was not. The parent execution
+      // finishes the instant this node returns, and under two webhooks arriving
+      // at the same moment one sub-workflow start was simply dropped: webhook
+      // 200, no conversation row, no message row, nothing in the log. Two
+      // customers messaging at once, one of them silently ignored.
+      options: { waitForSubWorkflow: true },
     },
     id: 'call-processor',
     name: 'Hand Off To Processor',
@@ -1990,7 +2041,19 @@ function buildConversationAndAssignment() {
       // is safe by default instead of depending on someone remembering to set
       // it in the UI. See docs/ASSIGNMENT_ALGORITHM.md.
       executionTimeout: 300,
-      concurrency: 1,
+      // NO concurrency limit here, deliberately.
+      //
+      // concurrency: 1 was meant to serialise assignment, because Google
+      // Sheets has no compare-and-set and two executions can both read an
+      // empty result and both create a conversation. It did stop that. It also
+      // DROPPED the overflow: with a limit of 1, a burst of four webhooks
+      // arriving together lost two of them outright - HTTP 200 returned to
+      // Meta, no conversation row, no message row, nothing in the log.
+      //
+      // A duplicate row is visible and repairable. A dropped customer message
+      // is invisible and gone. So the limit is off, and the duplicate it used
+      // to prevent is healed instead: workflow 8 folds two open conversations
+      // for the same customer back into one on its next sweep.
     },
     tags: [],
   };
@@ -3088,6 +3151,45 @@ function buildArchive() {
       ['conversation.js'],
       [
         'const rows = $input.all().map((i) => i.json).filter((r) => r && r.conversation_id);',
+        '',
+        '// ---- fold duplicate conversations back together -------------------',
+        '//',
+        '// Two webhooks arriving at the same moment can both read a sheet with',
+        '// no conversation for that customer, and both create one. Google Sheets',
+        '// has no compare-and-set, so nothing at write time can prevent it. The',
+        '// alternative - a concurrency limit of 1 - DROPPED the overflow, which',
+        '// loses customer messages outright. A duplicate row is the better',
+        '// failure, because it can be repaired, and this is the repair.',
+        '//',
+        '// The oldest row wins: it carries first_message_at, which is what',
+        '// response time is measured from. Everything the newer row learned is',
+        '// folded into it, and the newer row is archived rather than deleted.',
+        'const openByCustomer = {};',
+        'for (const row of rows) {',
+        "  const st = String(row.status || '').toUpperCase();",
+        "  if (st === 'CLOSED' || st === 'ARCHIVED' || st === '') continue;",
+        "  const key = String(row.customer_phone || '').trim() + '|' +",
+        "    String(row.business_phone_number_id || '').trim();",
+        "  if (key === '|') continue;",
+        '  (openByCustomer[key] = openByCustomer[key] || []).push(row);',
+        '}',
+        '',
+        '// The oldest row wins: it carries first_message_at, which is what',
+        '// response time is measured from. The newer ones are the accident.',
+        'const duplicates = [];',
+        'for (const key of Object.keys(openByCustomer)) {',
+        '  const group = openByCustomer[key];',
+        '  if (group.length < 2) continue;',
+        '  group.sort((a, b) =>',
+        "    String(a.created_at || '').localeCompare(String(b.created_at || '')));",
+        '  for (const extra of group.slice(1)) duplicates.push(extra);',
+        '  console.log(JSON.stringify({',
+        "    event: 'duplicate_conversations_found',",
+        '    customer_phone: group[0].customer_phone,',
+        '    count: group.length,',
+        '    keeping: group[0].conversation_id,',
+        '  }));',
+        '}',
         'const days = Number($env.ARCHIVE_AFTER_DAYS || 30);',
         'const maxBatch = Number($env.ARCHIVE_BATCH_SIZE || 200);',
         'const now = Date.now();',
@@ -3120,6 +3222,15 @@ function buildArchive() {
         '  if (ts > cutoff) continue;',
         '',
         '  archivable.push(row);',
+        '}',
+        '',
+        '// A duplicate is archived like anything else, but tagged so the audit',
+        '// row says why it moved - otherwise it looks like an unexplained',
+        '// disappearance, which is the thing this system must never do.',
+        'for (const dup of duplicates) {',
+        '  if (archivable.indexOf(dup) === -1) {',
+        "    archivable.push(Object.assign({}, dup, { archive_reason: 'duplicate_conversation' }));",
+        '  }',
         '}',
         '',
         '// Deleting rows shifts every row beneath it. Sorting DESCENDING by',
@@ -3339,7 +3450,19 @@ function main() {
 
     // Every Sheets node that maps columns explicitly needs a derived schema.
     for (const node of built.nodes) {
-      if (node.type === 'n8n-nodes-base.googleSheets') withSheetSchema(node);
+      if (node.type === 'n8n-nodes-base.googleSheets') withRetry(withSheetSchema(node));
+    }
+
+    // Which nodes actually have something wired to their error output.
+    const wiredErrorOutputs = new Set();
+    for (const name of Object.keys(built.connections || {})) {
+      const outputs = (built.connections[name] || {}).main || [];
+      outputs.forEach((targets, index) => {
+        if (index > 0 && targets && targets.length) wiredErrorOutputs.add(name);
+      });
+    }
+    for (const node of built.nodes) {
+      failLoudly(node, wiredErrorOutputs);
     }
     const json = JSON.stringify(built, null, 2) + '\n';
     const target = path.join(OUT_DIR, wf.file);
