@@ -160,7 +160,7 @@ assignments can overlap.
 Set it in the workflow's settings, or globally:
 
 ```yaml
-- N8N_CONCURRENCY_PRODUCTION_LIMIT=1
+- N8N_CONCURRENCY_PRODUCTION_LIMIT=-1   # NOT 1 - see the warning below
 ```
 
 Cost: assignment throughput becomes serial. At the volume Google Sheets can
@@ -276,7 +276,7 @@ numbers where objects were expected, it returns a decision with a reason.
 | Variable | Default | Effect |
 |---|---|---|
 | `ASSIGNMENT_STRATEGY` | `LEAST_OPEN_CONVERSATIONS` | Selection strategy |
-| `N8N_CONCURRENCY_PRODUCTION_LIMIT` | unset | **Set to `1`** to serialize assignment |
+| `N8N_CONCURRENCY_PRODUCTION_LIMIT` | `-1` | **Do NOT set to 1** - it serialises by dropping the overflow. See below. |
 
 Per-agent limits live in the Agents sheet (`max_open_conversations`), not in
 environment variables, so a manager can change capacity without a redeploy.
@@ -296,3 +296,22 @@ environment variables, so a manager can change capacity without a redeploy.
 - `ROUND_ROBIN` behaviour and capacity enforcement; unknown strategy fallback
 - **Explicit demonstration of the concurrency race**, and proof that the
   algorithm self-corrects once state is fresh
+
+---
+
+### Do not set `N8N_CONCURRENCY_PRODUCTION_LIMIT=1`
+
+Earlier versions of this document recommended it, to serialise assignment
+because Google Sheets has no compare-and-set. It does serialise it. It also
+**drops** everything over the limit rather than queueing it, and a dropped
+webhook is a customer message that is simply gone: HTTP 200 already went back to
+Meta, so no redelivery is coming.
+
+Measured on the live deployment: a burst of six webhooks posted together, with
+the limit at 1, produced two conversations. With the limit at `-1`, the same
+burst produced six successful executions.
+
+A duplicate conversation row — the thing the limit was meant to prevent — is
+visible and repairable, and workflow 8 folds duplicates back together on its
+next sweep. A dropped message is neither.
+

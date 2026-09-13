@@ -581,10 +581,7 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "options": {
-          "cellFormat": "USER_ENTERED",
-          "useAppend": true
-        }
+        "options": {}
       },
       "id": "sheet-append-msg",
       "name": "Record Sent Reply",

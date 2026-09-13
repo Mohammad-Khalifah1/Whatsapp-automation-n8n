@@ -641,10 +641,7 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "options": {
-          "cellFormat": "USER_ENTERED",
-          "useAppend": true
-        }
+        "options": {}
       },
       "id": "append-conv",
       "name": "Append Conversation",
@@ -1242,10 +1239,7 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "options": {
-          "cellFormat": "USER_ENTERED",
-          "useAppend": true
-        }
+        "options": {}
       },
       "id": "append-msg",
       "name": "Append Message",
@@ -1389,10 +1383,7 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "options": {
-          "cellFormat": "USER_ENTERED",
-          "useAppend": true
-        }
+        "options": {}
       },
       "id": "audit-assign",
       "name": "Audit Assignment",

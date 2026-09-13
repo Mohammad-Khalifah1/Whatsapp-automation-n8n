@@ -469,3 +469,63 @@ Workflow 4 is already a complete reply API: validate, send, record, report
 status. A web inbox becomes a UI over that endpoint plus a read API over the
 same tables — the WhatsApp integration core does not change. Details:
 [FUTURE_AGENT_INBOX.md](FUTURE_AGENT_INBOX.md).
+
+---
+
+## Known limitation: messages arriving at the same instant
+
+**Two or more webhooks that arrive in the same instant can lose one of the
+rows they write.** Sequential messages — which is what normal traffic looks
+like, even busy traffic — are unaffected. This is measured, not suspected.
+
+### What was measured
+
+Against the Google Sheets API directly, with n8n entirely out of the picture:
+
+| `insertDataOption` | Simultaneous appends | HTTP 200s | Rows that landed |
+|---|---|---|---|
+| `OVERWRITE` (the default) | 6 | 6 | **3** |
+| `INSERT_ROWS` | 6 | 6 | 6 |
+
+`values.append` with the default option picks its target row from the table's
+current extent and writes there. Two calls that arrive together compute the
+**same** target, and the second overwrites the first. Both are told they
+succeeded.
+
+That is the whole explanation for the symptom: a burst of messages, every
+execution green in the n8n log, every webhook answered `200`, and fewer rows in
+the sheet than messages sent.
+
+### What was fixed
+
+Three contributing causes, all of them a limit that dropped rather than queued:
+
+- The Execute Workflow handoff in workflow 1 ran fire-and-forget, so the parent
+  execution ended before the sub-workflow had started. It waits now — the ack
+  has already gone out two nodes earlier, so waiting costs Meta nothing.
+- `N8N_CONCURRENCY_PRODUCTION_LIMIT=1`, recommended by this project's own
+  documentation, discarded the overflow instead of queueing it.
+- Eleven Sheets nodes used `continueErrorOutput` with nothing wired to the
+  error output, which makes a failed write report as a **successful**
+  execution. They fail loudly now, and `validate-workflows.js` rejects that
+  shape.
+
+### What remains
+
+The append collision itself. The fix is known and proven — call
+`values:append` with `insertDataOption=INSERT_ROWS` — but n8n's Google Sheets
+node does not expose that option, so the two appends that would lose a customer
+message (`Append Conversation`, `Append Message`) have to go through the Sheets
+API directly, the way workflow 3 already mints a token for sorting.
+
+Until then:
+
+- **Normal traffic is unaffected.** Messages a second or more apart all land;
+  `verify-live.js` and `verify-archive.js` pass in full.
+- **`scripts/testing/verify-burst.js` is the regression test.** It posts a burst
+  and insists every message is present. It currently fails, deliberately, and
+  is how the fix will be confirmed.
+- The Google Sheets quota — 60 reads per minute for one service account — is the
+  throughput ceiling either way. A deployment that genuinely receives bursts has
+  outgrown the spreadsheet; that is what
+  [GOOGLE_SHEETS_TO_POSTGRES.md](GOOGLE_SHEETS_TO_POSTGRES.md) is for.

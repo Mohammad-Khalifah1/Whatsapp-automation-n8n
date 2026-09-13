@@ -265,28 +265,62 @@ function failLoudly(node, wiredErrorOutputs) {
 }
 
 /**
- * Every Sheets APPEND inserts a row instead of overwriting into one.
+ * Append a row through the Sheets API, with insertDataOption=INSERT_ROWS.
  *
- * values.append defaults to insertDataOption=OVERWRITE, which picks the target
- * row from the table's current extent and writes there. Two calls that arrive
- * together compute the SAME target, and the second overwrites the first — both
- * return HTTP 200, and one row exists where two should.
- *
- * Measured against the Google API directly, with no n8n involved: six
+ * WHY NOT THE SHEETS NODE
+ * values.append defaults to insertDataOption=OVERWRITE: it picks the target row
+ * from the table's current extent and writes there. Two calls arriving together
+ * compute the SAME target, and the second overwrites the first. Both return
+ * HTTP 200. Measured against the Google API with no n8n involved: six
  * simultaneous appends, six 200s, THREE rows. Half the data gone, silently.
- * With INSERT_ROWS: six of six.
  *
- * That is the whole explanation for customer messages disappearing under a
- * burst while every execution reported success.
+ * INSERT_ROWS inserts instead of overwriting and cannot collide - the same
+ * measurement gives six of six. n8n's Google Sheets node does not expose the
+ * option, so the two appends that would lose a CUSTOMER MESSAGE go direct.
+ *
+ * Authentication is the token minted by the Sign/Get pair, for the same reason
+ * the sort does it: the n8n Google credential authenticates an HTTP Request
+ * node with a scope that does not cover this, and returns 403.
+ *
+ * @param {string} name       Node name.
+ * @param {string} id         Node id.
+ * @param {Array}  position   Canvas position.
+ * @param {string} tab        Sheet tab to append to.
+ * @param {string} rowExpr    Expression yielding the row array, in column order.
  */
-function withInsertRows(node) {
-  const op = node.parameters && node.parameters.operation;
-  if (op !== 'append' && op !== 'appendOrUpdate') return node;
-  node.parameters.options = Object.assign({}, node.parameters.options, {
-    cellFormat: 'USER_ENTERED',
-    useAppend: true,
-  });
-  return node;
+function appendViaApi(name, id, position, tab, rowExpr) {
+  return {
+    parameters: {
+      method: 'POST',
+      url: '=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}/values/' +
+        encodeURIComponent(tab + '!A1') +
+        ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
+      sendHeaders: true,
+      headerParameters: {
+        parameters: [
+          { name: 'Authorization', value: '=Bearer {{ $("Get Sheets Token").item.json.access_token }}' },
+          { name: 'Content-Type', value: 'application/json' },
+        ],
+      },
+      sendBody: true,
+      specifyBody: 'json',
+      jsonBody: '={{ JSON.stringify({ values: [' + rowExpr + '] }) }}',
+      options: {
+        timeout: 15000,
+        response: { response: { responseFormat: 'json' } },
+      },
+    },
+    id,
+    name,
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: NODE_VERSION.httpRequest,
+    position,
+    // Losing this write loses the customer's message. Retry, then fail loudly.
+    retryOnFail: true,
+    maxTries: 3,
+    waitBetweenTries: 2000,
+    onError: 'stopWorkflow',
+  };
 }
 
 function withRetry(node) {
@@ -3475,7 +3509,7 @@ function main() {
 
     // Every Sheets node that maps columns explicitly needs a derived schema.
     for (const node of built.nodes) {
-      if (node.type === 'n8n-nodes-base.googleSheets') withInsertRows(withRetry(withSheetSchema(node)));
+      if (node.type === 'n8n-nodes-base.googleSheets') withRetry(withSheetSchema(node));
     }
 
     // Which nodes actually have something wired to their error output.

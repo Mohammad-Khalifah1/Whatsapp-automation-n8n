@@ -214,7 +214,7 @@ Close conversations instead of deleting them.
 ### Two conversations went to the same agent at once
 
 **Concurrency is not set to 1** on workflow 3. Set it in *Settings →
-Concurrency*, or `N8N_CONCURRENCY_PRODUCTION_LIMIT=1`.
+Concurrency*, or `N8N_CONCURRENCY_PRODUCTION_LIMIT=-1`.
 
 Then correct the counter:
 

@@ -329,3 +329,20 @@ number of conversations stored.
 | Business App inactivity | Open it every 13 days | Or Coexistence stops working |
 | 24-hour window | Free replies inside it only | After that, paid templates |
 | Personal-account replies | Not tracked | Use the business number |
+
+---
+
+## Seeing what is actually in the sheet, from a terminal
+
+```
+node scripts/testing/show-sheet.js                 # a summary of every tab
+node scripts/testing/show-sheet.js Conversations   # one tab, in full
+node scripts/testing/show-sheet.js Messages 20     # one tab, first 20 rows
+```
+
+Read-only — it authenticates with a read-only scope, so there is no flag that
+makes it write. The summary answers the two questions that come up most: how
+many conversations are open and waiting, and how many agents can still take one.
+If nobody is eligible it says so, and says which column to look at, because
+"new customers keep arriving as WAITING_FOR_AGENT" is almost always an agent
+sitting at `max_open_conversations` or with `available` set to FALSE.

@@ -887,10 +887,7 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "options": {
-          "cellFormat": "USER_ENTERED",
-          "useAppend": true
-        }
+        "options": {}
       },
       "id": "echo-append-msg",
       "name": "Record App Reply Message",
@@ -1001,10 +998,7 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "options": {
-          "cellFormat": "USER_ENTERED",
-          "useAppend": true
-        }
+        "options": {}
       },
       "id": "log-other",
       "name": "Log Unhandled Event",

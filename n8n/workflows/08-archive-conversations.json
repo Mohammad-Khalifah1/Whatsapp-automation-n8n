@@ -428,10 +428,7 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "options": {
-          "cellFormat": "USER_ENTERED",
-          "useAppend": true
-        }
+        "options": {}
       },
       "id": "archive-append",
       "name": "Copy To Archive",
@@ -593,10 +590,7 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "options": {
-          "cellFormat": "USER_ENTERED",
-          "useAppend": true
-        }
+        "options": {}
       },
       "id": "archive-audit",
       "name": "Audit Archive",

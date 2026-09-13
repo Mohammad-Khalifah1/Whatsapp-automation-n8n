@@ -5,6 +5,75 @@ executed and observed.
 
 ---
 
+## [0.6.0] — 2026-09-13 — Messages that arrived and were never seen
+
+A burst test found the worst bug in this system so far, and most of it is fixed.
+
+### The symptom
+
+Two webhooks posted at the same instant each returned HTTP 200. Both executions
+ran. Both were logged green. One customer's message was nowhere: no conversation
+row, no message row, no log entry, no error. Nothing to notice, nothing to
+alert on, nothing to retry.
+
+### The cause, measured
+
+Against the Google Sheets API with n8n entirely out of the picture:
+
+| `insertDataOption` | Simultaneous appends | HTTP 200s | Rows |
+|---|---|---|---|
+| `OVERWRITE` (the default) | 6 | 6 | **3** |
+| `INSERT_ROWS` | 6 | 6 | 6 |
+
+`values.append` picks its target row from the table's current extent. Two calls
+arriving together compute the same target, and the second overwrites the first.
+
+Three further causes contributed, each a limit that DROPPED rather than queued:
+
+**The handoff was fire-and-forget.** Workflow 1's Execute Workflow node ran
+without waiting, so the parent execution ended before the sub-workflow had
+started. It waits now — the ack goes out two nodes earlier, so waiting costs
+Meta nothing.
+
+**`N8N_CONCURRENCY_PRODUCTION_LIMIT=1`**, which this project's own documentation
+recommended, discarded everything over the limit. It was there to serialise
+assignment, because Google Sheets has no compare-and-set. It did — by losing
+messages. Now `-1`, with duplicates folded back together by workflow 8 instead.
+Four documents corrected.
+
+**Eleven Sheets nodes swallowed their errors.** `continueErrorOutput` with
+nothing wired to the error output does not handle a failure: the branch ends and
+n8n records the execution as a SUCCESS. Every write that records a conversation
+or a message was set that way. They fail loudly now, and
+`validate-workflows.js` rejects that shape so it cannot return.
+
+Every Sheets node also retries three times, two seconds apart — the quota is 60
+reads a minute for one service account, and a node that fails once loses that
+message for good.
+
+### What remains
+
+The append collision itself. The fix is proven but n8n's Sheets node does not
+expose `insertDataOption`, so the two appends that can lose a customer message
+must call the API directly. Written up in
+[ARCHITECTURE.md](docs/ARCHITECTURE.md#known-limitation-messages-arriving-at-the-same-instant).
+
+Normal traffic is unaffected — messages a second or more apart all land, and
+`verify-live.js` and `verify-archive.js` pass in full.
+
+### Added
+
+- `scripts/testing/verify-burst.js` — posts a burst and insists every message is
+  present. It fails today, deliberately: it is how the remaining fix gets
+  confirmed.
+- `scripts/testing/show-sheet.js` — prints the live sheet from a terminal,
+  read-only. Every diagnosis in this release started by reading the sheet.
+- Workflow 8 folds duplicate conversations back together: same customer, same
+  business number, two open rows. The oldest wins, because it holds
+  `first_message_at`.
+
+---
+
 ## [0.5.2] — 2026-09-13 — Documentation that cannot quietly go stale
 
 ### Added — `scripts/validation/check-docs.js`

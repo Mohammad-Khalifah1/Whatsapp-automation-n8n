@@ -273,7 +273,7 @@ META_APP_SECRET=<production app secret>
 WEBHOOK_VERIFY_TOKEN=<a new random value>
 
 # Serialize assignment
-N8N_CONCURRENCY_PRODUCTION_LIMIT=1
+N8N_CONCURRENCY_PRODUCTION_LIMIT=-1
 
 # Cap execution history (contains customer PII)
 EXECUTIONS_DATA_MAX_AGE=168
