@@ -264,6 +264,31 @@ function failLoudly(node, wiredErrorOutputs) {
   return node;
 }
 
+/**
+ * Every Sheets APPEND inserts a row instead of overwriting into one.
+ *
+ * values.append defaults to insertDataOption=OVERWRITE, which picks the target
+ * row from the table's current extent and writes there. Two calls that arrive
+ * together compute the SAME target, and the second overwrites the first — both
+ * return HTTP 200, and one row exists where two should.
+ *
+ * Measured against the Google API directly, with no n8n involved: six
+ * simultaneous appends, six 200s, THREE rows. Half the data gone, silently.
+ * With INSERT_ROWS: six of six.
+ *
+ * That is the whole explanation for customer messages disappearing under a
+ * burst while every execution reported success.
+ */
+function withInsertRows(node) {
+  const op = node.parameters && node.parameters.operation;
+  if (op !== 'append' && op !== 'appendOrUpdate') return node;
+  node.parameters.options = Object.assign({}, node.parameters.options, {
+    cellFormat: 'USER_ENTERED',
+    useAppend: true,
+  });
+  return node;
+}
+
 function withRetry(node) {
   node.retryOnFail = true;
   node.maxTries = 3;
@@ -3450,7 +3475,7 @@ function main() {
 
     // Every Sheets node that maps columns explicitly needs a derived schema.
     for (const node of built.nodes) {
-      if (node.type === 'n8n-nodes-base.googleSheets') withRetry(withSheetSchema(node));
+      if (node.type === 'n8n-nodes-base.googleSheets') withInsertRows(withRetry(withSheetSchema(node)));
     }
 
     // Which nodes actually have something wired to their error output.

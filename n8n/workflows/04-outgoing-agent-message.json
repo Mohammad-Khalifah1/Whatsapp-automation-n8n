@@ -296,7 +296,10 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "options": {}
+        "options": {
+          "cellFormat": "USER_ENTERED",
+          "useAppend": true
+        }
       },
       "id": "store-out",
       "name": "Store Outbound Message",

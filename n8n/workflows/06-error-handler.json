@@ -150,7 +150,10 @@
           "attemptToConvertTypes": false,
           "convertFieldsToString": true
         },
-        "options": {}
+        "options": {
+          "cellFormat": "USER_ENTERED",
+          "useAppend": true
+        }
       },
       "id": "log-error",
       "name": "Record In Events Sheet",
