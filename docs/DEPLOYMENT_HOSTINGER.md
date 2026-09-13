@@ -5,6 +5,24 @@ can be followed when you are ready. The MVP runs locally only.
 
 ---
 
+## Provisioning a fresh server
+
+`scripts/setup/deploy-vps.sh` does the one-time work on a brand-new
+Ubuntu/Debian VPS: Docker, the directory layout, the firewall and the reverse
+proxy. Run it ON the server, as a user with sudo, and read it before you run it:
+
+```bash
+less scripts/setup/deploy-vps.sh
+bash scripts/setup/deploy-vps.sh
+```
+
+The rest of this document is what that script sets up, written out, for a
+server that already has other things on it — which is the case here, and the
+reason the steps below are done by hand rather than by script.
+
+---
+
+
 ## Target architecture
 
 ```

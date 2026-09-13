@@ -7,8 +7,8 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **186 passing** |
-| 2 — Workflow validation | No | **424 checks passing** |
+| 1 — Unit tests (business logic) | No | **192 passing** |
+| 2 — Workflow validation | No | **461 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
 | 4 — **End-to-end against the live deployment** | Yes (both) | **26 checks passing** |
@@ -81,7 +81,7 @@ inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
 node scripts/validation/validate-workflows.js
 ```
 
-424 checks across the 8 workflows:
+461 checks across the 8 workflows:
 
 - every Code node body **parses as JavaScript** (`vm.Script` compile)
 - no leftover `module.exports` or relative `require()` from inlining
@@ -169,14 +169,14 @@ node scripts/testing/send-fixture.js text-message.json --twice   # duplicate
 | 11 | Malformed webhook | Unit + live fixture | **Tested** |
 | 12 | Unsupported message type | Unit + live fixture | **Tested** |
 | 13 | Meta API failure | Fixture `status-failed.json` parsed | **Partial** — real outage not simulated |
-| 14 | Google Sheets API failure | Nodes set to `continueErrorOutput` | **Not executed** — needs credentials |
-| 15 | Outgoing message success | — | **Not executed** — needs Meta token |
-| 16 | Outgoing message failure | Error interpretation is unit-covered | **Partial** |
+| 14 | Google Sheets API failure | Nodes set to `continueErrorOutput`; exercised live when a write was refused | **Tested** |
+| 15 | Outgoing message success | `verify-live.js --real-send` delivers a real WhatsApp message | **Tested** |
+| 16 | Outgoing message failure | Unit, plus live: Meta refused a number and the row recorded `[131030]` | **Tested** |
 | 17 | Delivered status | Unit (ladder) + fixture | **Tested** |
 | 18 | Read status | Unit (ladder) | **Tested** |
 | 19 | Failed status | Unit (ladder) + fixture | **Tested** |
 | 20 | Phone normalization | Unit — 17 tests | **Tested** |
-| 21 | Timezone handling | Unit — UTC enforced | **Tested** |
+| 21 | Timezone handling | Unit — local time with an explicit UTC offset | **Tested** |
 | 22 | Application restart | `docker compose restart` performed | **Tested** |
 | 23 | n8n restart | Performed repeatedly during development | **Tested** |
 | 24 | Persistent data after Docker restart | Workflows survived several restarts | **Tested** |
@@ -189,10 +189,15 @@ node scripts/testing/send-fixture.js text-message.json --twice   # duplicate
 | Agent replies from the WhatsApp Business App | Unit (7 tests) + live fixture | **Tested** |
 | Echo direction is not reversed | Unit — asserts customer is `to`, not `from` | **Tested** |
 | Agent deletes a message from the app (`revoke`) | Unit — recorded, does not advance state | **Tested** |
-| Reply typed into the sheet | Built (workflow 7) | **Not executed** — needs credentials |
-| Double-send guard on sheet replies | `reply_status` interlock | **Not executed** — needs credentials |
-| Nightly archiving | Built (workflow 8) | **Not executed** — needs credentials |
+| Reply typed into the sheet | `verify-live.js` — sent, outcome written back, cell cleared | **Tested** |
+| Double-send guard on sheet replies | `verify-live.js` asserts `reply_text` is cleared on send | **Tested** |
+| Nightly archiving | `verify-archive.js` — 17 checks, both the manual and the swept path | **Tested** |
 | Sheet schema drift | `check-schema-consistency.js`, verified against a planted mismatch | **Tested** |
+| Messaging a number not yet in the sheet | `verify-live.js --real-send` adds a row by hand and it sends | **Tested** |
+| Every unanswered message stays visible | Unit (6 tests) + live: five messages accumulated, a reply cleared them | **Tested** |
+| Newest conversation at the top | Live — a follow-up moves its row to row 2 | **Tested** |
+| Agent capacity is respected | Live — at capacity a conversation waits as `WAITING_FOR_AGENT` | **Tested** |
+| Documentation matches the system | `check-docs.js` — links, counts, coverage, language | **Tested** |
 
 ### On scenario 4
 
@@ -201,6 +206,27 @@ be. The test asserts that two executions reading identical state pick the same
 agent, which is exactly the failure Google Sheets permits. The mitigation is
 workflow concurrency 1, and the real fix is PostgreSQL. Documented in
 [ASSIGNMENT_ALGORITHM.md](ASSIGNMENT_ALGORITHM.md#concurrency-and-race-conditions).
+
+---
+
+## Distribution and stickiness have their own run
+
+```
+node scripts/testing/scenario-multi-agent.js
+```
+
+Three different customers arriving in sequence, then follow-up messages from
+each. It proves the two behaviours a support desk depends on and which no unit
+test can show:
+
+- **Distribution** — the three customers are spread across three agents rather
+  than piling onto one.
+- **Stickiness** — a second and third message from the SAME customer stay with
+  the agent already handling them. A desk that reshuffles the owner mid
+  conversation is worse than useless.
+
+It also checks that the status returns to `UNANSWERED` on every new customer
+message, which is what keeps a follow-up visible.
 
 ---
 
@@ -293,3 +319,29 @@ node scripts/testing/send-fixture.js             # 200 × 10
 
 If you changed anything in `scripts/lib/`, the rebuild step is mandatory —
 otherwise the tests pass against code that is not what n8n is running.
+
+---
+
+## Checking the documentation
+
+```
+node scripts/validation/check-docs.js
+```
+
+Documentation rots quietly, and a document that is confidently wrong is worse
+than none: the reader has no way to tell which parts still hold. This checks the
+claims that can be checked mechanically — every relative link resolves, every
+count of tests, checks, columns and workflows matches reality, nothing still
+points at a file that was removed, every script is mentioned somewhere, and the
+prose is in English with no tool branding.
+
+It cannot check that prose is true. It can check that prose is not provably
+stale, which is most of the rot. Run it with the other validators before a
+commit:
+
+```
+node tests/run-tests.js
+node scripts/validation/validate-workflows.js
+node scripts/validation/check-schema-consistency.js
+node scripts/validation/check-docs.js
+```
