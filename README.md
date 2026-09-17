@@ -346,6 +346,7 @@ code and the running code identical.
 | [GOOGLE_SHEETS_TO_POSTGRES.md](docs/GOOGLE_SHEETS_TO_POSTGRES.md) | Exactly what changes when moving to Postgres |
 | [FUTURE_AGENT_INBOX.md](docs/FUTURE_AGENT_INBOX.md) | The web inbox this is designed to grow into |
 | [FUTURE_AI.md](docs/FUTURE_AI.md) | Where an AI layer plugs in, and where it must not |
+| [FUTURE_TASKS_EMPLOYEES_AND_AI_AGENTS.md](docs/FUTURE_TASKS_EMPLOYEES_AND_AI_AGENTS.md) | Task-board framing, employee management, anti-bot-detection, and grounding AI answers in this business only |
 | [DEPLOYMENT_HOSTINGER.md](docs/DEPLOYMENT_HOSTINGER.md) | VPS deployment, TLS, firewall, backups, costs |
 | [KUBERNETES_MIGRATION.md](docs/KUBERNETES_MIGRATION.md) | If and when Compose stops being enough |
 | [DECISIONS.md](docs/DECISIONS.md) | Why each significant choice was made |
