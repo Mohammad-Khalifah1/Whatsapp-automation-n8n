@@ -250,40 +250,43 @@ their **personal** WhatsApp is invisible to the system.
 
 ## Running costs
 
-Every figure below comes from the vendor's own page, re-checked independently.
-Full breakdown, alternatives for every layer, and what could not be verified:
-**[docs/COSTS.md](docs/COSTS.md)**.
-
-**Today's regime.** An inbound desk that replies inside the 24-hour window pays
-Meta nothing for messaging. Jordan is in Meta's *Rest of Middle East* region:
-service $0, utility and authentication $0.0091, marketing $0.0341, inbound free.
-
-| Volume | Meta | Everything else | + Jordanian tax and FX |
+| | 30 conv/day | 100 conv/day | 300 conv/day |
 |---|---|---|---|
-| 30 conversations/day | $0 | $16.79 | **~ $22/month** |
-| 100 conversations/day | $0 | $63.26 | **~ $82/month** |
-| 300 conversations/day | $0 | $125.26 | **~ $161/month** |
+| **You pay, per month** | **$10.32** | **$10.32** | **$14.84** |
 
-n8n, Google Sheets, Let's Encrypt, Caddy, Telegram notifications, uptime
-monitoring and off-site backups are genuinely $0. The VPS and domain together
-are about $8/month. The AI auto-reply line is $8.78-$87.75 depending on volume.
+A VPS and a domain, plus Jordanian tax. That is the whole bill.
 
-> **Two things every earlier estimate of this project got wrong.**
-> Jordanian tax adds **16% self-assessed GST plus 10% withholding** to every
-> foreign invoice - a x1.289 gross multiplier that appeared in no previous
-> figure. And **prompt caching does not apply** to this workload: Claude Haiku
-> 4.5 needs a 4,096-token minimum cacheable prefix and this system's stable
-> prefix is ~1,500, so the AI line is ~40% higher than commonly quoted.
+Everything else is genuinely free and stays free: **Meta charges nothing** for
+receiving webhooks, nothing for inbound customer messages, and nothing today for
+replies sent inside the 24-hour window. n8n Community, the Google Sheets API,
+Let's Encrypt, Caddy, Telegram notifications, uptime monitoring and off-site
+backups are all $0.
 
-**The 1 October 2026 change is reported, not published.** Multiple BSPs say
-service messages become chargeable that day after 1,000 free per business phone
-number per month, with a payment-method deadline of 30 September. No Meta page
-states it and no October rate card is downloadable. If it lands at $0.0091,
-Meta becomes 51-66% of the bill - see
-[COSTS.md](docs/COSTS.md#meta-rates--confirmed-vs-unpublished) before budgeting.
+Ten times the traffic costs 44% more, because the only thing that changes is
+needing a slightly larger box.
 
-Maintenance time - 4 to 16 hours a month - is the largest real cost and appears
-on no invoice.
+**Two things worth knowing before October:**
+
+Meta has confirmed, verbatim, that *"Effective October 1, 2026, Meta will charge
+on a per-message basis for service messages"* — the replies this system sends.
+**The rate is still not published**; Meta's own page said it would be announced
+"no later than September 1, 2026" and that date has passed with no rate card. If
+it lands at the current utility rate of $0.0091, the bill becomes roughly
+$31 / $106 / $324 a month.
+
+Whether that happens at all depends on one unanswered question: agents here
+reply from the **WhatsApp Business app** via Coexistence, and no Meta page says
+whether those replies are billed. If they are not, Meta stays at $0.
+
+Full breakdown, what could not be verified, and alternatives for every layer:
+**[docs/COSTS.md](docs/COSTS.md)** and
+**[docs/ALTERNATIVES.md](docs/ALTERNATIVES.md)**.
+
+> **This README used to say $22 to $161, and COSTS.md said $122 to $443.** Both
+> were wrong the same way: they priced an AI auto-reply feature **this system
+> does not have**, and folded the owner's own maintenance hours into the invoice
+> as if they were a bill. Maintenance is real — about 1–2 hours a month — but it
+> is time, not cash, and it is now kept in its own section.
 
 ---
 
