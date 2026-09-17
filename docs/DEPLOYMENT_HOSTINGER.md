@@ -110,44 +110,45 @@ service rate yourself before committing a budget.**
 
 ### Realistic monthly totals
 
-Today's regime, before Jordanian tax:
-
-| Volume | Meta | Everything else | Subtotal | + tax and FX (x1.289) |
+| Volume | Meta | VPS + domain | + Jordanian tax | Total |
 |---|---|---|---|---|
-| 30 conversations/day | $0 | $16.79 | $16.79 | **~ $22** |
-| 100 conversations/day | $0 | $63.26 | $63.26 | **~ $82** |
-| 300 conversations/day | $0 | $125.26 | $125.26 | **~ $161** |
+| 30 conversations/day | $0 | $8.01 | x1.2889 | **$10.32** |
+| 100 conversations/day | $0 | $8.01 | x1.2889 | **$10.32** |
+| 300 conversations/day | $0 | $11.51 | x1.2889 | **$14.84** |
 
-If the reported October change lands at $0.0091 per service message, add $15.80
-/ $73.89 / $239.88 respectively - which would make Meta 51-66% of the bill.
+That is the whole bill. n8n, Google Sheets, Let's Encrypt, Caddy, Telegram
+notifications, uptime monitoring and off-site backups are all $0, and Meta
+charges nothing today for an inbound desk that answers within 24 hours.
+
+If Meta's 1 October 2026 service-message charging lands at the current utility
+rate of $0.0091, add $15.80 / $73.89 / $239.88 per month - but that rate is not
+published yet. Full detail in [COSTS.md](COSTS.md).
 
 **Jordanian tax applies to every foreign invoice** - 16% general sales tax on
-imported services, self-assessed by you, plus 10% withholding on payments to
-non-residents. Gross multiplier **x1.289**. Full detail and statute references in
-[COSTS.md](COSTS.md#jordanian-tax--the-29-nobody-prices).
+imported services, self-assessed, plus 10% withholding on payments to
+non-residents. Gross multiplier x1.2889. Confirm the withholding half with your
+accountant: the statute is clear, the practice on small card payments is not.
 
 ### The costs people do not expect
 
 1. **Jordanian tax on foreign invoices.** 16% GST self-assessed plus 10%
-   withholding - a x1.289 gross multiplier on Meta, Hetzner, Anthropic and
-   Google alike. Missing from every earlier estimate of this system.
-2. **The VPS renewal roughly doubles** - see the table above. Hetzner is cheaper
-   than Hostinger's renewal and has no promotional term at all.
+   withholding - a x1.2889 gross multiplier on every foreign bill.
+2. **The VPS renewal roughly doubles.** KVM 1 goes $6.49 -> $11.99, KVM 2
+   $8.99 -> $14.99, KVM 4 $12.99 -> $28.99. Hetzner is cheaper than Hostinger's
+   renewal price and has no promotional term at all.
 3. **Do not buy the domain at Hostinger.** A .com is $0.01 the first year and
-   **$19.99** on renewal; Porkbun is $11.08 flat. And one failed auto-renew
-   costs about **$211** to restore - $40 registry fee plus Porkbun's $200 - with
-   the webhook down throughout.
-4. **Prompt caching does not apply to this workload.** Claude Haiku 4.5 needs a
-   4,096-token minimum cacheable prefix; this system's stable prefix is ~1,500.
-   Budget the uncached rate: $8.78/month at 30 conversations a day, $87.75 at 300.
-5. **Sentry's free tier is one user.** A team sharing error visibility is $26/month.
-6. **A dedicated phone number.** It cannot already be on WhatsApp, so a new SIM
-   or virtual number may be needed. Meta charges nothing for registration.
-7. **Coexistence caps throughput.** A number used with both the Business app and
+   **$19.99** on renewal; Porkbun is $11.08 flat. One failed auto-renew costs
+   about **$211** to restore, with the webhook down throughout.
+4. **A dedicated phone number.** It cannot already be on WhatsApp unless you use
+   Coexistence, which keeps the WhatsApp Business app on the same number. Meta
+   charges nothing for registration.
+5. **Coexistence caps throughput.** A number used with both the Business app and
    the Cloud API is fixed at **20 messages/second**, instead of the 80 mps
-   default that auto-upgrades to 1,000 mps free.
-8. **Maintenance time is the largest real cost** - 4 to 16 hours a month, on no
-   invoice.
+   default that auto-upgrades to 1,000 mps free. Irrelevant below a few hundred
+   conversations a day.
+6. **Maintenance time.** About **1-2 hours a month**, roughly flat with volume -
+   Docker and n8n updates, and checking that backups actually restore. It is
+   time, not cash: if you do it yourself, nothing leaves your account.
 
 ### What would actually raise the bill
 
@@ -156,7 +157,7 @@ non-residents. Gross multiplier **x1.289**. Full detail and statute references i
 | More replies per conversation | Free today. If the October change lands, $0.0091 each past 1,000/month |
 | Above ~10 msg/min sustained | Postgres needed - free on the existing box |
 | Adding Chatwoot | 4 GB RAM and 4 cores, rated to 10,000 conversations/day - the existing KVM 1 qualifies. Also needs transactional email |
-| Auto-reply with AI | $8.78-$87.75/month on Claude Haiku 4.5, uncached |
+| Auto-reply with AI (not built today) | $3.37-$33.74/month on Claude Haiku 4.5 |
 | Marketing campaigns | $0.0341 per delivered template |
 | Inbound Arabic voice notes | Unpriced - needs speech-to-text, not in any estimate yet |
 | Replying after the 24-hour window | A billable template instead of a free-form reply |

@@ -4,7 +4,7 @@ Every layer of this system has a cheaper or freer replacement. This document
 lists them with verified prices and licences, and says which ones a company
 should actually depend on.
 
-Prices only: **[COSTS.md](COSTS.md)**. Verified **2026-09-13**.
+Prices only: **[COSTS.md](COSTS.md)**. Verified **2026-09-17**.
 
 - [Automation engine](#automation-engine-replacing-n8n)
 - [Datastore](#datastore-replacing-google-sheets)
@@ -108,12 +108,19 @@ plan, so it is not a free safety net.
 
 | Provider | Price /MTok | 30/day | 100/day | 300/day |
 |---|---|---|---|---|
-| **[Claude Haiku 4.5](https://platform.claude.com/docs/en/about-claude/pricing)** | $1 in / $5 out | **$8.78** | **$29.25** | **$87.75** |
-| Claude Sonnet 5 | $2 / $10 | $17.55 | $58.50 | $175.50 |
-| [OpenAI gpt-5-nano](https://openai.com/api/pricing/) | $0.05 / $0.40 | $0.54 | $1.80 | $5.40 |
-| OpenAI gpt-4o-mini | $0.15 / $0.60 | $1.21 | $4.05 | $12.15 |
+| **[Claude Haiku 4.5](https://platform.claude.com/docs/en/about-claude/pricing)** | $1 in / $5 out | **$3.37** | **$11.25** | **$33.74** |
+| Claude Sonnet 5 | $2 / $10 | $6.74 | $22.50 | $67.48 |
+| [OpenAI gpt-5-nano](https://openai.com/api/pricing/) | $0.05 / $0.40 | $0.22 | $0.73 | $2.19 |
+| OpenAI gpt-4o-mini | $0.15 / $0.60 | $0.45 | $1.52 | $4.55 |
 | [DeepSeek flash](https://api-docs.deepseek.com/quick_start/pricing) | $0.30 / $1.20, 50% off-peak | — | — | — |
 | ⚠️ [Gemini free tier](https://ai.google.dev/pricing) | $0 | — | — | — |
+
+
+> **This system has no AI today** — there is no LLM call anywhere in it. These
+> figures are for adding auto-reply later. The Haiku row is anchored to
+> Anthropic's own published worked example for support tickets (*"~$37.00 per
+> 10,000 tickets"*, ~3,700 tokens per conversation); the other rows are scaled
+> from it by each model's published price ratio, so treat them as estimates.
 
 ⚠️ **Gemini's free tier is the wrong trade for a commercial product.** Google's
 pricing page states it means *"Content used to improve our products"* —
