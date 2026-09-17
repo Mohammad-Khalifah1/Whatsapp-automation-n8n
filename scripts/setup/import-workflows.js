@@ -30,6 +30,7 @@ const CONTAINER_WF_DIR = '/home/node/n8n-workflows';
 /** Workflow ids this project owns, in execution order. */
 const EXPECTED_IDS = [
   'whatsappRecv0001',
+  'whatsappWahaRecv1b',
   'whatsappProc0002',
   'whatsappConv0003',
   'whatsappSend0004',

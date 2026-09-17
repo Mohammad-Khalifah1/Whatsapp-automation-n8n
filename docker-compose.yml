@@ -106,6 +106,15 @@ services:
       - ARCHIVE_AFTER_DAYS=${ARCHIVE_AFTER_DAYS:-30}
       - ARCHIVE_BATCH_SIZE=${ARCHIVE_BATCH_SIZE:-200}
 
+      # --- WAHA connector (optional second WhatsApp path, see
+      #     docs/WAHA_CONNECTOR.md) — unset WAHA_API_KEY/HMAC leaves the
+      #     Meta Cloud API path above fully unaffected. ---
+      - WHATSAPP_CONNECTOR=${WHATSAPP_CONNECTOR:-meta}
+      - WAHA_BASE_URL=${WAHA_BASE_URL:-http://waha:3000}
+      - WAHA_API_KEY=${WAHA_API_KEY}
+      - WAHA_HMAC_SECRET=${WAHA_HMAC_SECRET}
+      - WAHA_SESSION=${WAHA_SESSION:-default}
+
     volumes:
       # Named volume: n8n's own DB (SQLite), credentials, binary data, logs.
       # Survives `docker compose down` (only removed with an explicit -v).
@@ -125,11 +134,58 @@ services:
     networks:
       - n8n_whatsapp_network
 
+  # WAHA — QR-code WhatsApp connector. Optional: only used when
+  # WHATSAPP_CONNECTOR=waha (see docs/WAHA_CONNECTOR.md). Scan the QR from
+  # http://localhost:3000/dashboard (X-Api-Key: your WAHA_API_KEY) with the
+  # WhatsApp already on your phone — it links like WhatsApp Web, no account
+  # deletion. NOWEB engine: no Chromium, much lighter than WEBJS.
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: waha-whatsapp
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    environment:
+      - WHATSAPP_API_KEY=${WAHA_API_KEY}
+      - WHATSAPP_DEFAULT_ENGINE=NOWEB
+      # Points at workflow 01b inside the n8n container, same Docker network —
+      # "waha" and "n8n" resolve to each other by service name.
+      - WHATSAPP_HOOK_URL=http://n8n:5678/webhook/whatsapp/waha-incoming
+      - WHATSAPP_HOOK_EVENTS=message
+      - WHATSAPP_HOOK_HMAC_KEY=${WAHA_HMAC_SECRET}
+      # Pinned rather than left to auto-generate: WAHA prints a fresh random
+      # dashboard/swagger password on every restart otherwise, which is
+      # useless for coming back to scan a QR after a `docker compose down`.
+      - WAHA_DASHBOARD_USERNAME=${WAHA_DASHBOARD_USERNAME:-admin}
+      - WAHA_DASHBOARD_PASSWORD=${WAHA_DASHBOARD_PASSWORD}
+      - WHATSAPP_SWAGGER_USERNAME=${WAHA_DASHBOARD_USERNAME:-admin}
+      - WHATSAPP_SWAGGER_PASSWORD=${WAHA_DASHBOARD_PASSWORD}
+
+    volumes:
+      # WhatsApp Web session data. Losing this means re-scanning the QR.
+      - waha_sessions:/app/.sessions
+
+    healthcheck:
+      # /health requires the API key like every other route here — an
+      # unauthenticated healthcheck gets 401 and never turns "healthy".
+      test: ["CMD-SHELL", "wget -qO- --header=\"X-Api-Key: ${WAHA_API_KEY}\" http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+    networks:
+      - n8n_whatsapp_network
+
 networks:
   n8n_whatsapp_network:
     name: n8n_whatsapp_network
 
 volumes:
+  waha_sessions:
+    name: n8n_whatsapp_waha_sessions
   # NOTE: a fresh volume is used deliberately.
   #
   # The original volume (`n8n-whatsapp_n8n_data`) was created by an earlier run

@@ -1,0 +1,234 @@
+{
+  "id": "whatsappWahaRecv1b",
+  "name": "WhatsApp — 1b WAHA Webhook Receiver",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp/waha-incoming",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "waha-wh-post",
+      "name": "WAHA Events (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -460,
+        160
+      ],
+      "webhookId": "a1b2c3d4-0000-4000-8000-wahaeventpost"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Verifies WAHA's webhook HMAC (X-Webhook-Hmac, SHA-512 over the raw body)\n// and adapts the payload into the SAME envelope shape workflow 2's parser\n// already expects from Meta (object/entry/changes/value.messages or\n// value.message_echoes). This lets workflow 2, 3, and every Sheets write\n// downstream run completely unmodified — only the receiver differs.\n//\n// Fail-closed, matching workflow 1's Meta path: a missing/wrong secret\n// rejects the request rather than silently accepting unsigned traffic,\n// unless ALLOW_UNSIGNED_WEBHOOKS=true (local testing only).\n\nconst crypto = require('crypto');\n\nfunction safeEqual(a, b) {\n  const bufA = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();\n  const bufB = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();\n  return crypto.timingSafeEqual(bufA, bufB);\n}\n\nconst item = $input.first();\nconst json = item.json || {};\nconst headers = json.headers || {};\n\nlet rawBody = null;\nif (item.binary && item.binary.data && item.binary.data.data) {\n  rawBody = Buffer.from(item.binary.data.data, 'base64');\n} else if (json.body !== undefined) {\n  rawBody = Buffer.from(typeof json.body === 'string' ? json.body : JSON.stringify(json.body), 'utf8');\n}\n\nconst secret = $env.WAHA_HMAC_SECRET;\nconst allowUnsigned = String($env.ALLOW_UNSIGNED_WEBHOOKS || '').trim().toLowerCase() === 'true';\nconst providedSig = headers['x-webhook-hmac'] || '';\n\nlet sigOk = false;\nlet reason = 'UNKNOWN';\n\nif (allowUnsigned) {\n  sigOk = true;\n  reason = 'SIGNATURE_CHECK_DISABLED';\n  console.log(JSON.stringify({ event: 'SECURITY_WARNING', message: 'ALLOW_UNSIGNED_WEBHOOKS=true — WAHA signature verification is DISABLED' }));\n} else if (!secret || String(secret).trim() === '') {\n  sigOk = false;\n  reason = 'WAHA_HMAC_SECRET_NOT_CONFIGURED';\n} else if (!providedSig) {\n  sigOk = false;\n  reason = 'MISSING_SIGNATURE_HEADER';\n} else {\n  const expected = crypto.createHmac('sha512', String(secret)).update(rawBody || Buffer.alloc(0)).digest('hex');\n  sigOk = safeEqual(String(providedSig).toLowerCase(), expected);\n  reason = sigOk ? 'SIGNATURE_VALID' : 'SIGNATURE_MISMATCH';\n}\n\nconsole.log(JSON.stringify({ event: 'waha_webhook_received', signature_ok: sigOk, reason }));\n\nlet parsed = null;\ntry {\n  parsed = rawBody ? JSON.parse(rawBody.toString('utf8')) : (typeof json.body === 'object' ? json.body : null);\n} catch (e) {\n  parsed = (typeof json.body === 'object') ? json.body : null;\n}\n\nreturn [{ json: {\n  signature_ok: sigOk,\n  signature_reason: reason,\n  status_code: sigOk ? 200 : (reason === 'WAHA_HMAC_SECRET_NOT_CONFIGURED' ? 500 : 401),\n  body: parsed,\n} }];\n"
+      },
+      "id": "waha-verify-hmac",
+      "name": "Verify WAHA HMAC",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -200,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "waha-sig-ok",
+              "leftValue": "={{ $json.signature_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "waha-if-sig",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        40,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "waha-respond-200",
+      "name": "Ack 200 Immediately",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        300,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "invalid signature",
+        "options": {
+          "responseCode": "={{ $json.status_code }}"
+        }
+      },
+      "id": "waha-respond-401",
+      "name": "Reject",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Adapts a WAHA \"message\" event into the Meta Cloud API webhook envelope\n// shape, so workflow 2's existing parser (scripts/lib/webhook-parser.js)\n// handles it unmodified. v1 scope: TEXT messages only — see\n// docs/WAHA_CONNECTOR.md for what media/group messages do today (parsed as\n// an unsupported placeholder, not dropped, not crashed on).\n//\n// payload.fromMe === true means the message was sent from the linked phone\n// itself (the owner replying in the regular WhatsApp app while the session\n// is connected) rather than through this system — mapped to message_echoes,\n// reusing the exact mechanism workflow 2 already has for Meta Coexistence.\n\nconst body = $json.body || {};\nconst event = body.event;\nconst session = body.session || $env.WAHA_SESSION || 'default';\nconst payload = body.payload || {};\n\nconst waId = String(payload.from || payload.to || '').split('@')[0];\nconst businessId = 'waha:' + session;\n\nfunction textOf(p) {\n  return typeof p.body === 'string' && p.body !== '' ? p.body : null;\n}\n\nconst base = {\n  waba_id: businessId,\n  field: 'messages',\n  business_phone_number_id: businessId,\n  business_display_phone_number: session,\n};\n\nlet value = {};\n\nif (event === 'message' && payload.fromMe !== true) {\n  const text = textOf(payload);\n  value = {\n    metadata: { phone_number_id: businessId, display_phone_number: session },\n    contacts: [{ wa_id: waId, profile: { name: null } }],\n    messages: [{\n      from: waId,\n      id: payload.id || null,\n      timestamp: payload.timestamp != null ? String(payload.timestamp) : null,\n      type: 'text',\n      text: { body: payload.hasMedia && !text ? '[media via WAHA — not yet parsed, see docs/WAHA_CONNECTOR.md]' : (text || '') },\n    }],\n  };\n} else if (event === 'message' && payload.fromMe === true) {\n  const text = textOf(payload);\n  value = {\n    message_echoes: [{\n      id: payload.id || null,\n      to: waId,\n      from: businessId,\n      timestamp: payload.timestamp != null ? String(payload.timestamp) : null,\n      type: 'text',\n      text: { body: text || '' },\n    }],\n  };\n} else {\n  // session.status and any other event type: record as unrecognised rather\n  // than silently dropping it, same policy as workflow 2's own fallback.\n  value = { unhandled_waha_event: event || null };\n}\n\nconst envelope = {\n  object: 'whatsapp_business_account',\n  entry: [{ id: businessId, changes: [Object.assign({}, base, { value })] }],\n};\n\nreturn [{ json: { body: envelope } }];\n"
+      },
+      "id": "waha-adapt",
+      "name": "Adapt To Meta Envelope",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "whatsappProc0002",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "waha-call-processor",
+      "name": "Hand Off To Processor",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        820,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Workflow 1b — WAHA Webhook Receiver\n\nSecond entry point, alongside workflow 1 (Meta). WAHA calls this URL\ndirectly (`WHATSAPP_HOOK_URL` in docker-compose.yml) when\n`WHATSAPP_CONNECTOR=waha`.\n\n### Why it hands off to the SAME workflow 2\nRather than reimplementing dedup/assignment/Sheets logic for a second\nconnector, this normalizes WAHA's payload into the exact envelope shape\nworkflow 2 already parses from Meta. Everything downstream — dedup,\nconversation assignment (workflow 3), Sheets writes — runs unmodified.\n\n### Scope of this first cut — see docs/WAHA_CONNECTOR.md\nText messages only. Media messages are passed through as a labelled\nplaceholder rather than dropped or crashing. Not yet proven against a real\nscan-and-message round trip — only WAHA's container health and QR issuance\nare verified live.",
+        "height": 420,
+        "width": 620,
+        "color": 4
+      },
+      "id": "waha-sticky",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        -420
+      ]
+    }
+  ],
+  "connections": {
+    "WAHA Events (POST)": {
+      "main": [
+        [
+          {
+            "node": "Verify WAHA HMAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify WAHA HMAC": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Ack 200 Immediately",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ack 200 Immediately": {
+      "main": [
+        [
+          {
+            "node": "Adapt To Meta Envelope",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adapt To Meta Envelope": {
+      "main": [
+        [
+          {
+            "node": "Hand Off To Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "errorWorkflow": ""
+  },
+  "tags": []
+}
