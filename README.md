@@ -68,6 +68,58 @@ of that choice are written down in
 
 ---
 
+## See the sheet
+
+<!-- Paste a link to a DEMO COPY here — one with invented rows. File > Make a
+     copy, delete every data row, add a few fake conversations, then
+     Share > Anyone with the link > Viewer. -->
+
+**Demo sheet:** _(not published yet — see the warning below)_
+
+> ⚠️ **Do not put the live sheet link here.** This repository is public and the
+> working sheet holds real customer phone numbers and the text of real
+> conversations. Share a **copy with invented rows** instead — it is also the
+> better thing to show a prospective client.
+
+To build the layout in your own spreadsheet, paste
+[sheets-templates/SetupSheet.gs](sheets-templates/SetupSheet.gs) into
+*Extensions → Apps Script* and run `setupEverything`.
+
+---
+
+## Features
+
+| Area | What it does |
+|---|---|
+| **Inbound** | Every WhatsApp message becomes a row. Signature-verified over raw bytes, deduplicated on the message id, acknowledged in under 100 ms |
+| **Two connectors** | Meta Cloud API, or [WAHA](docs/WAHA_CONNECTOR.md) to link a number by QR with nothing deleted. `WHATSAPP_CONNECTOR` picks one |
+| **Routing** | Each new conversation goes to the agent with the fewest open ones and stays with them. Capacity and availability are respected |
+| **Replying** | Type into the sheet, use the WhatsApp Business app, or call the API. All three are recorded |
+| **Tracking** | Five conversation states, unread flag, first and last message timestamps, and a count of messages still unanswered |
+| **Dashboard** | A live tab with six figures and four charts — volume over 14 days, status mix, load per agent, and what customers ask for |
+| **History** | Every message is kept. Nightly archiving moves rows to an Archive tab; nothing is deleted |
+| **Operations** | A dedicated error workflow, retries on transient Sheets failures, and monitoring that catches a workflow that stopped running |
+
+## Limitations
+
+Real constraints, not roadmap items.
+
+| Limit | What it means |
+|---|---|
+| **No AI** | No auto-reply and no automatic classification anywhere. `product` and `quantity` are typed by a person |
+| **WAHA is not sanctioned by Meta** | It automates WhatsApp Web, which the Terms of Service do not permit. Real, unpredictable ban risk with no reliable appeal — [the honest version](docs/WAHA_CONNECTOR.md) |
+| **Sheet replies take up to a minute** | The reply workflow polls once per minute. The WhatsApp Business app is instant |
+| **Google Sheets is not a database** | 60 writes per minute per user. Around 300 conversations a day it returns 429s — that is when to move to [Postgres](docs/GOOGLE_SHEETS_TO_POSTGRES.md) |
+| **Assignment is not atomic** | Sheets has no compare-and-set, so two simultaneous conversations can reach the same agent. Workflow 3 serializes with `concurrency: 1` — [the analysis](docs/ASSIGNMENT_ALGORITHM.md) |
+| **Replies from a personal account are invisible** | Meta only emits webhooks for the business number. [Coexistence](docs/COEXISTENCE.md) mirrors Business-app replies; a personal WhatsApp is not tracked |
+| **Coexistence caps throughput at 20 messages/second** | Against 80 by default. Irrelevant below a few hundred conversations a day |
+| **Meta's test mode allows 5 recipients** | Until business verification, which takes days to weeks |
+| **Replying after 24 hours costs money** | Once the customer service window closes, only a paid template reopens it |
+| **One server, no failover** | A single VPS runs everything. Not a basis for promising uptime to a client |
+| **n8n's licence does not allow reselling** | Free for your own business; hosting clients' workflows needs an Enterprise licence at an unpublished price — [detail](docs/COSTS.md#is-n8n-really-free) |
+
+---
+
 ## Status
 
 **Live and verified end to end.** Every row below was executed against the
@@ -223,28 +275,6 @@ worth understanding — the other seven are short.
 ```
 
 Full detail: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
-
----
-
-## Two things to understand before using this
-
-**1. Google Sheets is not a transactional database.**
-It has no atomic compare-and-set, so two conversations arriving in the same
-instant can both be assigned to the same agent. Workflow 3 mitigates this by
-serializing assignment (`concurrency: 1`), which removes the race on a single
-n8n instance — it does not make Sheets transactional. Workflow 0 sidesteps it
-instead, by counting open conversations from the rows rather than maintaining a
-counter, so there is no shared value to corrupt. The honest analysis is in
-[docs/ASSIGNMENT_ALGORITHM.md](docs/ASSIGNMENT_ALGORITHM.md), and the migration
-path is in [docs/GOOGLE_SHEETS_TO_POSTGRES.md](docs/GOOGLE_SHEETS_TO_POSTGRES.md).
-
-**2. Replies must come from the business number, not a personal account.**
-Meta only emits webhooks for messages involving your WABA number. With
-**Coexistence** enabled, replies typed in the WhatsApp Business App *are*
-mirrored to the webhook and tracked — see
-[docs/COEXISTENCE.md](docs/COEXISTENCE.md). Without it, only replies sent
-through the API or the sheet are visible. Either way, an agent replying from
-their **personal** WhatsApp is invisible to the system.
 
 ---
 
