@@ -8,7 +8,7 @@ run and observed.
 | Level | Needs credentials? | Status |
 |---|---|---|
 | 1 — Unit tests (business logic) | No | **192 passing** |
-| 2 — Workflow validation | No | **461 checks passing** |
+| 2 — Workflow validation | No | **504 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
 | 4 — **End-to-end against the live deployment** | Yes (both) | **26 checks passing** |
@@ -81,7 +81,7 @@ inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
 node scripts/validation/validate-workflows.js
 ```
 
-461 checks across the 8 workflows:
+504 checks across the 9 workflows:
 
 - every Code node body **parses as JavaScript** (`vm.Script` compile)
 - no leftover `module.exports` or relative `require()` from inlining

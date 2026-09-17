@@ -106,31 +106,12 @@ plan, so it is not a free safety net.
 
 ## AI provider
 
-| Provider | Price /MTok | 30/day | 100/day | 300/day |
-|---|---|---|---|---|
-| **[Claude Haiku 4.5](https://platform.claude.com/docs/en/about-claude/pricing)** | $1 in / $5 out | **$3.37** | **$11.25** | **$33.74** |
-| Claude Sonnet 5 | $2 / $10 | $6.74 | $22.50 | $67.48 |
-| [OpenAI gpt-5-nano](https://openai.com/api/pricing/) | $0.05 / $0.40 | $0.22 | $0.73 | $2.19 |
-| OpenAI gpt-4o-mini | $0.15 / $0.60 | $0.45 | $1.52 | $4.55 |
-| [DeepSeek flash](https://api-docs.deepseek.com/quick_start/pricing) | $0.30 / $1.20, 50% off-peak | — | — | — |
-| ⚠️ [Gemini free tier](https://ai.google.dev/pricing) | $0 | — | — | — |
-
-
-> **This system has no AI today** — there is no LLM call anywhere in it. These
-> figures are for adding auto-reply later. The Haiku row is anchored to
-> Anthropic's own published worked example for support tickets (*"~$37.00 per
-> 10,000 tickets"*, ~3,700 tokens per conversation); the other rows are scaled
-> from it by each model's published price ratio, so treat them as estimates.
-
-⚠️ **Gemini's free tier is the wrong trade for a commercial product.** Google's
-pricing page states it means *"Content used to improve our products"* —
-customers' WhatsApp messages would enter Google's training data. Its numeric
-rate limits are no longer published, so capacity cannot be planned. DeepSeek's
-off-peak window (01:00–04:00 and 06:00–10:00 UTC) overlaps Jordanian business
-hours.
-
-Prompt caching does not apply at this prompt size — see
-[COSTS.md](COSTS.md#corrected-the-ai-line-is-higher-than-commonly-quoted).
+**Not applicable today — this system has no AI.** If auto-reply is ever added,
+every major provider publishes per-token pricing and the cheap tiers are all a
+few dollars a month at this volume. One caveat worth recording now: Google's
+free Gemini tier states that content is *"used to improve our products"*, which
+means customers' WhatsApp messages would enter training data. That is the wrong
+trade for a commercial product regardless of price.
 
 ---
 

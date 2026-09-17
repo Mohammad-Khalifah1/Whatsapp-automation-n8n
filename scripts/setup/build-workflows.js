@@ -79,6 +79,75 @@ const NODE_VERSION = {
 };
 
 /**
+ * WAHA connector (docs/WAHA_CONNECTOR.md) — shared between workflow 4's
+ * webhook-triggered send and workflow 7's sheet-polling send, the two places
+ * that call out to WhatsApp to deliver a reply. WHATSAPP_CONNECTOR selects
+ * the branch at RUN time (an n8n expression), not at build time, so one
+ * generated workflow file serves both connectors and a deployment can flip
+ * between them by changing one env var, no rebuild required.
+ *
+ * Kept here rather than in scripts/lib/ because — unlike security.js/
+ * webhook-parser.js — this is HTTP Request node PARAMETERS (url, headers,
+ * body), not Code node logic; inlineLibrary() has nothing to paste for it.
+ */
+const WHATSAPP_SEND_URL_EXPR =
+  "={{ $env.WHATSAPP_CONNECTOR === 'waha' ? ($env.WAHA_BASE_URL + '/api/sendText') : ('https://graph.facebook.com/' + $env.META_GRAPH_API_VERSION + '/' + $env.META_PHONE_NUMBER_ID + '/messages') }}";
+
+const WHATSAPP_SEND_HEADERS = {
+  parameters: [
+    // Exactly one of these two is non-empty at run time, selected by
+    // WHATSAPP_CONNECTOR. Sending both headers unconditionally (one empty)
+    // is harmless — each API ignores headers it does not recognise — and
+    // avoids needing a second HTTP Request node just to vary a header set.
+    { name: 'Authorization', value: "={{ $env.WHATSAPP_CONNECTOR === 'waha' ? '' : ('Bearer ' + $env.META_ACCESS_TOKEN) }}" },
+    { name: 'X-Api-Key', value: "={{ $env.WHATSAPP_CONNECTOR === 'waha' ? $env.WAHA_API_KEY : '' }}" },
+    { name: 'Content-Type', value: 'application/json' },
+  ],
+};
+
+/**
+ * @param {boolean} keepContext  Whether the Meta branch should attach
+ *   `context: { message_id }` for a threaded reply. Workflow 4 supports this
+ *   (an agent can reply to a specific message); workflow 7's sheet-polling
+ *   send does not carry that field, so it always sends a plain message.
+ *   WAHA's sendText has no equivalent in this first cut — see
+ *   docs/WAHA_CONNECTOR.md's "known gaps".
+ */
+function whatsappSendBodyExpr(keepContext) {
+  const metaBody = keepContext
+    ? 'Object.assign({ messaging_product: "whatsapp", recipient_type: "individual", to: $json.to, type: "text", text: { body: $json.text } }, $json.reply_to_message_id ? { context: { message_id: $json.reply_to_message_id } } : {})'
+    : '{ messaging_product: "whatsapp", recipient_type: "individual", to: $json.to, type: "text", text: { body: $json.text } }';
+  const wahaBody =
+    "{ session: ($env.WAHA_SESSION || 'default'), chatId: (String($json.to || '').replace(/[^0-9]/g, '') + '@c.us'), text: $json.text }";
+  return `={{ JSON.stringify($env.WHATSAPP_CONNECTOR === 'waha' ? (${wahaBody}) : (${metaBody})) }}`;
+}
+
+/**
+ * Lines for the Interpret-result Code nodes (workflow 4 and 7), spliced into
+ * the surrounding array-of-lines template with `...WHATSAPP_INTERPRET_RESULT_LINES`.
+ * Meta's response nests the id under `messages[0]`; WAHA's sendText returns
+ * the WAMessage object directly, id at the top level — different enough that
+ * one line can't cover both, so this branches on WHATSAPP_CONNECTOR.
+ */
+const WHATSAPP_INTERPRET_RESULT_LINES = [
+  "const connector = String($env.WHATSAPP_CONNECTOR || 'meta').trim().toLowerCase();",
+  'let messageId = null;',
+  'let apiError = null;',
+  "if (connector === 'waha') {",
+  '  messageId = response && typeof response.id === \'string\' ? response.id : null;',
+  "  apiError = response && typeof response.statusCode === 'number' && response.statusCode >= 400",
+  "    ? { code: response.statusCode, message: response.message || response.error || 'WAHA send failed' }",
+  '    : null;',
+  '} else {',
+  '  messageId = response && response.messages && response.messages[0]',
+  '    ? response.messages[0].id',
+  '    : null;',
+  '  apiError = response && response.error ? response.error : null;',
+  '}',
+  'const ok = !!messageId && !apiError;',
+];
+
+/**
  * Turn a CommonJS library file into a snippet that can be pasted inside a
  * Code node: strip the module wiring, keep the logic verbatim.
  */
@@ -2217,7 +2286,11 @@ function buildOutgoingMessage() {
   nodes.push({
     parameters: {
       method: 'POST',
-      url: '=https://graph.facebook.com/{{ $env.META_GRAPH_API_VERSION }}/{{ $env.META_PHONE_NUMBER_ID }}/messages',
+      // WHATSAPP_CONNECTOR selects the path: "meta" (default, unchanged
+      // behaviour) or "waha" (docs/WAHA_CONNECTOR.md) — a QR-linked number,
+      // no Meta approval, no account deletion. Both branches are plain
+      // expressions, so nothing here needs an n8n credential either way.
+      url: WHATSAPP_SEND_URL_EXPR,
       // The token is read from the environment rather than an n8n credential.
       //
       // Every secret this project uses then lives in exactly one place — .env —
@@ -2225,16 +2298,10 @@ function buildOutgoingMessage() {
       // forget when deploying to a new host. The workflow JSON stores the
       // EXPRESSION, never the value, so an exported workflow leaks nothing.
       sendHeaders: true,
-      headerParameters: {
-        parameters: [
-          { name: 'Authorization', value: '=Bearer {{ $env.META_ACCESS_TOKEN }}' },
-          { name: 'Content-Type', value: 'application/json' },
-        ],
-      },
+      headerParameters: WHATSAPP_SEND_HEADERS,
       sendBody: true,
       specifyBody: 'json',
-      jsonBody:
-        '={{ JSON.stringify(Object.assign({ messaging_product: "whatsapp", recipient_type: "individual", to: $json.to, type: "text", text: { body: $json.text } }, $json.reply_to_message_id ? { context: { message_id: $json.reply_to_message_id } } : {})) }}',
+      jsonBody: whatsappSendBodyExpr(true),
       options: {
         timeout: 15000,
         response: { response: { neverError: true, responseFormat: 'json' } },
@@ -2263,13 +2330,9 @@ function buildOutgoingMessage() {
         'const nowIso = localIso();',
         '',
         '// "Accepted by the API" is NOT "delivered to the customer".',
-        '// Real delivery is only known from a later status webhook.',
-        'const messageId = response && response.messages && response.messages[0]',
-        '  ? response.messages[0].id',
-        '  : null;',
-        '',
-        'const apiError = response && response.error ? response.error : null;',
-        'const ok = !!messageId && !apiError;',
+        '// Real delivery is only known from a later status webhook (Meta) or',
+        '// is simply unavailable yet (WAHA — see docs/WAHA_CONNECTOR.md).',
+        ...WHATSAPP_INTERPRET_RESULT_LINES,
         '',
         'console.log(JSON.stringify({',
         "  event: ok ? 'send_accepted' : 'send_failed',",
@@ -2912,7 +2975,9 @@ function buildReplyFromSheet() {
   nodes.push({
     parameters: {
       method: 'POST',
-      url: '=https://graph.facebook.com/{{ $env.META_GRAPH_API_VERSION }}/{{ $env.META_PHONE_NUMBER_ID }}/messages',
+      // WHATSAPP_CONNECTOR selects the path: "meta" (default, unchanged
+      // behaviour) or "waha" (docs/WAHA_CONNECTOR.md).
+      url: WHATSAPP_SEND_URL_EXPR,
       // The token is read from the environment rather than an n8n credential.
       //
       // Every secret this project uses then lives in exactly one place — .env —
@@ -2920,16 +2985,10 @@ function buildReplyFromSheet() {
       // forget when deploying to a new host. The workflow JSON stores the
       // EXPRESSION, never the value, so an exported workflow leaks nothing.
       sendHeaders: true,
-      headerParameters: {
-        parameters: [
-          { name: 'Authorization', value: '=Bearer {{ $env.META_ACCESS_TOKEN }}' },
-          { name: 'Content-Type', value: 'application/json' },
-        ],
-      },
+      headerParameters: WHATSAPP_SEND_HEADERS,
       sendBody: true,
       specifyBody: 'json',
-      jsonBody:
-        '={{ JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to: $json.to, type: "text", text: { body: $json.text } }) }}',
+      jsonBody: whatsappSendBodyExpr(false),
       options: {
         timeout: 15000,
         response: { response: { neverError: true, responseFormat: 'json' } },
@@ -2956,11 +3015,7 @@ function buildReplyFromSheet() {
         'const response = $input.first().json;',
         'const nowIso = localIso();',
         '',
-        'const messageId = response && response.messages && response.messages[0]',
-        '  ? response.messages[0].id',
-        '  : null;',
-        'const apiError = response && response.error ? response.error : null;',
-        'const ok = !!messageId && !apiError;',
+        ...WHATSAPP_INTERPRET_RESULT_LINES,
         '',
         'console.log(JSON.stringify({',
         "  event: ok ? 'sheet_reply_sent' : 'sheet_reply_failed',",

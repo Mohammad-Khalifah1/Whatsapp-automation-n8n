@@ -67,6 +67,26 @@ expire.
 
 ---
 
+## Two connectors, two cost shapes
+
+`WHATSAPP_CONNECTOR` picks how a number reaches the system, and the choice
+changes the bill — see [WAHA_CONNECTOR.md](WAHA_CONNECTOR.md).
+
+| | Meta Cloud API | WAHA |
+|---|---|---|
+| Per-message fees | $0 today; charged from 1 Oct 2026 | **None, ever** — no Meta billing relationship |
+| Server | Included in the CX23 above | **One more container.** Budget the CX33 ($10.59) rather than the CX23 |
+| Monthly, with tax | $10.32 | **$14.84** |
+| Approval needed | Business verification, days to weeks | None |
+| Number must be deleted first | Yes, unless Coexistence | **No** |
+| Risk | None — it is the sanctioned path | **Ban, unpredictable, no reliable appeal** |
+
+WAHA removes the only line that grows with volume, and adds a risk that is not
+priced in dollars. It is cheaper on paper and more expensive if the number is
+the business. Put nothing there you cannot afford to lose.
+
+---
+
 ## Meta: today, and what changes
 
 ### Today — confirmed
@@ -165,33 +185,18 @@ is why the figure looked like $443 instead of $15.
 
 ---
 
-## If you add auto-reply later
+## Auto-reply is not part of this system
 
-**This system has no AI today.** There is no LLM call anywhere in it — the only
+There is no AI in it. No LLM call exists anywhere: on the Meta path the only
 external hosts it contacts are `graph.facebook.com`, `sheets.googleapis.com` and
-`oauth2.googleapis.com`. The `product` column is typed by a human.
+`oauth2.googleapis.com`, and on the WAHA path a container on your own server
+replaces the first of those. The `product` column is typed by a person.
 
-If you do add it, there are two separate bills:
-
-**1. The model that writes the text.** Anthropic publishes a worked example for
-exactly this use case: *"processing 10,000 support tickets... ~3,700 tokens per
-conversation... Claude Haiku 4.5... Total cost: ~$37.00 per 10,000 tickets"* —
-**$0.0037 per conversation**.
-
-| Volume | Conversations/month | Model cost |
-|---|---|---|
-| 30/day | 912 | **$3.37** |
-| 100/day | 3,040 | **$11.25** |
-| 300/day | 9,120 | **$33.74** |
-
-**2. Meta delivering that reply.** $0 today; from October, the same unpublished
-rate as any other reply. **Meta does not charge differently for an automated
-reply** — a reply is a reply, whoever wrote it.
-
-> The one exception is **Meta Business Agent**, Meta's own AI inside WhatsApp:
-> $2.00 per 1M tokens, about 20,000–25,000 tokens per message, so **4–5 cents a
-> message**. That is roughly **36× more expensive** than running your own model.
-> It is optional; if you do not use it, you do not pay it.
+If it is ever added, two bills appear: the model that writes the text (priced per
+token by whichever provider you pick), and Meta delivering the reply — at the
+same rate as any other reply, because **Meta does not charge differently for an
+automated one**. The exception is Meta's own in-WhatsApp AI, billed at $2.00 per
+1M tokens, roughly 4-5 cents a message.
 
 ---
 
@@ -262,7 +267,7 @@ build and migration labour.
 |---|---|
 | $122 / $262 / $443 per month | **$10.32 / $10.32 / $14.84** |
 | An AI line in the main totals | **Removed.** The system has no AI. Moved to a section about adding it later |
-| AI priced at $8.89–$88.92 | **$3.37–$33.74**, from Anthropic's own worked example for support tickets |
+| An AI line was priced into the totals | **Removed.** The system has no AI; pricing a feature that does not exist is not a cost |
 | Maintenance hours added into the invoice total | **Separated.** It is time, not cash — and 1–2 h/month, not 5–14 |
 | Sentry listed as mandatory | **Optional** |
 | October charging "reported, not published" | **Confirmed by Meta verbatim.** The *rate* is what remains unpublished |
