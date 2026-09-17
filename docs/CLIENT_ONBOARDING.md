@@ -182,21 +182,42 @@ own the spreadsheet and the Cloud project.
 
 ### 2.5 Honest total
 
+**[COSTS.md](COSTS.md) is the authoritative figure.** It is re-derived from each
+vendor's own page and re-checked; this table is the summary.
+
 | Item | Monthly |
 |---|---|
 | n8n | $0 |
-| VPS | $5–8 |
-| Domain (optional) | ~$1 |
-| WhatsApp, support replies only | $0 |
 | Google Sheets | $0 |
-| **Total** | **$5–9 / month** |
+| TLS, monitoring, backups, Telegram alerts | $0 |
+| WhatsApp, support replies inside 24 h | $0 *(today — see below)* |
+| VPS (Hetzner CX23) | $7.09 |
+| Domain (Porkbun `.com`, $11.08/yr) | $0.92 |
+| Subtotal | $8.01 |
+| **+ Jordanian tax (×1.2889)** | **$10.32 / month** |
+
+At around 300 conversations a day the box moves up to a CX33 and the total
+becomes **$14.84**. Volume barely moves it; the box size is the only thing that
+changes.
+
+**Two things this table cannot settle, and a client should hear both:**
+
+**Jordanian tax.** 16% general sales tax on imported services is self-assessed
+by the recipient, and a further 10% is withheld on payments to non-residents —
+a ×1.2889 gross multiplier. The statute is quoted in [COSTS.md](COSTS.md#jordanian-tax).
+Whether a small business actually operates withholding on an $8 card payment is
+a question for an accountant. Without it the total is **$9.29**.
+
+**Meta's 1 October 2026 change.** Meta has confirmed, verbatim, that it *"will
+charge on a per-message basis for service messages"* from that date — the
+replies this system sends. **The rate is not published.** If it lands at the
+current utility rate of $0.0091, a desk answering 100 conversations a day would
+add roughly $74/month. Quote message fees to a client as a **pass-through at
+cost**, never inside a fixed monthly price: Meta offers no volume discount on
+service messages and may change the rate card on a month's notice.
 
 Plus one-off setup time, and the ongoing cost of **remembering to renew the Meta
 token** if it is a 60-day one.
-
-The number that can change this materially is templates. A client sending 5,000
-utility templates a month is in a different cost bracket entirely, and that
-bracket is determined by Meta's country rates, not by anything here.
 
 ---
 
