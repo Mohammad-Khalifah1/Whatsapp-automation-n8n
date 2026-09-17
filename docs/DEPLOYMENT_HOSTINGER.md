@@ -157,7 +157,6 @@ accountant: the statute is clear, the practice on small card payments is not.
 | More replies per conversation | Free today. If the October change lands, $0.0091 each past 1,000/month |
 | Above ~10 msg/min sustained | Postgres needed - free on the existing box |
 | Adding Chatwoot | 4 GB RAM and 4 cores, rated to 10,000 conversations/day - the existing KVM 1 qualifies. Also needs transactional email |
-| Auto-reply with AI (not built today) | $3.37-$33.74/month on Claude Haiku 4.5 |
 | Marketing campaigns | $0.0341 per delivered template |
 | Inbound Arabic voice notes | Unpriced - needs speech-to-text, not in any estimate yet |
 | Replying after the 24-hour window | A billable template instead of a free-form reply |

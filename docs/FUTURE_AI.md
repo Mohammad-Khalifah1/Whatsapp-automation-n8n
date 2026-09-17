@@ -187,10 +187,14 @@ sending anything to an external provider.
 
 ## Cost
 
-AI has a **per-message marginal cost**, and since 1 October 2026 so does
-messaging itself — see [COSTS.md](COSTS.md). At Claude Haiku 4.5 rates with
-prompt caching the AI line runs about $6.49/month at 30 conversations a day and
-$52.65 at 300.
+AI has a **per-message marginal cost** — the only line in this system that
+grows with every conversation. At the cheap end of current model pricing it is a
+few dollars a month at 30 conversations a day and a few tens at 300; the exact
+figure depends entirely on the provider, the model and how long the prompt is,
+so it is not worth quoting one here.
+
+Note that Meta bills the delivery separately and **does not charge differently
+for an automated reply** — see [COSTS.md](COSTS.md).
 
 Before enabling anything:
 
