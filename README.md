@@ -53,6 +53,28 @@ customers who messaged you. There is no per-seat fee and no license to buy —
 see [docs/CLIENT_ONBOARDING.md](docs/CLIENT_ONBOARDING.md) for the full costing,
 checked against each vendor's own documentation.
 
+## See the sheet
+
+<!-- Paste a link to a DEMO COPY of the sheet here — one with invented rows.
+     File > Make a copy of your working sheet, delete every data row, add a
+     handful of fake conversations, then Share > Anyone with the link > Viewer. -->
+
+**Demo sheet:** _(not published yet — see the warning below)_
+
+> ⚠️ **Do not put the live sheet link here.** This repository is public, and the
+> working sheet holds real customer phone numbers and the text of real
+> conversations. Anyone who found this page would be able to read them.
+>
+> Share a **copy with invented rows** instead. It is also the better thing to
+> show a prospective client: real customers' messages are not yours to display.
+
+The layout it produces, including the Dashboard tab, is described in
+[docs/GOOGLE_SHEETS_SCHEMA.md](docs/GOOGLE_SHEETS_SCHEMA.md). To build it in your
+own spreadsheet, paste [sheets-templates/SetupSheet.gs](sheets-templates/SetupSheet.gs)
+into *Extensions → Apps Script* and run `setupEverything`.
+
+---
+
 ## What it is, technically
 
 A WhatsApp customer-support routing and conversation-tracking system built on

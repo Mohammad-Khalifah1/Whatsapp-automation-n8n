@@ -120,6 +120,7 @@ function setupEverything() {
   applyAgentRules_(ss);
   createFilterViews_(ss);
   protectSystemColumns_(ss);
+  report.push(buildDashboard_(ss));
 
   SpreadsheetApp.getUi().alert(
     'Setup complete\n\n' + report.join('\n') +
@@ -593,4 +594,198 @@ function columnLetter_(index) {
     index = Math.floor((index - 1) / 26);
   }
   return letter;
+}
+
+
+/* ────────────────────────────────────────────────────────────────────────
+   Dashboard — a manager's view, rebuilt from scratch on every run.
+
+   Everything on this tab is a formula over the live tabs, so it is always
+   current and there is nothing to refresh. It holds no data of its own, which
+   is why it is safe to delete and rebuild: buildDashboard_ clears the sheet,
+   re-writes the formulas, and re-inserts the charts.
+
+   Column letters are derived from SCHEMA rather than hard-coded, so adding a
+   column to Conversations cannot silently point a KPI at the wrong data.
+   ──────────────────────────────────────────────────────────────────────── */
+
+/** Palette — one place, so the whole tab stays consistent. */
+var DASH = {
+  ink:     '#202124',
+  muted:   '#5f6368',
+  rule:    '#e0e0e0',
+  card:    '#f8f9fa',
+  accent:  '#1a73e8',
+  good:    '#188038',
+  warn:    '#e37400',
+  bad:     '#d93025',
+  font:    'Google Sans',
+  fontAlt: 'Arial'
+};
+
+/** A1 column letter for a named column of a tab in SCHEMA. */
+function colOf_(tab, name) {
+  var i = SCHEMA[tab].indexOf(name);
+  if (i === -1) throw new Error('Dashboard: no column "' + name + '" in ' + tab);
+  return columnLetter_(i + 1);
+}
+
+function buildDashboard_(ss) {
+  var name = 'Dashboard';
+  var sh = ss.getSheetByName(name);
+  if (!sh) sh = ss.insertSheet(name, 0);
+  ss.setActiveSheet(sh);
+  ss.moveActiveSheet(1);
+
+  // Rebuild from clean: drop old charts and contents.
+  sh.getCharts().forEach(function (c) { sh.removeChart(c); });
+  sh.clear();
+  sh.clearConditionalFormatRules();
+  if (sh.getMaxColumns() < 14) sh.insertColumnsAfter(sh.getMaxColumns(), 14 - sh.getMaxColumns());
+  if (sh.getMaxRows() < 60) sh.insertRowsAfter(sh.getMaxRows(), 60 - sh.getMaxRows());
+
+  sh.setHiddenGridlines(true);
+  sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns())
+    .setFontFamily(DASH.font).setFontColor(DASH.ink);
+
+  var C = {
+    status:   colOf_('Conversations', 'status'),
+    agent:    colOf_('Conversations', 'assigned_agent_name'),
+    product:  colOf_('Conversations', 'product'),
+    qty:      colOf_('Conversations', 'quantity'),
+    unread:   colOf_('Conversations', 'unread'),
+    lastCust: colOf_('Conversations', 'last_customer_message_at'),
+    firstAt:  colOf_('Conversations', 'first_message_at')
+  };
+  var M = {
+    ts:  colOf_('Messages', 'timestamp'),
+    dir: colOf_('Messages', 'direction')
+  };
+  var A = {
+    name:      colOf_('Agents', 'name'),
+    active:    colOf_('Agents', 'active'),
+    available: colOf_('Agents', 'available')
+  };
+
+  /* ---- title ------------------------------------------------------- */
+  sh.getRange('B2').setValue('WhatsApp Support')
+    .setFontSize(22).setFontWeight('bold');
+  sh.getRange('B3').setFormula(
+      '="Live view · updated "&TEXT(NOW(),"d mmm yyyy, HH:mm")')
+    .setFontSize(10).setFontColor(DASH.muted);
+  sh.getRange('B4:M4').merge().setBackground(DASH.rule);
+  sh.setRowHeight(4, 2);
+
+  /* ---- KPI cards ---------------------------------------------------- */
+  // label row, value row, one card every two columns
+  var kpis = [
+    ['Open conversations',
+     '=COUNTIFS(Conversations!' + C.status + '2:' + C.status + ',"<>",Conversations!' +
+        C.status + '2:' + C.status + ',"<>CLOSED",Conversations!' +
+        C.status + '2:' + C.status + ',"<>ARCHIVED")', DASH.accent],
+    ['Waiting for a reply',
+     '=COUNTIF(Conversations!' + C.status + '2:' + C.status + ',"UNANSWERED")', DASH.warn],
+    ['Nobody assigned',
+     '=COUNTIF(Conversations!' + C.status + '2:' + C.status + ',"WAITING_FOR_AGENT")', DASH.bad],
+    ['Messages today',
+     '=COUNTIF(Messages!' + M.ts + '2:' + M.ts + ',TEXT(TODAY(),"yyyy-mm-dd")&"*")', DASH.ink],
+    ['Agents on shift',
+     '=COUNTIFS(Agents!' + A.active + '2:' + A.active + ',TRUE,Agents!' +
+        A.available + '2:' + A.available + ',TRUE)', DASH.good],
+    ['Unread',
+     '=COUNTIF(Conversations!' + C.unread + '2:' + C.unread + ',TRUE)', DASH.muted]
+  ];
+
+  for (var i = 0; i < kpis.length; i++) {
+    var c = 2 + i * 2;                       // B, D, F, H, J, L
+    sh.getRange(6, c, 1, 2).merge().setValue(kpis[i][0])
+      .setFontSize(9).setFontColor(DASH.muted)
+      .setHorizontalAlignment('center').setVerticalAlignment('middle');
+    sh.getRange(7, c, 1, 2).merge().setFormula(kpis[i][1])
+      .setFontSize(26).setFontWeight('bold').setFontColor(kpis[i][2])
+      .setHorizontalAlignment('center').setVerticalAlignment('middle');
+    sh.getRange(6, c, 2, 2)
+      .setBackground(DASH.card)
+      .setBorder(true, true, true, true, false, false, DASH.rule,
+                 SpreadsheetApp.BorderStyle.SOLID);
+  }
+  sh.setRowHeight(6, 22);
+  sh.setRowHeight(7, 46);
+  sh.setRowHeight(8, 14);
+
+  /* ---- helper aggregation blocks, off to the right and hidden ------- */
+  // P:Q  status   |  S:T  agent  |  V:W  product  |  Y:Z  last 14 days
+  sh.getRange('P1').setValue('Status');
+  sh.getRange('Q1').setValue('Conversations');
+  var statuses = CONVERSATION_STATUSES;
+  for (var k = 0; k < statuses.length; k++) {
+    sh.getRange(2 + k, 16).setValue(statuses[k]);
+    sh.getRange(2 + k, 17).setFormula(
+      '=COUNTIF(Conversations!' + C.status + '2:' + C.status + ',"' + statuses[k] + '")');
+  }
+
+  sh.getRange('S1').setValue('Agent');
+  sh.getRange('T1').setValue('Open');
+  sh.getRange('S2').setFormula(
+    '=IFERROR(FILTER(Agents!' + A.name + '2:' + A.name + ',Agents!' +
+    A.name + '2:' + A.name + '<>""),"")');
+  sh.getRange('T2').setFormula(
+    '=IF(S2="","",ARRAYFORMULA(IF(S2:S="","",COUNTIFS(Conversations!' + C.agent + '2:' + C.agent +
+    ',S2:S,Conversations!' + C.status + '2:' + C.status + ',"<>CLOSED",Conversations!' +
+    C.status + '2:' + C.status + ',"<>ARCHIVED"))))');
+
+  sh.getRange('V1').setValue('Product');
+  sh.getRange('W1').setValue('Conversations');
+  sh.getRange('V2').setFormula(
+    '=IFERROR(QUERY(Conversations!' + C.product + '2:' + C.product +
+    ',"select ' + C.product + ', count(' + C.product + ') where ' + C.product +
+    " is not null group by " + C.product + ' order by count(' + C.product +
+    ') desc limit 8 label count(' + C.product + ') \'\'",0),"")');
+
+  sh.getRange('Y1').setValue('Day');
+  sh.getRange('Z1').setValue('Messages');
+  for (var d = 13; d >= 0; d--) {
+    var row = 2 + (13 - d);
+    sh.getRange(row, 25).setFormula('=TODAY()-' + d).setNumberFormat('d mmm');
+    sh.getRange(row, 26).setFormula(
+      '=COUNTIF(Messages!' + M.ts + '2:' + M.ts + ',TEXT(Y' + row + ',"yyyy-mm-dd")&"*")');
+  }
+
+  sh.getRange('P1:Z1').setFontWeight('bold').setFontColor(DASH.muted);
+
+  /* ---- charts -------------------------------------------------------- */
+  var charts = [
+    { type: SpreadsheetApp.ChartType.LINE,   range: 'Y1:Z15', row: 10, col: 2,
+      title: 'Messages, last 14 days', w: 620 },
+    { type: SpreadsheetApp.ChartType.PIE,    range: 'P1:Q6',  row: 10, col: 9,
+      title: 'Conversations by status', w: 420 },
+    { type: SpreadsheetApp.ChartType.COLUMN, range: 'S1:T20', row: 28, col: 2,
+      title: 'Open conversations per agent', w: 620 },
+    { type: SpreadsheetApp.ChartType.BAR,    range: 'V1:W9',  row: 28, col: 9,
+      title: 'What customers ask for', w: 420 }
+  ];
+
+  charts.forEach(function (c) {
+    var b = sh.newChart()
+      .setChartType(c.type)
+      .addRange(sh.getRange(c.range))
+      .setPosition(c.row, c.col, 0, 0)
+      .setOption('title', c.title)
+      .setOption('titleTextStyle', { fontName: DASH.font, fontSize: 13, bold: true, color: DASH.ink })
+      .setOption('legend', { position: c.type === SpreadsheetApp.ChartType.PIE ? 'right' : 'none' })
+      .setOption('backgroundColor', '#ffffff')
+      .setOption('colors', [DASH.accent, DASH.good, DASH.warn, DASH.bad, DASH.muted])
+      .setOption('width', c.w)
+      .setOption('height', 260)
+      .setOption('fontName', DASH.font);
+    sh.insertChart(b.build());
+  });
+
+  /* ---- tidy ---------------------------------------------------------- */
+  sh.setColumnWidth(1, 24);
+  for (var w = 2; w <= 13; w++) sh.setColumnWidth(w, 96);
+  sh.hideColumns(15, 12);              // O through Z: the helper blocks
+  sh.setFrozenRows(4);
+
+  return 'Built    Dashboard (6 KPIs, 4 charts)';
 }
