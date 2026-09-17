@@ -61,6 +61,21 @@ it goes out within a minute") were touched, and only to add a second branch:
 
 ---
 
+## How the workflow is built
+
+`scripts/setup/build-waha-receiver.js` generates
+`n8n/workflows/01b-waha-webhook-receiver.json`, the WAHA-side twin of the Meta
+receiver. It is a generator for the same reason the others are: n8n Code nodes
+cannot import host files, so the tested libraries in `scripts/lib/` are inlined
+at build time and the running code stays identical to the code under test.
+
+```bash
+node scripts/setup/build-waha-receiver.js
+node scripts/setup/import-workflows.js
+```
+
+---
+
 ## Setup
 
 1. `docker compose up -d` — this now also starts the `waha` container.
