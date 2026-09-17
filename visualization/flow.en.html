@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WhatsApp Support Routing — how it works</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --ink:#1a2330; --muted:#5b6675; --line:#dfe4ea;
+    --green:#25d366; --greenD:#128c7e; --amber:#f2a33c; --red:#e05a55;
+    --blue:#3b7ddd; --grey:#8a94a3;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#12161c; --card:#1a1f27; --ink:#e8ecf1; --muted:#9aa5b4; --line:#2b323c; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:"Segoe UI",Tahoma,system-ui,-apple-system,sans-serif;line-height:1.75}
+  .wrap{max-width:1100px;margin:0 auto;padding:28px 20px 80px}
+  header{text-align:center;padding:28px 0 10px}
+  h1{margin:0 0 6px;font-size:30px;letter-spacing:-.2px}
+  .sub{color:var(--muted);font-size:15px}
+  h2{font-size:21px;margin:38px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:14px 0}
+  .muted{color:var(--muted)}
+  code{background:rgba(128,128,128,.14);padding:1px 6px;border-radius:5px;
+       font-family:ui-monospace,Consolas,monospace;font-size:.9em;direction:ltr;display:inline-block}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:right;vertical-align:top}
+  th{background:rgba(128,128,128,.10);font-weight:600}
+  .ltr{direction:ltr;text-align:left}
+
+  /* flow */
+  .flow{display:flex;flex-direction:column;align-items:center;gap:0;margin:8px 0}
+  .step{background:var(--card);border:2px solid var(--line);border-radius:12px;
+        padding:13px 18px;min-width:330px;max-width:620px;width:100%;position:relative}
+  .step .n{position:absolute;inset-inline-start:-13px;top:-13px;width:28px;height:28px;
+           border-radius:50%;background:var(--greenD);color:#fff;display:grid;place-items:center;
+           font-size:13px;font-weight:700}
+  .step h3{margin:0 0 4px;font-size:16px}
+  .step p{margin:0;font-size:14px;color:var(--muted)}
+  .arrow{width:2px;height:22px;background:var(--line);position:relative}
+  .arrow::after{content:"";position:absolute;bottom:-1px;left:50%;transform:translateX(-50%);
+                border:6px solid transparent;border-top-color:var(--line)}
+  .b-green{border-color:var(--green)} .b-blue{border-color:var(--blue)}
+  .b-amber{border-color:var(--amber)} .b-grey{border-color:var(--grey)}
+
+  /* states */
+  .states{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+  .st{padding:8px 14px;border-radius:999px;font-size:13.5px;font-weight:600;border:2px solid}
+  .st-wait{background:#fdece9;color:#a83a32;border-color:#e9b3ac}
+  .st-un{background:#fdf3dd;color:#8a5d10;border-color:#eccd8a}
+  .st-rep{background:#e5f2e3;color:#2c6b2f;border-color:#a9d3a6}
+  .st-clo{background:#eceff2;color:#5b6675;border-color:#cdd4dc}
+  @media (prefers-color-scheme: dark){
+    .st-wait{background:#3a211f;color:#f0a49c;border-color:#6b3a35}
+    .st-un{background:#3a3220;color:#e8c07a;border-color:#6d5a2e}
+    .st-rep{background:#22331f;color:#9ed39a;border-color:#3f6b3c}
+    .st-clo{background:#252a31;color:#9aa5b4;border-color:#3a424c}
+  }
+
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+  .note{border-inline-start:4px solid var(--amber);background:rgba(242,163,60,.09);
+        padding:12px 15px;border-radius:8px;margin:12px 0;font-size:14.5px}
+  .good{border-inline-start-color:var(--green);background:rgba(37,211,102,.09)}
+  .bad{border-inline-start-color:var(--red);background:rgba(224,90,85,.10)}
+  .tag{display:inline-block;padding:2px 9px;border-radius:6px;font-size:12px;
+       font-weight:700;background:var(--greenD);color:#fff;margin-inline-start:6px}
+  .scroll{overflow-x:auto}
+  footer{text-align:center;color:var(--muted);font-size:13px;margin-top:46px;
+         padding-top:18px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>WhatsApp Support Routing</h1>
+<p class="sub">How a customer's message arrives, how it is shared out across the
+team, and where it is tracked.</p>
+
+<p class="note" style="margin:0 0 18px">
+  <a href="flow.html">اقرأ هذه الصفحة بالعربية &larr;</a>
+</p>
+
+<h2>The idea, in two lines</h2>
+<div class="card">
+  A customer messages your WhatsApp business number. The system recognises them,
+  opens a conversation, and hands it automatically to
+  <strong>whoever has the fewest open conversations</strong>. Everything appears
+  in a colour-coded <span class="ltr">Google Sheet</span> where a manager can see
+  at a glance who is waiting, and for how long.
+</div>
+
+<h2>The journey of one message</h2>
+<div class="flow">
+
+  <div class="step"><div class="n">1</div><div>
+    <h3>The customer sends a message</h3>
+    <p>From ordinary WhatsApp to the company number. They install nothing.</p>
+  </div></div>
+  <div class="arrow"></div>
+
+  <div class="step"><div class="n">2</div><div>
+    <h3>Meta sends a signed notification</h3>
+    <p>It calls our URL immediately, attaching a cryptographic signature that
+       proves the request really came from Meta.</p>
+  </div></div>
+  <div class="arrow"></div>
+
+  <div class="step"><div class="n">3</div><div>
+    <h3>Verify the signature, then acknowledge at once</h3>
+    <p>Anything unsigned is rejected. We then answer Meta in under a tenth of a
+       second &mdash; before any slow work, so it does not retry and deliver the
+       message twice.</p>
+  </div></div>
+  <div class="arrow"></div>
+
+  <div class="step"><div class="n">4</div><div>
+    <h3>Read the message, and refuse duplicates</h3>
+    <p>Name, number, text and timestamp are extracted. If the same message
+       arrives twice, the second is ignored &mdash; no duplicate conversation and
+       no double assignment.</p>
+  </div></div>
+  <div class="arrow"></div>
+
+  <div class="step"><div class="n">5</div><div>
+    <h3>New conversation, or an existing one?</h3>
+    <p>If the customer already has one open, we continue it and keep it
+       <strong>with the same agent</strong>. If not, a new one is opened.</p>
+  </div></div>
+  <div class="arrow"></div>
+
+  <div class="step"><div class="n">6</div><div>
+    <h3>Choose the agent</h3>
+    <p>From the agents who are active, available and not at capacity, we take the
+       one with the <strong>fewest open conversations</strong>. Ties break by
+       oldest assignment, then by a fixed order &mdash; so the outcome can always
+       be explained.</p>
+  </div></div>
+  <div class="arrow"></div>
+
+  <div class="step"><div class="n">7</div><div>
+    <h3>It all appears in the sheet</h3>
+    <p>One row per conversation, coloured by state, with a direct link to the
+       customer's chat. The request type is classified against a
+       <span class="ltr">Categories</span> tab you edit yourself &mdash; add a
+       product line by adding a row.</p>
+  </div></div>
+
+</div>
+
+<p class="note">
+  <strong>If no agent is free</strong> &mdash; the conversation is never lost. It
+  is recorded as <span class="ltr">WAITING_FOR_AGENT</span> with the reason
+  stated, and the system retries the assignment every five minutes.
+</p>
+
+<h2>Conversation states</h2>
+<div class="states">
+  <span class="st st-wait">WAITING_FOR_AGENT &mdash; nobody owns it</span>
+  <span class="st st-un">UNANSWERED &mdash; the customer is waiting</span>
+  <span class="st st-rep">REPLIED &mdash; answered, the ball is with them</span>
+  <span class="st st-rep">WAITING_FOR_CUSTOMER &mdash; same thing, seen from the manager's side</span>
+  <span class="st st-clo">CLOSED &mdash; finished</span>
+</div>
+<div class="card scroll">
+  <table>
+    <tr><th>What happened</th><th>New state</th><th>Why it matters</th></tr>
+    <tr><td>First message from a new customer</td><td class="ltr">UNANSWERED</td><td>The waiting clock starts</td></tr>
+    <tr><td>The agent replies</td><td class="ltr">REPLIED</td><td>The ball is in the customer's court</td></tr>
+    <tr><td>The customer writes again</td><td class="ltr">UNANSWERED</td><td><strong>It returns to the queue automatically</strong> &mdash; it cannot get lost among answered threads</td></tr>
+    <tr><td>No agent available</td><td class="ltr">WAITING_FOR_AGENT</td><td>A coverage problem, shown in red</td></tr>
+    <tr><td>Closed by hand</td><td class="ltr">CLOSED</td><td>It leaves the work list</td></tr>
+    <tr><td>A customer writes to a closed conversation</td><td class="ltr">UNANSWERED</td><td>It reopens with the same history</td></tr>
+  </table>
+</div>
+
+<h2>How a manager reads the sheet</h2>
+<div class="card">
+  <p>Colour alone is enough &mdash; without reading a word:</p>
+  <div class="scroll"><table>
+    <tr><th>Colour</th><th>Meaning</th><th>Action</th></tr>
+    <tr><td>🔴 Red</td><td>No agent assigned</td><td>Coverage problem &mdash; step in now</td></tr>
+    <tr><td>🟡 Amber</td><td>The customer is waiting</td><td>This is the work list</td></tr>
+    <tr><td>🔴 Dark red, bold</td><td>Waiting over an hour</td><td>A service-level risk</td></tr>
+    <tr><td>🟢 Green</td><td>Answered</td><td>Waiting on the customer</td></tr>
+    <tr><td>⬜ Grey</td><td>Closed</td><td>For the archive</td></tr>
+  </table></div>
+  <p class="muted" style="margin-top:10px">
+    Any column can be sorted: state, agent, date, customer name. There is also a
+    <strong><span class="ltr">Dashboard</span></strong> tab with six live figures
+    and four charts &mdash; message volume over fourteen days, the mix of states,
+    the load on each agent, and what customers are asking for.
+    The most useful view: <strong><span class="ltr">status = UNANSWERED</span></strong>,
+    oldest first.
+  </p>
+</div>
+
+<h2>Three ways to reply &mdash; all of them recorded</h2>
+<div class="cols">
+  <div class="card"><h3>The WhatsApp Business app</h3>
+    <span class="tag b-green">instant</span>
+    <p>The agent replies in an app they already know, with notifications.
+       Requires Coexistence to be enabled.</p></div>
+  <div class="card"><h3>Typing in the sheet</h3>
+    <span class="tag b-amber">&le; 1 minute</span>
+    <p>Type into the <span class="ltr">reply_text</span> column; it is sent
+       automatically and the cell is cleared. No training at all.</p></div>
+  <div class="card"><h3>Through the API</h3>
+    <span class="tag b-green">instant</span>
+    <p>For the future agent inbox, or for automation.</p></div>
+</div>
+<p class="note bad">
+  <strong>The one exception:</strong> if an agent replies from their
+  <strong>personal WhatsApp</strong>, the system cannot see it &mdash; the message
+  never passed through the company number. No system anywhere could track it.
+</p>
+
+<h2>What stops things going wrong</h2>
+<div class="card scroll">
+  <table>
+    <tr><th>Risk</th><th>What prevents it</th></tr>
+    <tr><td>Forged messages from an unknown source</td><td>Meta's cryptographic signature is verified &mdash; anything unsigned is rejected</td></tr>
+    <tr><td>The same message arriving twice</td><td>A deduplication key on the message id &mdash; the second is ignored</td></tr>
+    <tr><td>Two customers assigned to one agent at the same instant</td><td>Assignments run one after another</td></tr>
+    <tr><td>A corrupt row in the agents table</td><td>That one agent is excluded &mdash; routing continues</td></tr>
+    <tr><td>An unrecognised value in the "available" field</td><td>Treated as unavailable &mdash; always the safer reading</td></tr>
+    <tr><td>A message type we have never seen</td><td>Recorded and marked unsupported, rather than breaking the system</td></tr>
+    <tr><td>The sheet growing unmanageable</td><td>Nightly archiving of old closed conversations</td></tr>
+  </table>
+</div>
+
+<h2>Limits worth knowing</h2>
+<div class="card scroll">
+  <table>
+    <tr><th>Limit</th><th>Value</th><th>Effect</th></tr>
+    <tr><td>Google Sheets reads</td><td>60 / minute</td><td>Roughly 10&ndash;15 inbound messages a minute, sustained</td></tr>
+    <tr><td>Replying from the sheet</td><td>up to 1 minute</td><td>For instant replies, use the app</td></tr>
+    <tr><td>The 24-hour window</td><td>Replies free inside it</td><td>After it, a paid template message is required</td></tr>
+  </table>
+  <p class="muted" style="margin-top:10px">
+    Beyond these limits, moving to a PostgreSQL database is already planned and
+    does not require rewriting the business logic.
+  </p>
+</div>
+
+<h2>Cost</h2>
+<div class="card scroll">
+  <table>
+    <tr><th>Item</th><th>Per month</th></tr>
+    <tr><td>Meta Cloud API &middot; n8n &middot; Google Sheets &middot; TLS &middot; monitoring &middot; backups</td><td><strong>Free</strong></td></tr>
+    <tr><td>Inbound messages from customers</td><td><strong>Free, unlimited</strong></td></tr>
+    <tr><td>Support replies inside the 24-hour window</td><td><strong>Free</strong> &mdash; today</td></tr>
+    <tr><td>A small server (Hetzner CX23)</td><td class="ltr">$7.09</td></tr>
+    <tr><td>Domain (<span class="ltr">$11.08</span>/year)</td><td class="ltr">$0.92</td></tr>
+    <tr><td>Jordanian tax (<span class="ltr">&times;1.2889</span>)</td><td>&mdash;</td></tr>
+    <tr><td><strong>Total</strong></td><td><strong class="ltr">$10.32 / month</strong></td></tr>
+  </table>
+  <p class="muted" style="margin-top:10px">
+    The figure barely moves with volume: at three hundred conversations a day it
+    becomes <strong class="ltr">$14.84</strong>, because the only thing that
+    changes is the size of the server.
+  </p>
+  <p class="muted" style="margin-top:6px">
+    <strong>A confirmed change from Meta:</strong> from 1 October 2026 service
+    messages &mdash; your replies &mdash; become chargeable.
+    <strong>The rate has not been published.</strong> Jordanian sales tax of 16%
+    on imported services is self-assessed, with a further 10% withheld on
+    payments to non-residents.
+  </p>
+  <p class="muted" style="margin-top:6px">
+    The real hidden cost: <strong>server renewal</strong> rises after the
+    promotional term (Hostinger from <span class="ltr">$6.49</span> to
+    <span class="ltr">$11.99</span>), and <strong>replying after 24 hours</strong>
+    turns into a paid template &mdash; so answering quickly saves money, not just
+    goodwill.
+  </p>
+</div>
+
+<h2>Two ways to connect the number</h2>
+<div class="card scroll">
+  <table>
+    <tr><th></th><th>Meta Cloud API</th><th>WAHA</th></tr>
+    <tr><td>Per-message fees</td><td>Free today &middot; charged from 1 October</td><td><strong>None at all</strong></td></tr>
+    <tr><td>Must the number be deleted first?</td><td>Yes, unless Coexistence is used</td><td><strong>No</strong> &mdash; linked by scanning a QR code</td></tr>
+    <tr><td>Meta approval</td><td>Business verification &mdash; days to weeks</td><td>Not required</td></tr>
+    <tr><td>Total per month</td><td class="ltr">$10.32</td><td class="ltr">$14.84 &mdash; one more container</td></tr>
+    <tr><td>Risk</td><td>None &mdash; it is the sanctioned path</td><td><strong>The number can be banned</strong> &mdash; unpredictably, with no reliable appeal</td></tr>
+  </table>
+  <p class="muted" style="margin-top:10px">
+    <span class="ltr">WHATSAPP_CONNECTOR</span> selects which one is in use.
+    WAHA works by automating WhatsApp Web, which
+    <strong>WhatsApp's Terms of Service do not permit</strong>. Do not put a
+    number there that the business cannot afford to lose.
+  </p>
+</div>
+
+<footer>
+  Technical detail: <code class="ltr">docs/ARCHITECTURE.md</code> &middot;
+  Daily operation: <code class="ltr">docs/OPERATING_GUIDE.md</code> &middot;
+  Verified costs: <code class="ltr">docs/COSTS.md</code> &middot;
+  The WAHA path: <code class="ltr">docs/WAHA_CONNECTOR.md</code>
+</footer>
+
+</div>
+</body>
+</html>

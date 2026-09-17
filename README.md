@@ -7,16 +7,26 @@ from — in a Google Sheet, with no app to install and nothing new to learn.
 
 ## See it explained
 
-**[A walkthrough of the whole system, in Arabic](https://mohammad-khalifah1.github.io/Whatsapp-automation-n8n/)**
-— the message journey step by step, how a manager reads the sheet, the three
-reply paths, the two ways to connect a number, the limits, and the real cost.
-Written for someone who will use the system, not build it.
+A walkthrough of the whole system — the message journey step by step, how a
+manager reads the sheet, the three reply paths, the two ways to connect a
+number, the limits, and the real cost. Written for someone who will *use* the
+system, not build it.
 
-Source: [visualization/flow.html](visualization/flow.html).
+| | |
+|---|---|
+| **English** | <https://mohammad-khalifah1.github.io/Whatsapp-automation-n8n/visualization/flow.en.html> |
+| **العربية** | <https://mohammad-khalifah1.github.io/Whatsapp-automation-n8n/visualization/flow.html> |
+
+The site root redirects to the English edition:
+<https://mohammad-khalifah1.github.io/Whatsapp-automation-n8n/>
+
+Source: [visualization/flow.en.html](visualization/flow.en.html) ·
+[visualization/flow.html](visualization/flow.html). Both are generated from the
+same stylesheet and carry the same nine sections, so they cannot drift apart in
+look or in content.
 
 > **One-time setting to publish it:** *Settings → Pages → Build and deployment →
-> Source: Deploy from a branch → `main` / `/ (root)`*. The repository root
-> carries an `index.html` that redirects to the page above.
+> Source: Deploy from a branch → `main` / `/ (root)`*.
 
 ---
 

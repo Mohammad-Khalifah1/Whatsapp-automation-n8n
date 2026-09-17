@@ -2,26 +2,32 @@
 <!--
   GitHub Pages entry point.
 
-  Pages can only publish from the repository root, /docs, or a gh-pages branch —
-  not from an arbitrary folder. The explainer lives in visualization/, so this
-  file exists only to send the bare site URL there. Keep it a redirect: putting
-  content here would mean two copies of the same page drifting apart.
+  Pages publishes from the repository root, /docs or a gh-pages branch — not
+  from an arbitrary folder — and the walkthrough lives in visualization/. This
+  file exists only to send the bare site URL there. Keeping it a redirect rather
+  than a copy means the two cannot drift apart.
+
+  English is the default because this is what a visitor to the repository sees
+  first; the Arabic edition is one link away, and is the one to send a client.
 -->
-<html lang="ar" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>نظام توجيه محادثات واتساب</title>
-  <meta http-equiv="refresh" content="0; url=visualization/flow.html">
-  <link rel="canonical" href="visualization/flow.html">
+  <title>WhatsApp Support Routing</title>
+  <meta http-equiv="refresh" content="0; url=visualization/flow.en.html">
+  <link rel="canonical" href="visualization/flow.en.html">
   <style>
     body { font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
            margin: 0; min-height: 100vh; display: grid; place-items: center;
-           background: #fafafa; color: #202124; }
-    a { color: #1a73e8; }
+           background: #f6f7f9; color: #1a2330; text-align: center; line-height: 1.7; }
+    a { color: #128c7e; }
   </style>
 </head>
 <body>
-  <p>جارٍ التحويل إلى <a href="visualization/flow.html">شرح النظام</a>…</p>
+  <p>
+    Redirecting to the <a href="visualization/flow.en.html">walkthrough</a>&hellip;<br>
+    <a href="visualization/flow.html" dir="rtl">&rarr; اقرأها بالعربية</a>
+  </p>
 </body>
 </html>
