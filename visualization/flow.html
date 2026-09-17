@@ -169,6 +169,8 @@
   </table>
   <p class="muted" style="margin-top:10px">
     الفرز متاح على أي عمود: الحالة، الموظف، التاريخ، اسم العميل.
+    وهناك تبويب <strong>Dashboard</strong> يعرض ستة أرقام حيّة وأربعة رسوم بيانية:
+    حجم الرسائل خلال ١٤ يوماً، توزيع الحالات، الحِمل على كل موظف، وما يطلبه العملاء.
     الترتيب الأنفع: <strong>الحالة = UNANSWERED</strong> مرتّبة من الأقدم.
   </p>
 </div>
@@ -225,21 +227,53 @@
 <h2>التكلفة</h2>
 <div class="card">
   <table>
-    <tr><th>البند</th><th>التكلفة</th></tr>
-    <tr><td>رسائل الدعم داخل ٢٤ ساعة</td><td><strong>مجانية</strong></td></tr>
-    <tr><td>Meta Cloud API · n8n · Google Sheets · شهادة TLS</td><td>مجاني</td></tr>
-    <tr><td>خادم صغير</td><td>‎$6–12 شهرياً</td></tr>
-    <tr><td>نطاق</td><td>‎$10–15 سنوياً</td></tr>
+    <tr><th>البند</th><th>التكلفة الشهرية</th></tr>
+    <tr><td>Meta Cloud API · n8n · Google Sheets · TLS · المراقبة · النسخ الاحتياطي</td><td><strong>مجاني</strong></td></tr>
+    <tr><td>الرسائل الواردة من العميل</td><td><strong>مجانية بلا حد</strong></td></tr>
+    <tr><td>ردود الدعم داخل نافذة ٢٤ ساعة</td><td><strong>مجانية</strong> — اليوم</td></tr>
+    <tr><td>خادم صغير (Hetzner CX23)</td><td>‎$7.09</td></tr>
+    <tr><td>نطاق (‎$11.08 سنوياً)</td><td>‎$0.92</td></tr>
+    <tr><td>ضريبة الأردن (‎×1.2889)</td><td>—</td></tr>
+    <tr><td><strong>الإجمالي</strong></td><td><strong>‎$10.32 شهرياً</strong></td></tr>
   </table>
   <p class="muted" style="margin-top:10px">
-    التكلفة المخفية الحقيقية: <strong>تجديد الخادم</strong> يرتفع بعد المدة الترويجية،
-    و<strong>الرد بعد ٢٤ ساعة</strong> يتحوّل إلى رسالة مدفوعة — فسرعة الرد توفير مالي لا جودة خدمة فقط.
+    الرقم ثابت تقريباً مع الحجم: عند ٣٠٠ محادثة يومياً يصبح <strong>‎$14.84</strong>،
+    لأن الشيء الوحيد الذي يتغيّر هو حجم الخادم.
+  </p>
+  <p class="muted" style="margin-top:6px">
+    <strong>تغيير مؤكَّد من Meta:</strong> ابتداءً من ١ أكتوبر ٢٠٢٦ تصبح رسائل الخدمة —
+    أي ردودكم — مدفوعة. <strong>السعر لم يُنشر بعد.</strong>
+    وضريبة المبيعات الأردنية ١٦٪ على الخدمات المستوردة تُقدَّر ذاتياً، مع حجز ١٠٪ على
+    المدفوعات لغير المقيمين.
+  </p>
+  <p class="muted" style="margin-top:6px">
+    التكلفة المخفية الحقيقية: <strong>تجديد الخادم</strong> يرتفع بعد المدة الترويجية
+    (Hostinger من ‎$6.49 إلى ‎$11.99)، و<strong>الرد بعد ٢٤ ساعة</strong> يتحوّل إلى
+    رسالة قالب مدفوعة — فسرعة الرد توفير مالي لا جودة خدمة فقط.
+  </p>
+</div>
+
+<h2>طريقتان لربط الرقم</h2>
+<div class="card">
+  <table>
+    <tr><th></th><th>Meta Cloud API</th><th>WAHA</th></tr>
+    <tr><td>رسوم لكل رسالة</td><td>مجاني اليوم · مدفوع من ١ أكتوبر</td><td><strong>لا شيء إطلاقاً</strong></td></tr>
+    <tr><td>هل يُحذف الرقم أولاً؟</td><td>نعم، إلا مع Coexistence</td><td><strong>لا</strong> — يُربط بمسح QR</td></tr>
+    <tr><td>موافقة Meta</td><td>توثيق الشركة — أيام إلى أسابيع</td><td>لا حاجة</td></tr>
+    <tr><td>الإجمالي الشهري</td><td>‎$10.32</td><td>‎$14.84 — حاوية إضافية</td></tr>
+    <tr><td>المخاطرة</td><td>لا شيء — المسار المعتمد</td><td><strong>حظر الرقم</strong> — غير متوقع وبلا استئناف موثوق</td></tr>
+  </table>
+  <p class="muted" style="margin-top:10px">
+    WAHA يعمل بأتمتة واتساب ويب، وهذا <strong>لا تسمح به شروط خدمة واتساب</strong>.
+    لا تضع فيه رقماً لا تستطيع الشركة تحمّل خسارته.
   </p>
 </div>
 
 <footer>
   للتفاصيل التقنية: <code class="ltr">docs/ARCHITECTURE.md</code> ·
-  للتشغيل اليومي: <code class="ltr">docs/OPERATING_GUIDE.md</code>
+  للتشغيل اليومي: <code class="ltr">docs/OPERATING_GUIDE.md</code> ·
+  للتكاليف المتحقَّق منها: <code class="ltr">docs/COSTS.md</code> ·
+  لمسار WAHA: <code class="ltr">docs/WAHA_CONNECTOR.md</code>
 </footer>
 
 </div>

@@ -5,6 +5,21 @@ from — in a Google Sheet, with no app to install and nothing new to learn.
 
 ---
 
+## See it explained
+
+**[A walkthrough of the whole system, in Arabic](https://mohammad-khalifah1.github.io/Whatsapp-automation-n8n/)**
+— the message journey step by step, how a manager reads the sheet, the three
+reply paths, the two ways to connect a number, the limits, and the real cost.
+Written for someone who will use the system, not build it.
+
+Source: [visualization/flow.html](visualization/flow.html).
+
+> **One-time setting to publish it:** *Settings → Pages → Build and deployment →
+> Source: Deploy from a branch → `main` / `/ (root)`*. The repository root
+> carries an `index.html` that redirects to the page above.
+
+---
+
 ## The problem this solves
 
 A small business puts its WhatsApp number on a poster, and it works: customers
@@ -87,25 +102,6 @@ Nothing is invented for the sake of it: the "database" is a spreadsheet because
 a spreadsheet is the interface the business already has, and the honest limits
 of that choice are written down in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) rather than glossed over.
-
----
-
-## See the sheet
-
-<!-- Paste a link to a DEMO COPY here — one with invented rows. File > Make a
-     copy, delete every data row, add a few fake conversations, then
-     Share > Anyone with the link > Viewer. -->
-
-**Demo sheet:** _(not published yet — see the warning below)_
-
-> ⚠️ **Do not put the live sheet link here.** This repository is public and the
-> working sheet holds real customer phone numbers and the text of real
-> conversations. Share a **copy with invented rows** instead — it is also the
-> better thing to show a prospective client.
-
-To build the layout in your own spreadsheet, paste
-[sheets-templates/SetupSheet.gs](sheets-templates/SetupSheet.gs) into
-*Extensions → Apps Script* and run `setupEverything`.
 
 ---
 

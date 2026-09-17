@@ -133,6 +133,9 @@ scratch*.txt
 !/*.js
 !/Caddyfile
 !/LICENSE
+# GitHub Pages entry point. Named explicitly rather than !/*.html so a stray
+# HTML file can never be swept in by a wildcard.
+!/index.html
 
 # Re-assert the secret rules LAST so nothing above can resurrect them.
 .env
