@@ -228,6 +228,33 @@ services:
     networks:
       - n8n_whatsapp_network
 
+  # Management UI — a to-do board + team screen over workflows 9/10
+  # (ui/management/README.md). Static files only: nginx just serves them,
+  # nothing runs server-side here. The page itself talks straight to the n8n
+  # container below (which already answers CORS preflight on those routes),
+  # so this service exists purely so "docker compose up" is enough to reach
+  # it at http://localhost:8080 — no separate manual static-server step.
+  management-ui:
+    image: nginx:alpine
+    container_name: management-ui
+    restart: unless-stopped
+
+    ports:
+      - "8080:80"
+
+    volumes:
+      - ./ui/management:/usr/share/nginx/html:ro
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/index.html"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    networks:
+      - n8n_whatsapp_network
+
 networks:
   n8n_whatsapp_network:
     name: n8n_whatsapp_network
