@@ -94,17 +94,35 @@ services:
       - META_GRAPH_API_VERSION=${META_GRAPH_API_VERSION:-v26.0}
       - META_ACCESS_TOKEN=${META_ACCESS_TOKEN}
       - META_PHONE_NUMBER_ID=${META_PHONE_NUMBER_ID}
+      # The business number as a person reads it. Recorded as sender_phone on
+      # outbound messages; unset, that column shows the phone-number ID above.
+      - META_BUSINESS_PHONE=${META_BUSINESS_PHONE}
       - META_WABA_ID=${META_WABA_ID}
       - META_APP_SECRET=${META_APP_SECRET}
       - WEBHOOK_VERIFY_TOKEN=${WEBHOOK_VERIFY_TOKEN}
       - ALLOW_UNSIGNED_WEBHOOKS=${ALLOW_UNSIGNED_WEBHOOKS:-false}
       - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
+      # Workflow 3 signs its own Sheets token from these to keep Conversations
+      # and Messages newest-first. The n8n Google credential cannot authorise
+      # that call (403). Unset, the sort is skipped, with no error anywhere.
+      # The key is ONE line, quoted, with literal \n escapes - a multi-line PEM
+      # in .env breaks `docker compose config` outright.
+      - GOOGLE_SERVICE_ACCOUNT_EMAIL=${GOOGLE_SERVICE_ACCOUNT_EMAIL}
+      - GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
       - CONVERSATION_INACTIVITY_HOURS=${CONVERSATION_INACTIVITY_HOURS:-24}
       - DEFAULT_COUNTRY_CODE=${DEFAULT_COUNTRY_CODE:-962}
       - ASSIGNMENT_STRATEGY=${ASSIGNMENT_STRATEGY:-LEAST_OPEN_CONVERSATIONS}
       - REOPEN_CLOSED_CONVERSATIONS=${REOPEN_CLOSED_CONVERSATIONS:-true}
       - ARCHIVE_AFTER_DAYS=${ARCHIVE_AFTER_DAYS:-30}
       - ARCHIVE_BATCH_SIZE=${ARCHIVE_BATCH_SIZE:-200}
+
+      # -1 = no limit. NEVER 1. A limit of 1 was meant to serialise assignment,
+      # because Google Sheets has no compare-and-set - and it did, by DROPPING
+      # the overflow: under a burst, webhooks got HTTP 200 and then produced no
+      # row, no message and no log entry. Measured on the live deployment. A
+      # duplicate conversation is visible and workflow 8 folds it back; a
+      # dropped customer message is neither. See docs/ASSIGNMENT_ALGORITHM.md.
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=-1
 
       # --- WAHA connector (optional second WhatsApp path, see
       #     docs/WAHA_CONNECTOR.md) — unset WAHA_API_KEY/HMAC leaves the
