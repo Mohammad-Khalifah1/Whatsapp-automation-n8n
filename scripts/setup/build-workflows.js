@@ -100,51 +100,45 @@ const WHATSAPP_SEND_HEADERS = {
     // is harmless — each API ignores headers it does not recognise — and
     // avoids needing a second HTTP Request node just to vary a header set.
     { name: 'Authorization', value: "={{ $env.WHATSAPP_CONNECTOR === 'waha' ? '' : ('Bearer ' + $env.META_ACCESS_TOKEN) }}" },
-    { name: 'X-Api-Key', value: "={{ $env.WHATSAPP_CONNECTOR === 'waha' ? $env.WAHA_API_KEY : '' }}" },
+    // A send-only session key (scripts/setup/configure-waha.js), never the
+    // admin WAHA_API_KEY — n8n is not given that one at all.
+    { name: 'X-Api-Key', value: "={{ $env.WHATSAPP_CONNECTOR === 'waha' ? $env.WAHA_SEND_API_KEY : '' }}" },
     { name: 'Content-Type', value: 'application/json' },
   ],
 };
 
 /**
- * @param {boolean} keepContext  Whether the Meta branch should attach
- *   `context: { message_id }` for a threaded reply. Workflow 4 supports this
- *   (an agent can reply to a specific message); workflow 7's sheet-polling
- *   send does not carry that field, so it always sends a plain message.
- *   WAHA's sendText has no equivalent in this first cut — see
- *   docs/WAHA_CONNECTOR.md's "known gaps".
+ * @param {boolean} keepContext  Whether to thread the reply onto a specific
+ *   message when the request carries `reply_to_message_id`. Workflow 4
+ *   supports this (an agent can reply to a specific message) — as Meta's
+ *   `context.message_id`, or WAHA's `reply_to`, which takes the WAHA message
+ *   id workflow 1b stores. Workflow 7's sheet-polling send does not carry
+ *   that field, so it always sends a plain message.
  */
 function whatsappSendBodyExpr(keepContext) {
   const metaBody = keepContext
     ? 'Object.assign({ messaging_product: "whatsapp", recipient_type: "individual", to: $json.to, type: "text", text: { body: $json.text } }, $json.reply_to_message_id ? { context: { message_id: $json.reply_to_message_id } } : {})'
     : '{ messaging_product: "whatsapp", recipient_type: "individual", to: $json.to, type: "text", text: { body: $json.text } }';
-  const wahaBody =
+  const wahaPlain =
     "{ session: ($env.WAHA_SESSION || 'default'), chatId: (String($json.to || '').replace(/[^0-9]/g, '') + '@c.us'), text: $json.text }";
+  const wahaBody = keepContext
+    ? `Object.assign(${wahaPlain}, $json.reply_to_message_id ? { reply_to: $json.reply_to_message_id } : {})`
+    : wahaPlain;
   return `={{ JSON.stringify($env.WHATSAPP_CONNECTOR === 'waha' ? (${wahaBody}) : (${metaBody})) }}`;
 }
 
 /**
  * Lines for the Interpret-result Code nodes (workflow 4 and 7), spliced into
  * the surrounding array-of-lines template with `...WHATSAPP_INTERPRET_RESULT_LINES`.
- * Meta's response nests the id under `messages[0]`; WAHA's sendText returns
- * the WAMessage object directly, id at the top level — different enough that
- * one line can't cover both, so this branches on WHATSAPP_CONNECTOR.
+ * The per-connector response shapes live in scripts/lib/send-result.js, which
+ * both nodes inline — including NOWEB's `{ key: { id } }`, which does not
+ * match WAHA's own OpenAPI spec.
  */
 const WHATSAPP_INTERPRET_RESULT_LINES = [
-  "const connector = String($env.WHATSAPP_CONNECTOR || 'meta').trim().toLowerCase();",
-  'let messageId = null;',
-  'let apiError = null;',
-  "if (connector === 'waha') {",
-  '  messageId = response && typeof response.id === \'string\' ? response.id : null;',
-  "  apiError = response && typeof response.statusCode === 'number' && response.statusCode >= 400",
-  "    ? { code: response.statusCode, message: response.message || response.error || 'WAHA send failed' }",
-  '    : null;',
-  '} else {',
-  '  messageId = response && response.messages && response.messages[0]',
-  '    ? response.messages[0].id',
-  '    : null;',
-  '  apiError = response && response.error ? response.error : null;',
-  '}',
-  'const ok = !!messageId && !apiError;',
+  'const sendResult = interpretSendResponse($env.WHATSAPP_CONNECTOR, response);',
+  'const messageId = sendResult.messageId;',
+  'const apiError = sendResult.apiError;',
+  'const ok = sendResult.ok;',
 ];
 
 /**
@@ -2208,7 +2202,7 @@ function buildOutgoingMessage() {
     position: [-560, 0],
     webhookId: 'a1b2c3d4-0000-4000-8000-agentsendxxx',
     notes:
-      'Internal endpoint for the future agent inbox. NOT exposed to the public internet in production — see docs/DEPLOYMENT_HOSTINGER.md.',
+      'Internal endpoint for the future agent inbox. Requires an X-Agent-Key header matching AGENT_SEND_API_KEY, and is still NOT exposed to the public internet in production — see docs/DEPLOYMENT_HOSTINGER.md.',
   });
 
   nodes.push(
@@ -2218,7 +2212,22 @@ function buildOutgoingMessage() {
       [-300, 0],
       ['phone.js', 'security.js'],
       [
-        'const body = $input.first().json.body || {};',
+        'const input = $input.first().json;',
+        '',
+        '// Authenticate before looking at anything else. This endpoint can send',
+        '// any text to any number from the business account, so an unset',
+        '// AGENT_SEND_API_KEY rejects everything (500) rather than opening it up.',
+        "const auth = verifyApiKeyHeader(input.headers, 'x-agent-key', $env.AGENT_SEND_API_KEY);",
+        'if (!auth.ok) {',
+        "  console.log(JSON.stringify({ event: 'send_request_unauthorized', reason: auth.reason }));",
+        '  return [{ json: {',
+        '    valid: false,',
+        "    errors: [auth.statusCode === 500 ? 'server_misconfigured' : 'unauthorized'],",
+        '    status_code: auth.statusCode,',
+        '  } }];',
+        '}',
+        '',
+        'const body = input.body || {};',
         "const defaultCountryCode = $env.DEFAULT_COUNTRY_CODE || '962';",
         '',
         'const errors = [];',
@@ -2323,7 +2332,7 @@ function buildOutgoingMessage() {
       'Interpret Send Result',
       'interpret-send',
       [480, -100],
-      ['security.js'],
+      ['security.js', 'send-result.js'],
       [
         "const request = $('Request Valid?').first().json;",
         'const response = $input.first().json;',
@@ -2457,6 +2466,10 @@ function buildOutgoingMessage() {
         'no webhook is generated for it and the conversation will keep showing',
         'as UNANSWERED. This is a platform limitation, not a bug.',
         'See docs/ARCHITECTURE.md "Agent access model".',
+        '',
+        '### Authentication',
+        'Callers must send `X-Agent-Key: <AGENT_SEND_API_KEY>`.',
+        'Unset key -> 500, wrong or missing key -> 401. Fails closed.',
         '',
         '### Token handling',
         'The access token lives in an n8n credential, never in this JSON.',
@@ -3009,7 +3022,7 @@ function buildReplyFromSheet() {
       'Interpret Sheet Send',
       'interpret-sheet-send',
       [580, -120],
-      [],
+      ['send-result.js'],
       [
         "const request = $('Sendable?').item.json;",
         'const response = $input.first().json;',

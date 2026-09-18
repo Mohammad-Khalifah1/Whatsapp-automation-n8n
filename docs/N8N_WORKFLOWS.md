@@ -215,6 +215,7 @@ nodes means "no match" yields an empty item instead of terminating the flow.
 | | |
 |---|---|
 | **Trigger** | Webhook `POST /webhook/agent/send` |
+| **Auth** | Header `X-Agent-Key` matching `AGENT_SEND_API_KEY` — missing/wrong → 401, key unset → 500 |
 | **Input** | `{ to, text, conversation_id, agent_id, reply_to_message_id? }` |
 | **Output** | `{ ok, message_id, status, ... }` |
 | **Must be published** | Yes |
@@ -225,13 +226,27 @@ nodes means "no match" yields an empty item instead of terminating the flow.
 Validate Send Request → Request Valid?
    ├── true  → Send Via Cloud API → Interpret Send Result
    │            → Store Outbound Message → Update Conversation → Respond
-   └── false → Respond 400 with the validation errors
+   └── false → Respond 401/500 (auth) or 400 with the validation errors
 ```
+
+**Authentication comes first.** This endpoint can send any text to any
+number from the business account, so `Validate Send Request` checks
+`X-Agent-Key` against `AGENT_SEND_API_KEY` (constant-time,
+`verifyApiKeyHeader` in `scripts/lib/security.js`) before it looks at the
+body. An unset key rejects everything rather than opening the endpoint —
+the same fail-closed rule as the webhook signatures. The reverse-proxy
+restriction in production stays in place on top of it.
 
 **Validation** uses `normalizePhoneStrict` — ambiguous numbers are **rejected**,
 not guessed, because guessing means messaging a stranger. Also enforces
 non-empty text, the 4096-character limit, and the presence of
 `conversation_id` and `agent_id`.
+
+**Result.** `Interpret Send Result` reads the response through
+`interpretSendResponse` (`scripts/lib/send-result.js`), which knows both
+connectors' shapes — including WAHA NOWEB's `{ key: { id } }`, which differs
+from WAHA's own OpenAPI spec. Workflow 7's `Interpret Sheet Send` uses the same
+function.
 
 **Request.** `POST https://graph.facebook.com/{version}/{phone_number_id}/messages`
 with `messaging_product: whatsapp`. The version comes from

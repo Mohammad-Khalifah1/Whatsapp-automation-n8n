@@ -221,8 +221,9 @@ changes that — it puts a login form on the public internet.
 | MFA for supervisors and admins | They can see every customer conversation |
 
 Also revisit `/webhook/agent/send`. In the MVP it is restricted at the reverse
-proxy; once a backend calls it, it should be reachable only from that backend —
-not from the internet at all.
+proxy and requires an `X-Agent-Key` header matching `AGENT_SEND_API_KEY`; once a
+backend calls it, that backend holds the key and the endpoint should be
+reachable only from it — not from the internet at all.
 
 ---
 
@@ -250,6 +251,6 @@ Worth stating explicitly, because it is the payoff for how the MVP was built:
 - Assignment algorithm — unchanged
 - Phone normalization — unchanged
 - Idempotency — unchanged
-- All 192 unit tests — still valid
+- All 210 unit tests — still valid
 
 The inbox is an additional consumer of the same core, not a replacement for it.

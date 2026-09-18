@@ -27,24 +27,29 @@ and not repeated here.
 
 ## 1. Where this deployment differs from the official setup
 
-The short version. Each row links to the section with the detail.
+The short version, with where each item stands as of 2026-09-18. Each row links
+to the section with the detail.
 
-| # | Topic | Official recommendation | This deployment today | Severity |
+| # | Topic | Official recommendation | Before | Status now |
 |---|---|---|---|---|
-| 1 | Port binding ([§2](#2-install-and-update)) | `127.0.0.1:3000:3000` — "containers are not exposed to the internet" | `3000:3000` (all interfaces) | Medium here (Windows firewall likely blocks the LAN); **High** on a server |
-| 2 | Image ([§2](#2-install-and-update)) | Engine-specific image, version pinned: `devlikeapro/waha:noweb-{version}` | `devlikeapro/waha:latest` — floating, and ships an unused Chromium | Medium |
-| 3 | API key storage ([§3](#3-security)) | `WAHA_API_KEY=sha512:<hash>`; narrower session keys for clients | Plain key via `WHATSAPP_API_KEY`; n8n uses the full admin key | Medium |
-| 4 | Chat types ([§4.5](#45-ignore-status-groups-channels-broadcast)) | Filter at the source with `config.ignore` / `WAHA_SESSION_CONFIG_IGNORE_*` | Nothing ignored — groups, statuses and channels all reach workflow 1b | **High** (privacy) |
-| 5 | QR in logs ([§2](#2-install-and-update)) | `WAHA_PRINT_QR=False` | Default (`True`) | Low |
-| 6 | Log rotation ([§2](#2-install-and-update)) | `json-file`, `max-size: 100m`, `max-file: 10` | Unbounded | Low |
-| 7 | Phone notifications ([§4.7](#47-presence-and-phone-notifications)) | `noweb.markOnline: false` if the phone should still get push notifications | Default (`true`) | Low |
-| 8 | Sender IDs ([§5.3](#53-chat-ids-and-lids)) | `@lid` is a first-class ID; you can message either the LID or the phone number | Workflow 1b strips `@lid` to digits and replies to `<digits>@c.us` | **High** (wrong recipient) |
-| 9 | Send result ([§6.1](#61-sendtext)) | OpenAPI says `WAMessage` with a string `id` | NOWEB actually returns `{ key: { id } }`; workflows 4/7 read only `id` | **High** (every send logged FAILED) |
-| 10 | Own-phone replies ([§5.2](#52-message-vs-messageany)) | `message` excludes your own messages; `message.any` includes them | Subscribed to `message`, so 1b's `fromMe` branch never runs | Medium |
-| 11 | Anti-blocking ([§6.2](#62-anti-blocking-guidance)) | sendSeen → typing → wait → sendText; watch timelock/capping | Sends immediately; no timelock/capping handling | Medium |
+| 1 | Port binding ([§2](#2-install-and-update)) | `127.0.0.1:3000:3000` — "containers are not exposed to the internet" | `3000:3000` (all interfaces) | **Fixed** — `127.0.0.1:3000:3000`; verified refused on the LAN address |
+| 2 | Image ([§2](#2-install-and-update)) | Engine-specific image, version pinned | `devlikeapro/waha:latest` — floating, ships an unused Chromium | **Fixed** — `devlikeapro/waha:noweb-2026.8.2` |
+| 3 | API keys ([§3.2](#32-api-key)) | `sha512:` admin key; narrower session keys for clients | n8n held the full admin key | **Fixed for n8n** — send-only session key (`WAHA_SEND_API_KEY`), n8n no longer gets `WAHA_API_KEY`. The admin key stays plain in WAHA's env: `.env` must hold it for the Dashboard and scripts anyway |
+| 4 | Chat types ([§4.5](#45-ignore-status-groups-channels-broadcast)) | Filter at the source | Nothing ignored — groups, statuses, channels reached workflow 1b | **Fixed at the source** — `WAHA_SESSION_CONFIG_IGNORE_*=True` and `config.ignore` on `default`; workflow 1b also skips them (`76f7eca`) |
+| 5 | QR in logs ([§2](#2-install-and-update)) | `WAHA_PRINT_QR=False` | Every QR printed to `docker logs` | **Fixed** |
+| 6 | Log rotation ([§2](#2-install-and-update)) | `json-file`, 100 MB × 10 | Unbounded | **Fixed** |
+| 7 | Phone notifications ([§4.7](#47-presence-and-phone-notifications)) | `noweb.markOnline: false` | `true` | **Fixed** on `default` by `configure-waha.js` |
+| 8 | Sender IDs ([§5.3](#53-chat-ids-and-lids)) | `@lid` is its own ID type | Workflow 1b turned `<lid>@lid` into a phone number | **Fixed** (`76f7eca`) — workflow 1b resolves it through `_data.key.remoteJidAlt`; an unresolvable LID is logged, never guessed |
+| 9 | Send result ([§6.1](#61-sendtext)) | OpenAPI: top-level `id` | NOWEB returns `{ key: { id } }`; every send logged FAILED | **Fixed** — `scripts/lib/send-result.js`, unit-tested |
+| 10 | Own-phone replies ([§5.2](#52-message-vs-messageany)) | `message.any` includes your own messages | `message` — 1b's `fromMe` branch never runs | **Decided: stay on `message`.** On a personal number, `message.any` would log everything the owner sends to friends and family |
+| 11 | Anti-blocking ([§6.2](#62-anti-blocking-guidance)) | sendSeen → typing → wait → sendText; watch timelock/capping | Sends immediately | **Open** — needs a decision on delays; `reply_to` threading is now sent |
+| 12 | Duplicate webhook ([§4.4](#44-session-config)) | Global webhook applies to every session | `default` also had a per-session copy of it, so WAHA registered it twice | **Fixed** — session config carries no webhooks |
+| — | Workflow 4 auth ([§3.1](#31-the-threat-model-in-the-docs)) | Nothing should reach `sendText` unauthenticated | `POST /webhook/agent/send` had no auth | **Fixed** — `X-Agent-Key` = `AGENT_SEND_API_KEY`, fails closed; verified 401/401/500 live |
 
-Not a WAHA setting, but covered by the same official warning ([§3.1](#31-the-threat-model-in-the-docs)):
-workflow 4's `POST /webhook/agent/send` has no authentication, and it can reach `sendText`.
+**Applying it.** `docker compose up -d` picks up the compose settings.
+`node scripts/setup/configure-waha.js` sets the session config and mints
+the send key; run it again any time, it only changes what differs.
+`--check` reports without changing anything.
 
 ---
 
@@ -82,7 +87,10 @@ workflow 4's `POST /webhook/agent/send` has no authentication, and it can reach 
   check this first.
 - `waha_sessions` is a named volume mounted at `/app/.sessions`, so updates keep the session.
 - Official `.env.example` also sets `WAHA_PRINT_QR=False` and `WAHA_LOG_FORMAT=JSON`. We set
-  neither, so every QR is printed into `docker logs`.
+  the first. The log format stays `PRETTY`, which is easier to read with `docker logs`.
+- The `noweb` image ships **without `wget`**, so a `wget`-based healthcheck never turns healthy
+  there. Ours runs `node -e "fetch(...)"` and reads the key from the container's own
+  environment, which also keeps the key out of `docker inspect`'s healthcheck line.
 
 **Namespace — leave it alone.** The docs recommend `WAHA_NAMESPACE=all` "for new setups". It
 decides the directory WAHA's main database lives in (`/app/.sessions/{namespace}/waha.sqlite3`).
@@ -107,8 +115,9 @@ them and "used sessions, hijacked WhatsApp accounts, sent spam messages". It add
 ports will not save you! … Bots scan all ports."
 
 Whoever can call `sendText`, directly or through something that calls it, *is* the account
-owner as far as WhatsApp is concerned. That is why workflow 4's unauthenticated
-`/webhook/agent/send` belongs in this section even though it is n8n, not WAHA.
+owner as far as WhatsApp is concerned. That is why workflow 4's `/webhook/agent/send`, which
+was unauthenticated, belongs in this section even though it is n8n, not WAHA. It now requires
+`X-Agent-Key`.
 
 ### 3.2 API key
 
@@ -131,9 +140,19 @@ owner as far as WhatsApp is concerned. That is why workflow 4's unauthenticated
 Session key `actions`: `read`, `send`, `control`, `setting`, `app` (default `true`), `delete`
 (default `false`).
 
-**For this project.** n8n only ever calls `sendText`. A session key for `default` with only
-`send: true` would do the job, instead of the admin key it holds today. If n8n were
-compromised, that key could send but not read history, log out or create sessions.
+**For this project.** n8n only ever calls `sendText`, so it holds a session key for `default`
+with only `send: true` (`WAHA_SEND_API_KEY`, minted by `scripts/setup/configure-waha.js`),
+not the admin key. Verified here, with that key against the running instance:
+
+| Call | Result |
+|---|---|
+| `POST /api/sendText` on `default` | Accepted (422 only because the session isn't linked) |
+| `POST /api/sendText` on another session | 403 |
+| `GET /api/sessions/default`, `GET /api/server/environment`, `POST …/logout` | 403 |
+| `GET /api/sessions` | 200, but lists only its own session's name, status and config |
+
+Keys live in WAHA's own database on the `waha_sessions` volume. If that volume is lost, run the
+script again for a new one.
 
 **Verified here**
 
@@ -255,19 +274,23 @@ directory under `/app/.sessions/noweb/`.
 stopped and restarted). The top-level fields are `metadata`, `proxy`, `debug`, `ignore`, `client`,
 `noweb`, `gows`, `webjs`, `webhooks` (also confirmed in the running instance's OpenAPI spec).
 
-The shape this project should use for `default`:
+The config this project uses for `default`, applied by `scripts/setup/configure-waha.js`:
 
 ```jsonc
 {
   "name": "default",
   "config": {
     "ignore": { "status": true, "groups": true, "channels": true, "broadcast": true },
-    "noweb": { "markOnline": false },           // store left off: nothing here reads chat history
-    "client": { "deviceName": "Support Router", "browserName": "Chrome" }
+    "noweb": { "markOnline": false }   // store left off: nothing here reads chat history
     // no "webhooks": the global WHATSAPP_HOOK_* webhook already applies to every session
+    // no "client": a custom device name breaks pairing-code login (§4.2)
   }
 }
 ```
+
+Verified here: the previous `default` carried a per-session copy of the global webhook, and
+WAHA's log showed it configuring `http://n8n:5678/webhook/whatsapp/waha-incoming` twice for
+that session.
 
 **Global vs session webhooks.** `WHATSAPP_HOOK_URL`/`_EVENTS`/`_HMAC_KEY`/`_RETRIES_*`/`_CUSTOM_HEADERS`
 apply to **all** sessions and "do not appear in `session.config`". Verified here: a session made
@@ -379,7 +402,8 @@ where a phone number is needed for display.
   `WHATSAPP_FILES_LIFETIME` (default 180 s).
 - `WAHA_EVENTS_DOWNLOAD_MEDIA=false` stops the download while keeping `mimetype`/`filename`
   (`media.url` becomes `null`).
-- Workflow 1b does not process media yet. Turning the download off avoids keeping personal
+- Workflow 1b does not process media yet, so `docker-compose.yml` sets
+  `WAHA_EVENTS_DOWNLOAD_MEDIA=False`. Turning the download off avoids keeping personal
   photos and voice notes in the container for nothing.
 
 ---

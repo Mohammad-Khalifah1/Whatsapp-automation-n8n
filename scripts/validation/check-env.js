@@ -56,6 +56,25 @@ const GROUPS = [
     ],
   },
   {
+    name: 'Agent send API (workflow 4)',
+    required: false,
+    vars: [
+      { key: 'AGENT_SEND_API_KEY', required: true, note: 'X-Agent-Key header; unset = every send rejected (fail closed)' },
+    ],
+  },
+  {
+    name: 'WAHA connector (only when WHATSAPP_CONNECTOR=waha)',
+    required: false,
+    vars: [
+      { key: 'WHATSAPP_CONNECTOR', required: false, note: 'meta (default) or waha' },
+      { key: 'WAHA_API_KEY', required: true, note: 'admin key, 64+ random chars; n8n never gets it', validate: (v) => v.length >= 64 ? null : 'WAHA\'s security alert asks for at least 64 characters' },
+      { key: 'WAHA_SEND_API_KEY', required: true, note: 'written by: node scripts/setup/configure-waha.js' },
+      { key: 'WAHA_HMAC_SECRET', required: true, note: 'unset = workflow 1b rejects every event' },
+      { key: 'WAHA_DASHBOARD_PASSWORD', required: true, note: 'Dashboard + Swagger login' },
+      { key: 'WAHA_SESSION', required: false, note: 'default "default"' },
+    ],
+  },
+  {
     name: 'Google Sheets persistence',
     required: false,
     vars: [

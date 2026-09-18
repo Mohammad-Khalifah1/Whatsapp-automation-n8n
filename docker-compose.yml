@@ -111,9 +111,19 @@ services:
       #     Meta Cloud API path above fully unaffected. ---
       - WHATSAPP_CONNECTOR=${WHATSAPP_CONNECTOR:-meta}
       - WAHA_BASE_URL=${WAHA_BASE_URL:-http://waha:3000}
-      - WAHA_API_KEY=${WAHA_API_KEY}
+      # A session key that can only SEND on WAHA_SESSION — minted by
+      # scripts/setup/configure-waha.js. n8n deliberately does NOT get the
+      # admin WAHA_API_KEY: a compromised n8n could then send, but not read
+      # history, log the number out, or create sessions.
+      - WAHA_SEND_API_KEY=${WAHA_SEND_API_KEY}
       - WAHA_HMAC_SECRET=${WAHA_HMAC_SECRET}
       - WAHA_SESSION=${WAHA_SESSION:-default}
+
+      # --- Workflow 4 (POST /webhook/agent/send) ---
+      # Every request must carry a matching X-Agent-Key header. Unset = every
+      # request rejected with 500 (fails closed). Without it, anyone who could
+      # reach n8n could send any text to any number from the business number.
+      - AGENT_SEND_API_KEY=${AGENT_SEND_API_KEY}
 
       # --- Management API (employees + tasks, workflows 9/10) ---
       - MANAGEMENT_API_KEY=${MANAGEMENT_API_KEY}
@@ -142,13 +152,29 @@ services:
   # http://localhost:3000/dashboard (X-Api-Key: your WAHA_API_KEY) with the
   # WhatsApp already on your phone — it links like WhatsApp Web, no account
   # deletion. NOWEB engine: no Chromium, much lighter than WEBJS.
+  #
+  # Every setting below that departs from WAHA's defaults follows the official
+  # docs; docs/WAHA_REFERENCE.md has the source for each.
   waha:
-    image: devlikeapro/waha:latest
+    # The NOWEB image (no browser), pinned. `latest` is the Chromium image —
+    # 300 MB of browser this engine never starts — and floats between
+    # releases. To update: change the version here, then
+    # `docker compose pull waha && docker compose up -d waha`.
+    image: devlikeapro/waha:noweb-2026.8.2
     container_name: waha-whatsapp
     restart: unless-stopped
 
     ports:
-      - "3000:3000"
+      # Localhost only, as in WAHA's own compose template. The API key is the
+      # only thing between this port and full control of the linked number,
+      # and n8n reaches WAHA over the Docker network, not this port.
+      - "127.0.0.1:3000:3000"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "10"
 
     environment:
       - WHATSAPP_API_KEY=${WAHA_API_KEY}
@@ -156,8 +182,25 @@ services:
       # Points at workflow 01b inside the n8n container, same Docker network —
       # "waha" and "n8n" resolve to each other by service name.
       - WHATSAPP_HOOK_URL=http://n8n:5678/webhook/whatsapp/waha-incoming
+      # `message` = incoming only. NOT `message.any`: on a personal number
+      # that would also forward everything the owner types to friends and
+      # family. See docs/WAHA_REFERENCE.md §5.2.
       - WHATSAPP_HOOK_EVENTS=message
       - WHATSAPP_HOOK_HMAC_KEY=${WAHA_HMAC_SECRET}
+      # Drop statuses, groups, channels and broadcast lists at the source —
+      # no webhook, nothing stored. Applies to every session that does not
+      # set its own config.ignore. Sending is not affected.
+      - WAHA_SESSION_CONFIG_IGNORE_STATUS=True
+      - WAHA_SESSION_CONFIG_IGNORE_GROUPS=True
+      - WAHA_SESSION_CONFIG_IGNORE_CHANNELS=True
+      - WAHA_SESSION_CONFIG_IGNORE_BROADCAST=True
+      # Workflow 1b does not process media yet. Not downloading it keeps
+      # customers' photos and voice notes out of the container; the message
+      # still arrives with hasMedia/mimetype/filename.
+      - WAHA_EVENTS_DOWNLOAD_MEDIA=False
+      # The QR is served by the Dashboard; printing it into `docker logs`
+      # only spreads it further.
+      - WAHA_PRINT_QR=False
       # Pinned rather than left to auto-generate: WAHA prints a fresh random
       # dashboard/swagger password on every restart otherwise, which is
       # useless for coming back to scan a QR after a `docker compose down`.
@@ -173,7 +216,10 @@ services:
     healthcheck:
       # /health requires the API key like every other route here — an
       # unauthenticated healthcheck gets 401 and never turns "healthy".
-      test: ["CMD-SHELL", "wget -qO- --header=\"X-Api-Key: ${WAHA_API_KEY}\" http://localhost:3000/health || exit 1"]
+      # Node, not wget: the NOWEB image ships no wget. The key is read from
+      # the container's own environment, so it no longer appears in the
+      # healthcheck command that `docker inspect` shows.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health',{headers:{'X-Api-Key':process.env.WHATSAPP_API_KEY}}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 5

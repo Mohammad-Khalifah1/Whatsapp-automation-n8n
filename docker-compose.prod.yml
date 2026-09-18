@@ -106,6 +106,9 @@ services:
       - META_WABA_ID=${META_WABA_ID}
       - META_APP_SECRET=${META_APP_SECRET}
       - WEBHOOK_VERIFY_TOKEN=${WEBHOOK_VERIFY_TOKEN}
+      # Workflow 4 (POST /webhook/agent/send) requires a matching X-Agent-Key
+      # header; unset = every request rejected (fails closed).
+      - AGENT_SEND_API_KEY=${AGENT_SEND_API_KEY}
       - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
       - CONVERSATION_INACTIVITY_HOURS=${CONVERSATION_INACTIVITY_HOURS:-24}
       - DEFAULT_COUNTRY_CODE=${DEFAULT_COUNTRY_CODE:-962}

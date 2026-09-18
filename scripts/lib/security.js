@@ -125,6 +125,41 @@ function verifySignature(rawBody, signatureHeader, appSecret, opts) {
   return { ok: true, reason: 'SIGNATURE_VALID', statusCode: 200 };
 }
 
+/**
+ * Check a shared-secret request header (e.g. workflow 4's X-Agent-Key)
+ * against the configured value.
+ *
+ * Fails CLOSED like verifySignature: an unset expected key rejects every
+ * request with 500 rather than letting unauthenticated traffic through.
+ *
+ * @param {object} headers      Request headers. n8n lower-cases the names;
+ *                              any casing is accepted here.
+ * @param {string} headerName   The header carrying the key.
+ * @param {string} expectedKey  The secret from the environment.
+ * @returns {{ ok: boolean, statusCode: number, reason: string }}
+ */
+function verifyApiKeyHeader(headers, headerName, expectedKey) {
+  if (!expectedKey || String(expectedKey).trim() === '') {
+    return { ok: false, statusCode: 500, reason: 'API_KEY_NOT_CONFIGURED' };
+  }
+  const h = headers || {};
+  const wanted = String(headerName).toLowerCase();
+  let provided;
+  for (const name of Object.keys(h)) {
+    if (name.toLowerCase() === wanted) {
+      provided = h[name];
+      break;
+    }
+  }
+  if (provided === undefined || provided === null || String(provided) === '') {
+    return { ok: false, statusCode: 401, reason: 'MISSING_API_KEY' };
+  }
+  if (!safeEqual(String(provided), String(expectedKey))) {
+    return { ok: false, statusCode: 401, reason: 'API_KEY_MISMATCH' };
+  }
+  return { ok: true, statusCode: 200, reason: 'API_KEY_VALID' };
+}
+
 /** Compute a signature — used by the local test harness to sign fixtures. */
 function computeSignature(rawBody, appSecret) {
   const body = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(String(rawBody), 'utf8');
@@ -133,7 +168,7 @@ function computeSignature(rawBody, appSecret) {
 
 /** Keys whose values must never appear in logs, in any casing. */
 const SENSITIVE_KEY_PATTERN =
-  /(authorization|access[_-]?token|api[_-]?key|app[_-]?secret|private[_-]?key|verify[_-]?token|encryption[_-]?key|password|secret|credential|bearer|x-hub-signature)/i;
+  /(authorization|access[_-]?token|api[_-]?key|agent[_-]?key|management[_-]?key|app[_-]?secret|private[_-]?key|verify[_-]?token|encryption[_-]?key|password|secret|credential|bearer|x-hub-signature|x-webhook-hmac)/i;
 
 /**
  * Recursively redact sensitive values so payloads can be logged safely.
@@ -176,6 +211,7 @@ function maskToken(token) {
 module.exports = {
   verifyWebhookHandshake,
   verifySignature,
+  verifyApiKeyHeader,
   computeSignature,
   safeEqual,
   redact,

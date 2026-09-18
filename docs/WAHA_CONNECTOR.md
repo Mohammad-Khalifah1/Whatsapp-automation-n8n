@@ -80,16 +80,27 @@ node scripts/setup/import-workflows.js
 
 ## Setup
 
-1. `docker compose up -d` — this now also starts the `waha` container.
-2. Open `http://localhost:3000/dashboard` (header `X-Api-Key: <your WAHA_API_KEY
-   from .env>`) and start the `default` session.
-3. Scan the QR with the phone — **WhatsApp app → Linked Devices → Link a
-   Device**, same flow as WhatsApp Web.
-4. Send yourself a test message from another phone. It should appear as a new
+1. `docker compose up -d` — this now also starts the `waha` container, on
+   `127.0.0.1:3000` only.
+2. `node scripts/setup/configure-waha.js` — creates or corrects the `default`
+   session (groups/statuses/channels ignored, phone notifications kept, no
+   duplicate webhook) and writes n8n's send-only key to `.env` as
+   `WAHA_SEND_API_KEY`. Then `docker compose up -d n8n` so n8n picks it up.
+   Safe to re-run; `--check` reports without changing anything.
+3. Open `http://localhost:3000/dashboard` (login `WAHA_DASHBOARD_USERNAME` /
+   `WAHA_DASHBOARD_PASSWORD`, then the `WAHA_API_KEY` from `.env`) and start
+   the **`default`** session — not one the Dashboard creates for you: n8n
+   replies through `WAHA_SESSION`, and the Dashboard's new-session form
+   fills in a public httpbin.org webhook.
+4. Scan the QR with the phone — **WhatsApp app → Linked Devices → Link a
+   Device**, same flow as WhatsApp Web. The QR expires after about 2 min 40 s;
+   restart the session for a new one.
+5. Send yourself a test message from another phone. It should appear as a new
    row within a few seconds, and get assigned exactly like a Meta-sourced
    message would.
-5. To reply: type into `reply_text` in the Sheet as usual (workflow 7 polls
-   every minute), or POST to workflow 4's webhook directly.
+6. To reply: type into `reply_text` in the Sheet as usual (workflow 7 polls
+   every minute), or POST to workflow 4's webhook directly with an
+   `X-Agent-Key: <AGENT_SEND_API_KEY>` header.
 
 `WHATSAPP_CONNECTOR=waha` in `.env` is what routes replies through WAHA
 instead of Meta — the Meta credentials above it are untouched and still work
@@ -107,7 +118,7 @@ of proof looks like — a real send, a real webhook, captured and checked).
 | Piece | Status |
 |---|---|
 | WAHA container starts, reports healthy, serves a QR | **Verified this session** |
-| n8n container still starts and passes all 192 unit tests + workflow validation with these changes | **Verified this session** |
+| n8n container still starts and passes all 210 unit tests + workflow validation with these changes | **Verified this session** |
 | A real message scanned-and-sent round trip (phone → Sheet → reply → phone) | **Not yet done** — needs a phone to scan the QR, which this session cannot do for you |
 | Media messages (image/audio/document) via WAHA | **Not handled yet** — arrive as a placeholder text row, not dropped, not crashed on, but not usable content |
 | Group messages | Not scoped in this first cut |

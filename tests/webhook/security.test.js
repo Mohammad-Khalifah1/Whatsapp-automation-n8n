@@ -245,3 +245,52 @@ describe('signature verification fails closed (production regression)', () => {
       'explicit opt-out is the only way through');
   });
 });
+
+describe('shared-secret header check (workflow 4 X-Agent-Key)', () => {
+  const { verifyApiKeyHeader } = require('../../scripts/lib/security');
+  const KEY = 'agent_key_for_tests_only_0123456789abcdef';
+
+  it('accepts the right key', () => {
+    const r = verifyApiKeyHeader({ 'x-agent-key': KEY }, 'x-agent-key', KEY);
+    assert.ok(r.ok);
+    assert.equal(r.statusCode, 200);
+  });
+
+  it('reads the header in any casing', () => {
+    assert.ok(verifyApiKeyHeader({ 'X-Agent-Key': KEY }, 'x-agent-key', KEY).ok);
+  });
+
+  it('rejects a missing header with 401', () => {
+    const r = verifyApiKeyHeader({}, 'x-agent-key', KEY);
+    assert.notOk(r.ok);
+    assert.equal(r.statusCode, 401);
+    assert.equal(r.reason, 'MISSING_API_KEY');
+  });
+
+  it('rejects a wrong key with 401', () => {
+    const r = verifyApiKeyHeader({ 'x-agent-key': KEY + 'x' }, 'x-agent-key', KEY);
+    assert.notOk(r.ok);
+    assert.equal(r.statusCode, 401);
+    assert.equal(r.reason, 'API_KEY_MISMATCH');
+  });
+
+  it('fails CLOSED when no key is configured — even an empty header does not match', () => {
+    for (const expected of [undefined, null, '', '   ']) {
+      const r = verifyApiKeyHeader({ 'x-agent-key': '' }, 'x-agent-key', expected);
+      assert.notOk(r.ok, 'unconfigured must never mean open');
+      assert.equal(r.statusCode, 500);
+      assert.equal(r.reason, 'API_KEY_NOT_CONFIGURED');
+    }
+  });
+
+  it('survives absent headers without throwing', () => {
+    assert.doesNotThrow(() => verifyApiKeyHeader(undefined, 'x-agent-key', KEY));
+    assert.notOk(verifyApiKeyHeader(undefined, 'x-agent-key', KEY).ok);
+  });
+
+  it('redacts the header when a request is logged', () => {
+    const { redact } = require('../../scripts/lib/security');
+    const out = redact({ headers: { 'x-agent-key': KEY, 'x-management-key': KEY } });
+    assert.notOk(JSON.stringify(out).includes(KEY), 'the key must not survive redaction');
+  });
+});

@@ -147,6 +147,36 @@ Must be identical in `.env` and in the Meta dashboard's webhook configuration.
 - **If mismatched:** Meta's verification fails with 403 and the webhook cannot
   be registered.
 
+### `AGENT_SEND_API_KEY` — required to use workflow 4
+
+A random string you generate (`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`).
+Callers of `POST /webhook/agent/send` send it as the `X-Agent-Key` header.
+
+- **If unset:** every send request is rejected with 500 — fails closed, because
+  this endpoint can message any number from the business account.
+- **If missing or wrong on a request:** 401, nothing is sent.
+
+---
+
+## WAHA connector
+
+Only read when `WHATSAPP_CONNECTOR=waha`. Background in
+[WAHA_CONNECTOR.md](WAHA_CONNECTOR.md); WAHA's own settings, with the official
+source for each, in [WAHA_REFERENCE.md](WAHA_REFERENCE.md).
+
+| Variable | Read by | Notes |
+|---|---|---|
+| `WHATSAPP_CONNECTOR` | Workflows 4, 7 | `meta` (default) or `waha` — which API replies go out through |
+| `WAHA_BASE_URL` | Workflows 4, 7 | `http://waha:3000` — the Docker-network address, not the host port |
+| `WAHA_API_KEY` | WAHA container, Dashboard, `configure-waha.js` | Admin key, at least 64 random characters. **n8n is not given it** |
+| `WAHA_SEND_API_KEY` | Workflows 4, 7 | Send-only key for `WAHA_SESSION`. Written by `node scripts/setup/configure-waha.js` — do not invent it |
+| `WAHA_HMAC_SECRET` | WAHA (signs), workflow 1b (verifies) | Unset → workflow 1b rejects every event with 500 |
+| `WAHA_SESSION` | Workflows 1b, 4, 7, `configure-waha.js` | `default` |
+| `WAHA_DASHBOARD_USERNAME` / `WAHA_DASHBOARD_PASSWORD` | WAHA container | Basic auth for `/dashboard` and Swagger. Pinned so it survives restarts |
+
+WAHA-only settings (ignored chat types, media download, QR printing) are fixed
+in `docker-compose.yml`, not `.env`; each is explained next to it there.
+
 ---
 
 ## Google Sheets
