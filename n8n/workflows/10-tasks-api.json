@@ -1,0 +1,1641 @@
+{
+  "id": "whatsappTaskApi010",
+  "name": "WhatsApp — 10 Tasks API",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/tasks",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "task-list-wh",
+      "name": "List Tasks (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        -300
+      ],
+      "webhookId": "a1b2c3d4-0000-4000-8000-tasklistget1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\n\nfunction safeEqual(a, b) {\n  const bufA = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();\n  const bufB = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();\n  return crypto.timingSafeEqual(bufA, bufB);\n}\n\nconst item = $input.first();\nconst headers = (item.json && item.json.headers) || {};\nconst provided = headers['x-management-key'] || '';\nconst expected = $env.MANAGEMENT_API_KEY;\n\nlet ok = false;\nlet reason = 'UNKNOWN';\nif (!expected || String(expected).trim() === '') {\n  reason = 'MANAGEMENT_API_KEY_NOT_CONFIGURED';\n} else if (!provided) {\n  reason = 'MISSING_KEY_HEADER';\n} else {\n  ok = safeEqual(String(provided), String(expected));\n  reason = ok ? 'OK' : 'KEY_MISMATCH';\n}\n\nconsole.log(JSON.stringify({ event: 'management_api_auth', ok, reason, path: item.json && item.json.webhookUrl }));\n\nconst body = (item.json && item.json.body) || {};\nconst query = (item.json && item.json.query) || {};\nreturn [{ json: { auth_ok: ok, auth_reason: reason, body, query } }];"
+      },
+      "id": "task-list-auth",
+      "name": "Check Auth (List)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "auth-ok",
+              "leftValue": "={{ $json.auth_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "task-list-if",
+      "name": "Authorized? (List)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -220,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? \"server misconfigured\" : \"unauthorized\" } }}",
+        "options": {
+          "responseCode": "={{ $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? 500 : 401 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "task-list-401",
+      "name": "Reject Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        40,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "options": {
+          "returnAllMatches": true
+        }
+      },
+      "id": "task-list-read",
+      "name": "Read Conversations (List)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        40,
+        -380
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Frames each conversation's status as a to-do-list column, matching\n// docs/FUTURE_TASKS_EMPLOYEES_AND_AI_AGENTS.md section 2 — no new data,\n// just a view over the status field that already exists.\nfunction column(status) {\n  if (status === 'WAITING_FOR_AGENT') return 'backlog';\n  if (status === 'UNANSWERED') return 'to_do';\n  if (status === 'REPLIED' || status === 'WAITING_FOR_CUSTOMER') return 'waiting';\n  if (status === 'CLOSED') return 'done';\n  return 'other';\n}\n\nconst query = $('Check Auth (List)').first().json.query || {};\nconst wantAgent = query.agent_id || null;\nconst wantStatus = query.status || null;\n\nlet rows = $input.all().map(i => i.json);\nif (wantAgent) rows = rows.filter(r => String(r.assigned_agent_id || '') === String(wantAgent));\nif (wantStatus) rows = rows.filter(r => String(r.status || '') === String(wantStatus));\n\nconst tasks = rows.map(r => ({\n  conversation_id: r.conversation_id,\n  customer_name: r.customer_name,\n  customer_phone: r.customer_phone,\n  assigned_agent_id: r.assigned_agent_id,\n  assigned_agent_name: r.assigned_agent_name,\n  status: r.status,\n  column: column(r.status),\n  last_message: r.last_message,\n  unanswered_count: r.unanswered_count,\n  first_message_at: r.first_message_at,\n  last_activity_at: r.last_activity_at,\n}));\n\n// Newest activity first, matching the Sheet's own ordering convention.\ntasks.sort((a, b) => String(b.last_activity_at || '').localeCompare(String(a.last_activity_at || '')));\n\nreturn [{ json: { tasks } }];"
+      },
+      "id": "task-list-map",
+      "name": "Map To To-Do Columns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.tasks }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "task-list-200",
+      "name": "Respond Tasks",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        500,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/tasks/close",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "task-close-wh",
+      "name": "Close Task (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        200
+      ],
+      "webhookId": "a1b2c3d4-0000-4000-8000-task-close01"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\n\nfunction safeEqual(a, b) {\n  const bufA = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();\n  const bufB = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();\n  return crypto.timingSafeEqual(bufA, bufB);\n}\n\nconst item = $input.first();\nconst headers = (item.json && item.json.headers) || {};\nconst provided = headers['x-management-key'] || '';\nconst expected = $env.MANAGEMENT_API_KEY;\n\nlet ok = false;\nlet reason = 'UNKNOWN';\nif (!expected || String(expected).trim() === '') {\n  reason = 'MANAGEMENT_API_KEY_NOT_CONFIGURED';\n} else if (!provided) {\n  reason = 'MISSING_KEY_HEADER';\n} else {\n  ok = safeEqual(String(provided), String(expected));\n  reason = ok ? 'OK' : 'KEY_MISMATCH';\n}\n\nconsole.log(JSON.stringify({ event: 'management_api_auth', ok, reason, path: item.json && item.json.webhookUrl }));\n\nconst body = (item.json && item.json.body) || {};\nconst query = (item.json && item.json.query) || {};\nreturn [{ json: { auth_ok: ok, auth_reason: reason, body, query } }];"
+      },
+      "id": "task-close-auth",
+      "name": "Check Auth (CLOSED)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "auth-ok",
+              "leftValue": "={{ $json.auth_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "task-close-if",
+      "name": "Authorized? (CLOSED)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? \"server misconfigured\" : \"unauthorized\" } }}",
+        "options": {
+          "responseCode": "={{ $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? 500 : 401 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "task-close-401",
+      "name": "Reject Unauthorized CLOSED",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        40,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const body = $json.body || {};\nconst conversationId = typeof body.conversation_id === 'string' ? body.conversation_id.trim() : '';\nif (!conversationId) return [{ json: { valid: false, errors: ['conversation_id is required'] } }];\nconst nowIso = new Date().toISOString();\nreturn [{ json: {\n  valid: true,\n  conversation_id: conversationId,\n  patch: {\n    conversation_id: conversationId,\n    status: 'CLOSED',\n    closed_at: nowIso,\n    updated_at: nowIso,\n  },\n} }];"
+      },
+      "id": "task-close-validate",
+      "name": "Validate (CLOSED)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "v",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "task-close-validif",
+      "name": "Valid? (CLOSED)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        260,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": \"validation failed\", \"details\": $json.errors } }}",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "task-close-400",
+      "name": "Reject Invalid CLOSED",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        480,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "conversation_id": "={{ $json.patch.conversation_id }}",
+            "status": "={{ $json.patch.status }}",
+            "closed_at": "={{ $json.patch.closed_at }}",
+            "updated_at": "={{ $json.patch.updated_at }}"
+          },
+          "matchingColumns": [
+            "conversation_id"
+          ],
+          "schema": [
+            {
+              "id": "conversation_id",
+              "displayName": "conversation_id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "closed_at",
+              "displayName": "closed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "task-close-write",
+      "name": "Update Conversation Status (CLOSED)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        480,
+        60
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "options": {
+          "returnAllMatches": true
+        }
+      },
+      "id": "task-close-readconv",
+      "name": "Read All Conversations (CLOSED)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        700,
+        60
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Mirrors recalculateAgentLoad() in SetupSheet.gs: open = count of\n// non-CLOSED, non-ARCHIVED conversations for the affected agent.\n//\n// IMPORTANT: this node's input is \"Read All Conversations\" — every row in\n// the sheet, not the validated request. $json here would be whichever item\n// happens to be current in a runOnceForAllItems context, NOT the\n// conversation being closed. The conversation_id must be pulled explicitly\n// from the Validate node by name, the same way \"Respond\" below does.\nconst conv = $('Validate (CLOSED)').first().json.conversation_id;\nconst rows = $input.all().map(i => i.json);\nconst target = rows.find(r => r.conversation_id === conv);\nconst agentId = target && target.assigned_agent_id ? String(target.assigned_agent_id) : null;\n\nif (!agentId) {\n  console.log(JSON.stringify({ event: 'recompute_agent_load_skipped', conversation_id: conv, reason: 'no_assigned_agent' }));\n  return [{ json: { has_agent: false } }];\n}\n\nconst open = rows.filter(r =>\n  r.assigned_agent_id === agentId &&\n  r.status !== 'CLOSED' &&\n  r.status !== 'ARCHIVED'\n).length;\n\nreturn [{ json: { has_agent: true, agent_id: agentId, open_conversations: open, updated_at: new Date().toISOString() } }];"
+      },
+      "id": "task-close-recompute",
+      "name": "Recompute Agent Load (CLOSED)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ha",
+              "leftValue": "={{ $json.has_agent }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "task-close-skipif",
+      "name": "Has Agent? (CLOSED)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1140,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Agents",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "agent_id": "={{ $json.agent_id }}",
+            "open_conversations": "={{ $json.open_conversations }}",
+            "updated_at": "={{ $json.updated_at }}"
+          },
+          "matchingColumns": [
+            "agent_id"
+          ],
+          "schema": [
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "open_conversations",
+              "displayName": "open_conversations",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "task-close-writeload",
+      "name": "Update Agent Load (CLOSED)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1360,
+        -60
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $(\"Validate (CLOSED)\").first().json.patch }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "task-close-200",
+      "name": "Respond CLOSED",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1580,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/tasks/reopen",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "task-reopen-wh",
+      "name": "Reopen Task (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        700
+      ],
+      "webhookId": "a1b2c3d4-0000-4000-8000-task-reopen01"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\n\nfunction safeEqual(a, b) {\n  const bufA = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();\n  const bufB = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();\n  return crypto.timingSafeEqual(bufA, bufB);\n}\n\nconst item = $input.first();\nconst headers = (item.json && item.json.headers) || {};\nconst provided = headers['x-management-key'] || '';\nconst expected = $env.MANAGEMENT_API_KEY;\n\nlet ok = false;\nlet reason = 'UNKNOWN';\nif (!expected || String(expected).trim() === '') {\n  reason = 'MANAGEMENT_API_KEY_NOT_CONFIGURED';\n} else if (!provided) {\n  reason = 'MISSING_KEY_HEADER';\n} else {\n  ok = safeEqual(String(provided), String(expected));\n  reason = ok ? 'OK' : 'KEY_MISMATCH';\n}\n\nconsole.log(JSON.stringify({ event: 'management_api_auth', ok, reason, path: item.json && item.json.webhookUrl }));\n\nconst body = (item.json && item.json.body) || {};\nconst query = (item.json && item.json.query) || {};\nreturn [{ json: { auth_ok: ok, auth_reason: reason, body, query } }];"
+      },
+      "id": "task-reopen-auth",
+      "name": "Check Auth (UNANSWERED)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "auth-ok",
+              "leftValue": "={{ $json.auth_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "task-reopen-if",
+      "name": "Authorized? (UNANSWERED)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -220,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? \"server misconfigured\" : \"unauthorized\" } }}",
+        "options": {
+          "responseCode": "={{ $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? 500 : 401 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "task-reopen-401",
+      "name": "Reject Unauthorized UNANSWERED",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        40,
+        840
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const body = $json.body || {};\nconst conversationId = typeof body.conversation_id === 'string' ? body.conversation_id.trim() : '';\nif (!conversationId) return [{ json: { valid: false, errors: ['conversation_id is required'] } }];\nconst nowIso = new Date().toISOString();\nreturn [{ json: {\n  valid: true,\n  conversation_id: conversationId,\n  patch: {\n    conversation_id: conversationId,\n    status: 'UNANSWERED',\n    closed_at: '',\n    updated_at: nowIso,\n  },\n} }];"
+      },
+      "id": "task-reopen-validate",
+      "name": "Validate (UNANSWERED)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "v",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "task-reopen-validif",
+      "name": "Valid? (UNANSWERED)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        260,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": \"validation failed\", \"details\": $json.errors } }}",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "task-reopen-400",
+      "name": "Reject Invalid UNANSWERED",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        480,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "conversation_id": "={{ $json.patch.conversation_id }}",
+            "status": "={{ $json.patch.status }}",
+            "closed_at": "={{ $json.patch.closed_at }}",
+            "updated_at": "={{ $json.patch.updated_at }}"
+          },
+          "matchingColumns": [
+            "conversation_id"
+          ],
+          "schema": [
+            {
+              "id": "conversation_id",
+              "displayName": "conversation_id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "closed_at",
+              "displayName": "closed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "task-reopen-write",
+      "name": "Update Conversation Status (UNANSWERED)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        480,
+        560
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "options": {
+          "returnAllMatches": true
+        }
+      },
+      "id": "task-reopen-readconv",
+      "name": "Read All Conversations (UNANSWERED)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        700,
+        560
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Mirrors recalculateAgentLoad() in SetupSheet.gs: open = count of\n// non-CLOSED, non-ARCHIVED conversations for the affected agent.\n//\n// IMPORTANT: this node's input is \"Read All Conversations\" — every row in\n// the sheet, not the validated request. $json here would be whichever item\n// happens to be current in a runOnceForAllItems context, NOT the\n// conversation being closed. The conversation_id must be pulled explicitly\n// from the Validate node by name, the same way \"Respond\" below does.\nconst conv = $('Validate (UNANSWERED)').first().json.conversation_id;\nconst rows = $input.all().map(i => i.json);\nconst target = rows.find(r => r.conversation_id === conv);\nconst agentId = target && target.assigned_agent_id ? String(target.assigned_agent_id) : null;\n\nif (!agentId) {\n  console.log(JSON.stringify({ event: 'recompute_agent_load_skipped', conversation_id: conv, reason: 'no_assigned_agent' }));\n  return [{ json: { has_agent: false } }];\n}\n\nconst open = rows.filter(r =>\n  r.assigned_agent_id === agentId &&\n  r.status !== 'CLOSED' &&\n  r.status !== 'ARCHIVED'\n).length;\n\nreturn [{ json: { has_agent: true, agent_id: agentId, open_conversations: open, updated_at: new Date().toISOString() } }];"
+      },
+      "id": "task-reopen-recompute",
+      "name": "Recompute Agent Load (UNANSWERED)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ha",
+              "leftValue": "={{ $json.has_agent }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "task-reopen-skipif",
+      "name": "Has Agent? (UNANSWERED)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1140,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Agents",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "agent_id": "={{ $json.agent_id }}",
+            "open_conversations": "={{ $json.open_conversations }}",
+            "updated_at": "={{ $json.updated_at }}"
+          },
+          "matchingColumns": [
+            "agent_id"
+          ],
+          "schema": [
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "open_conversations",
+              "displayName": "open_conversations",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "task-reopen-writeload",
+      "name": "Update Agent Load (UNANSWERED)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1360,
+        440
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $(\"Validate (UNANSWERED)\").first().json.patch }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "task-reopen-200",
+      "name": "Respond UNANSWERED",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1580,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "OPTIONS",
+        "path": "api/tasks",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "task-cors0-opt-wh",
+      "name": "CORS Preflight (api/tasks)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        1100
+      ],
+      "webhookId": "task-cors0-opt-rraznrkc"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {} }}",
+        "options": {
+          "responseCode": 204,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "task-cors0-opt-resp",
+      "name": "Ack Preflight",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -440,
+        1100
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "OPTIONS",
+        "path": "api/tasks/close",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "task-cors1-opt-wh",
+      "name": "CORS Preflight (api/tasks/close)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        1260
+      ],
+      "webhookId": "task-cors1-opt-6ykavlr0"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {} }}",
+        "options": {
+          "responseCode": 204,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "task-cors1-opt-resp",
+      "name": "Ack Preflight (Close)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -440,
+        1260
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "OPTIONS",
+        "path": "api/tasks/reopen",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "task-cors2-opt-wh",
+      "name": "CORS Preflight (api/tasks/reopen)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        1420
+      ],
+      "webhookId": "task-cors2-opt-vr1hmshx"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {} }}",
+        "options": {
+          "responseCode": 204,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "task-cors2-opt-resp",
+      "name": "Ack Preflight (Reopen)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -440,
+        1420
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Workflow 10 — Tasks API\n\nConversations, framed as a to-do list — no new data. See\ndocs/FUTURE_TASKS_EMPLOYEES_AND_AI_AGENTS.md section 2.\n\n`GET /api/tasks?agent_id=&status=` — list, mapped to backlog/to_do/\nwaiting/done\n`POST /api/tasks/close` / `/api/tasks/reopen` — { conversation_id }\n\nClose/reopen also recomputes the ONE affected agent's\nopen_conversations, the same arithmetic recalculateAgentLoad() in\nSetupSheet.gs already uses (count of non-CLOSED, non-ARCHIVED rows) —\nscoped to one agent instead of the whole sheet. Reply/send still goes\nthrough workflow 4 or the Sheet's reply_text column; this workflow only\ncloses/reopens, it does not send messages.\n\nSame auth as workflow 9: `X-Management-Key`, fails closed.",
+        "height": 340,
+        "width": 640,
+        "color": 4
+      },
+      "id": "task-note",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        -700
+      ]
+    }
+  ],
+  "connections": {
+    "List Tasks (GET)": {
+      "main": [
+        [
+          {
+            "node": "Check Auth (List)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Auth (List)": {
+      "main": [
+        [
+          {
+            "node": "Authorized? (List)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorized? (List)": {
+      "main": [
+        [
+          {
+            "node": "Read Conversations (List)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Conversations (List)": {
+      "main": [
+        [
+          {
+            "node": "Map To To-Do Columns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map To To-Do Columns": {
+      "main": [
+        [
+          {
+            "node": "Respond Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Close Task (POST)": {
+      "main": [
+        [
+          {
+            "node": "Check Auth (CLOSED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Auth (CLOSED)": {
+      "main": [
+        [
+          {
+            "node": "Authorized? (CLOSED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorized? (CLOSED)": {
+      "main": [
+        [
+          {
+            "node": "Validate (CLOSED)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Unauthorized CLOSED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate (CLOSED)": {
+      "main": [
+        [
+          {
+            "node": "Valid? (CLOSED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid? (CLOSED)": {
+      "main": [
+        [
+          {
+            "node": "Update Conversation Status (CLOSED)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Invalid CLOSED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Conversation Status (CLOSED)": {
+      "main": [
+        [
+          {
+            "node": "Read All Conversations (CLOSED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read All Conversations (CLOSED)": {
+      "main": [
+        [
+          {
+            "node": "Recompute Agent Load (CLOSED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recompute Agent Load (CLOSED)": {
+      "main": [
+        [
+          {
+            "node": "Has Agent? (CLOSED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Agent? (CLOSED)": {
+      "main": [
+        [
+          {
+            "node": "Update Agent Load (CLOSED)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond CLOSED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Agent Load (CLOSED)": {
+      "main": [
+        [
+          {
+            "node": "Respond CLOSED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reopen Task (POST)": {
+      "main": [
+        [
+          {
+            "node": "Check Auth (UNANSWERED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Auth (UNANSWERED)": {
+      "main": [
+        [
+          {
+            "node": "Authorized? (UNANSWERED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorized? (UNANSWERED)": {
+      "main": [
+        [
+          {
+            "node": "Validate (UNANSWERED)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Unauthorized UNANSWERED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate (UNANSWERED)": {
+      "main": [
+        [
+          {
+            "node": "Valid? (UNANSWERED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid? (UNANSWERED)": {
+      "main": [
+        [
+          {
+            "node": "Update Conversation Status (UNANSWERED)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Invalid UNANSWERED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Conversation Status (UNANSWERED)": {
+      "main": [
+        [
+          {
+            "node": "Read All Conversations (UNANSWERED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read All Conversations (UNANSWERED)": {
+      "main": [
+        [
+          {
+            "node": "Recompute Agent Load (UNANSWERED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recompute Agent Load (UNANSWERED)": {
+      "main": [
+        [
+          {
+            "node": "Has Agent? (UNANSWERED)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Agent? (UNANSWERED)": {
+      "main": [
+        [
+          {
+            "node": "Update Agent Load (UNANSWERED)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond UNANSWERED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Agent Load (UNANSWERED)": {
+      "main": [
+        [
+          {
+            "node": "Respond UNANSWERED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORS Preflight (api/tasks)": {
+      "main": [
+        [
+          {
+            "node": "Ack Preflight",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORS Preflight (api/tasks/close)": {
+      "main": [
+        [
+          {
+            "node": "Ack Preflight (Close)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORS Preflight (api/tasks/reopen)": {
+      "main": [
+        [
+          {
+            "node": "Ack Preflight (Reopen)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "errorWorkflow": ""
+  },
+  "tags": []
+}

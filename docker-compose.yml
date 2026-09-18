@@ -115,6 +115,9 @@ services:
       - WAHA_HMAC_SECRET=${WAHA_HMAC_SECRET}
       - WAHA_SESSION=${WAHA_SESSION:-default}
 
+      # --- Management API (employees + tasks, workflows 9/10) ---
+      - MANAGEMENT_API_KEY=${MANAGEMENT_API_KEY}
+
     volumes:
       # Named volume: n8n's own DB (SQLite), credentials, binary data, logs.
       # Survives `docker compose down` (only removed with an explicit -v).

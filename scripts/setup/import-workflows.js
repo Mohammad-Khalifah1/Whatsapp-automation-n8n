@@ -38,6 +38,8 @@ const EXPECTED_IDS = [
   'whatsappErrH0006',
   'whatsappShRp0007',
   'whatsappArch0008',
+  'whatsappEmpApi009',
+  'whatsappTaskApi010',
 ];
 
 function docker(args) {

@@ -1,0 +1,1406 @@
+{
+  "id": "whatsappEmpApi009",
+  "name": "WhatsApp — 9 Employees API",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/employees",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "emp-list-wh",
+      "name": "List Employees (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        -300
+      ],
+      "webhookId": "a1b2c3d4-0000-4000-8000-emplistget01"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\n\nfunction safeEqual(a, b) {\n  const bufA = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();\n  const bufB = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();\n  return crypto.timingSafeEqual(bufA, bufB);\n}\n\nconst item = $input.first();\nconst headers = (item.json && item.json.headers) || {};\nconst provided = headers['x-management-key'] || '';\nconst expected = $env.MANAGEMENT_API_KEY;\n\nlet ok = false;\nlet reason = 'UNKNOWN';\nif (!expected || String(expected).trim() === '') {\n  reason = 'MANAGEMENT_API_KEY_NOT_CONFIGURED';\n} else if (!provided) {\n  reason = 'MISSING_KEY_HEADER';\n} else {\n  ok = safeEqual(String(provided), String(expected));\n  reason = ok ? 'OK' : 'KEY_MISMATCH';\n}\n\nconsole.log(JSON.stringify({ event: 'management_api_auth', ok, reason, path: item.json && item.json.webhookUrl }));\n\nconst body = (item.json && item.json.body) || {};\nconst query = (item.json && item.json.query) || {};\nreturn [{ json: { auth_ok: ok, auth_reason: reason, body, query } }];"
+      },
+      "id": "emp-list-auth",
+      "name": "Check Auth (List)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "auth-ok",
+              "leftValue": "={{ $json.auth_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "emp-list-if",
+      "name": "Authorized? (List)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -220,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? \"server misconfigured\" : \"unauthorized\" } }}",
+        "options": {
+          "responseCode": "={{ $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? 500 : 401 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "emp-list-401",
+      "name": "Reject Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        40,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Agents",
+          "mode": "name"
+        },
+        "options": {
+          "returnAllMatches": true
+        }
+      },
+      "id": "emp-list-read",
+      "name": "Read Agents (List)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        40,
+        -380
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const rows = $input.all().map(i => i.json);\nreturn [{ json: { rows } }];"
+      },
+      "id": "emp-list-collect",
+      "name": "Collect Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.rows }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "emp-list-200",
+      "name": "Respond Employees",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        500,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/employees",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "emp-add-wh",
+      "name": "Add Employee (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "a1b2c3d4-0000-4000-8000-empaddpost01"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\n\nfunction safeEqual(a, b) {\n  const bufA = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();\n  const bufB = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();\n  return crypto.timingSafeEqual(bufA, bufB);\n}\n\nconst item = $input.first();\nconst headers = (item.json && item.json.headers) || {};\nconst provided = headers['x-management-key'] || '';\nconst expected = $env.MANAGEMENT_API_KEY;\n\nlet ok = false;\nlet reason = 'UNKNOWN';\nif (!expected || String(expected).trim() === '') {\n  reason = 'MANAGEMENT_API_KEY_NOT_CONFIGURED';\n} else if (!provided) {\n  reason = 'MISSING_KEY_HEADER';\n} else {\n  ok = safeEqual(String(provided), String(expected));\n  reason = ok ? 'OK' : 'KEY_MISMATCH';\n}\n\nconsole.log(JSON.stringify({ event: 'management_api_auth', ok, reason, path: item.json && item.json.webhookUrl }));\n\nconst body = (item.json && item.json.body) || {};\nconst query = (item.json && item.json.query) || {};\nreturn [{ json: { auth_ok: ok, auth_reason: reason, body, query } }];"
+      },
+      "id": "emp-add-auth",
+      "name": "Check Auth (Add)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "auth-ok",
+              "leftValue": "={{ $json.auth_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "emp-add-if",
+      "name": "Authorized? (Add)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? \"server misconfigured\" : \"unauthorized\" } }}",
+        "options": {
+          "responseCode": "={{ $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? 500 : 401 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "emp-add-401",
+      "name": "Reject Unauthorized (Add)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        40,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Agents",
+          "mode": "name"
+        },
+        "options": {
+          "returnAllMatches": true
+        }
+      },
+      "id": "emp-add-read",
+      "name": "Read Agents (Add)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        40,
+        -140
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Validates the new-employee request and computes the next agent_id.\n// Existing ids follow \"A<n>\" (see sheets-templates/Agents.csv); this keeps\n// that convention rather than introducing a second id shape.\n\nconst body = $('Check Auth (Add)').first().json.body || {};\nconst existing = $input.all().map(i => i.json);\n\nconst errors = [];\nconst name = typeof body.name === 'string' ? body.name.trim() : '';\nconst phone = typeof body.phone === 'string' ? body.phone.replace(/[^0-9]/g, '') : '';\nif (!name) errors.push('name is required');\nif (!phone || phone.length < 8) errors.push('phone must be a valid number (digits only, with country code)');\n\nconst phoneTaken = existing.some(r => String(r.phone || '').replace(/[^0-9]/g, '') === phone && phone);\nif (phoneTaken) errors.push('an employee with this phone already exists');\n\nlet maxN = 0;\nfor (const r of existing) {\n  const m = /^A(\\d+)$/.exec(String(r.agent_id || ''));\n  if (m) maxN = Math.max(maxN, parseInt(m[1], 10));\n}\nconst agentId = 'A' + (maxN + 1);\n\nconst nowIso = new Date().toISOString();\nconst maxOpen = Number.isFinite(Number(body.max_open_conversations)) && Number(body.max_open_conversations) > 0\n  ? Math.floor(Number(body.max_open_conversations)) : 5;\n\nif (errors.length > 0) {\n  return [{ json: { valid: false, errors } }];\n}\n\nreturn [{ json: {\n  valid: true,\n  row: {\n    agent_id: agentId,\n    name,\n    phone,\n    active: true,\n    available: body.available === false ? false : true,\n    max_open_conversations: maxOpen,\n    open_conversations: 0,\n    last_assigned_at: '',\n    role: typeof body.role === 'string' && body.role ? body.role : 'agent',\n    working_hours: typeof body.working_hours === 'string' && body.working_hours ? body.working_hours : '09:00-17:00',\n    timezone: typeof body.timezone === 'string' && body.timezone ? body.timezone : ($env.TZ || 'Asia/Amman'),\n    created_at: nowIso,\n    updated_at: nowIso,\n  },\n} }];"
+      },
+      "id": "emp-add-validate",
+      "name": "Validate & Assign Id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "valid-ok",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "emp-add-validif",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        480,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": \"validation failed\", \"details\": $json.errors } }}",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "emp-add-400",
+      "name": "Reject Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        700,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Agents",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "agent_id": "={{ $json.row.agent_id }}",
+            "name": "={{ $json.row.name }}",
+            "phone": "={{ $json.row.phone }}",
+            "active": "={{ $json.row.active }}",
+            "available": "={{ $json.row.available }}",
+            "max_open_conversations": "={{ $json.row.max_open_conversations }}",
+            "open_conversations": "={{ $json.row.open_conversations }}",
+            "last_assigned_at": "={{ $json.row.last_assigned_at }}",
+            "role": "={{ $json.row.role }}",
+            "working_hours": "={{ $json.row.working_hours }}",
+            "timezone": "={{ $json.row.timezone }}",
+            "created_at": "={{ $json.row.created_at }}",
+            "updated_at": "={{ $json.row.updated_at }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "active",
+              "displayName": "active",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "available",
+              "displayName": "available",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "max_open_conversations",
+              "displayName": "max_open_conversations",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "open_conversations",
+              "displayName": "open_conversations",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_assigned_at",
+              "displayName": "last_assigned_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "role",
+              "displayName": "role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "working_hours",
+              "displayName": "working_hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "timezone",
+              "displayName": "timezone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "emp-add-append",
+      "name": "Append Employee",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        700,
+        -140
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $(\"Validate & Assign Id\").first().json.row }}",
+        "options": {
+          "responseCode": 201,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "emp-add-201",
+      "name": "Respond Created",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        920,
+        -140
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/employees/update",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "emp-upd-wh",
+      "name": "Update Employee (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        320
+      ],
+      "webhookId": "a1b2c3d4-0000-4000-8000-empupdpost01"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\n\nfunction safeEqual(a, b) {\n  const bufA = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();\n  const bufB = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();\n  return crypto.timingSafeEqual(bufA, bufB);\n}\n\nconst item = $input.first();\nconst headers = (item.json && item.json.headers) || {};\nconst provided = headers['x-management-key'] || '';\nconst expected = $env.MANAGEMENT_API_KEY;\n\nlet ok = false;\nlet reason = 'UNKNOWN';\nif (!expected || String(expected).trim() === '') {\n  reason = 'MANAGEMENT_API_KEY_NOT_CONFIGURED';\n} else if (!provided) {\n  reason = 'MISSING_KEY_HEADER';\n} else {\n  ok = safeEqual(String(provided), String(expected));\n  reason = ok ? 'OK' : 'KEY_MISMATCH';\n}\n\nconsole.log(JSON.stringify({ event: 'management_api_auth', ok, reason, path: item.json && item.json.webhookUrl }));\n\nconst body = (item.json && item.json.body) || {};\nconst query = (item.json && item.json.query) || {};\nreturn [{ json: { auth_ok: ok, auth_reason: reason, body, query } }];"
+      },
+      "id": "emp-upd-auth",
+      "name": "Check Auth (Update)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "auth-ok",
+              "leftValue": "={{ $json.auth_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "emp-upd-if",
+      "name": "Authorized? (Update)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? \"server misconfigured\" : \"unauthorized\" } }}",
+        "options": {
+          "responseCode": "={{ $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? 500 : 401 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "emp-upd-401",
+      "name": "Reject Unauthorized Upd",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        40,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Agents",
+          "mode": "name"
+        },
+        "options": {
+          "returnAllMatches": true
+        }
+      },
+      "id": "emp-upd-read",
+      "name": "Read Agents (Update)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        40,
+        100
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Only known, non-identity fields may be changed here. agent_id itself is\n// immutable (it's the join key every conversation row already points at).\n//\n// The Google Sheets \"update\" node sets every column it is given — a column\n// whose value is undefined still overwrites the cell with blank (see the\n// same note in workflow 7's Interpret Sheet Send). A partial PATCH must\n// therefore read the row first and carry forward every field the caller did\n// not ask to change, rather than only sending what changed.\nconst body = $('Check Auth (Update)').first().json.body || {};\nconst agentId = typeof body.agent_id === 'string' ? body.agent_id.trim() : '';\nif (!agentId) {\n  return [{ json: { valid: false, errors: ['agent_id is required'] } }];\n}\n\nconst rows = $input.all().map(i => i.json);\nconst existing = rows.find(r => String(r.agent_id || '') === agentId);\nif (!existing) {\n  return [{ json: { valid: false, errors: ['no employee with agent_id ' + agentId], notFound: true } }];\n}\n\nconst ALLOWED = ['name', 'phone', 'active', 'available', 'max_open_conversations', 'role', 'working_hours', 'timezone'];\nconst provided = ALLOWED.filter(k => Object.prototype.hasOwnProperty.call(body, k));\nif (provided.length === 0) {\n  return [{ json: { valid: false, errors: ['no updatable fields provided: ' + ALLOWED.join(', ')] } }];\n}\n\nconst patch = { agent_id: agentId };\nfor (const k of ALLOWED) {\n  patch[k] = provided.includes(k) ? body[k] : existing[k];\n}\nif (patch.phone) patch.phone = String(patch.phone).replace(/[^0-9]/g, '');\npatch.updated_at = new Date().toISOString();\n\nreturn [{ json: { valid: true, agent_id: agentId, patch, changed_fields: provided } }];"
+      },
+      "id": "emp-upd-validate",
+      "name": "Validate Patch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "v",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "emp-upd-validif",
+      "name": "Valid? (Update)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        480,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": \"validation failed\", \"details\": $json.errors } }}",
+        "options": {
+          "responseCode": "={{ $json.notFound ? 404 : 400 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "emp-upd-400",
+      "name": "Reject Invalid Upd",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        700,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Agents",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "agent_id": "={{ $json.patch.agent_id }}",
+            "name": "={{ $json.patch.name }}",
+            "phone": "={{ $json.patch.phone }}",
+            "active": "={{ $json.patch.active }}",
+            "available": "={{ $json.patch.available }}",
+            "max_open_conversations": "={{ $json.patch.max_open_conversations }}",
+            "role": "={{ $json.patch.role }}",
+            "working_hours": "={{ $json.patch.working_hours }}",
+            "timezone": "={{ $json.patch.timezone }}",
+            "updated_at": "={{ $json.patch.updated_at }}"
+          },
+          "matchingColumns": [
+            "agent_id"
+          ],
+          "schema": [
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "active",
+              "displayName": "active",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "available",
+              "displayName": "available",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "max_open_conversations",
+              "displayName": "max_open_conversations",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "role",
+              "displayName": "role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "working_hours",
+              "displayName": "working_hours",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "timezone",
+              "displayName": "timezone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "emp-upd-write",
+      "name": "Update Employee Row",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        480,
+        220
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $(\"Validate Patch\").first().json.patch }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "emp-upd-200",
+      "name": "Respond Updated",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        700,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "OPTIONS",
+        "path": "api/employees",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "emp-cors1-opt-wh",
+      "name": "CORS Preflight (api/employees)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        620
+      ],
+      "webhookId": "emp-cors1-opt-l5vdja0i"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {} }}",
+        "options": {
+          "responseCode": 204,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "emp-cors1-opt-resp",
+      "name": "Ack Preflight",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -440,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "OPTIONS",
+        "path": "api/employees/update",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "emp-cors2-opt-wh",
+      "name": "CORS Preflight (api/employees/update)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        780
+      ],
+      "webhookId": "emp-cors2-opt-xo3bbg05"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {} }}",
+        "options": {
+          "responseCode": 204,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "emp-cors2-opt-resp",
+      "name": "Ack Preflight (Update)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -440,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Workflow 9 — Employees API\n\nAdditive, no other workflow calls or is called by this one.\n\n`GET /api/employees` — list\n`POST /api/employees` — create (auto-assigns the next A<n> id)\n`POST /api/employees/update` — patch name/phone/active/available/\nmax_open_conversations/role/working_hours/timezone. agent_id is\nimmutable — every conversation row already points at it.\n\nEvery path requires `X-Management-Key` matching `MANAGEMENT_API_KEY`.\nFails CLOSED: unset key -> 500, wrong key -> 401. No unsigned opt-out\n(unlike the WhatsApp webhooks) — this surface has no HMAC/Meta signature\nprotecting it otherwise, and it reads/writes names and phone numbers.",
+        "height": 340,
+        "width": 640,
+        "color": 4
+      },
+      "id": "emp-note",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        -700
+      ]
+    }
+  ],
+  "connections": {
+    "List Employees (GET)": {
+      "main": [
+        [
+          {
+            "node": "Check Auth (List)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Auth (List)": {
+      "main": [
+        [
+          {
+            "node": "Authorized? (List)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorized? (List)": {
+      "main": [
+        [
+          {
+            "node": "Read Agents (List)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Agents (List)": {
+      "main": [
+        [
+          {
+            "node": "Collect Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Rows": {
+      "main": [
+        [
+          {
+            "node": "Respond Employees",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Employee (POST)": {
+      "main": [
+        [
+          {
+            "node": "Check Auth (Add)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Auth (Add)": {
+      "main": [
+        [
+          {
+            "node": "Authorized? (Add)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorized? (Add)": {
+      "main": [
+        [
+          {
+            "node": "Read Agents (Add)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Unauthorized (Add)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Agents (Add)": {
+      "main": [
+        [
+          {
+            "node": "Validate & Assign Id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Assign Id": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Append Employee",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Employee": {
+      "main": [
+        [
+          {
+            "node": "Respond Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Employee (POST)": {
+      "main": [
+        [
+          {
+            "node": "Check Auth (Update)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Auth (Update)": {
+      "main": [
+        [
+          {
+            "node": "Authorized? (Update)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorized? (Update)": {
+      "main": [
+        [
+          {
+            "node": "Read Agents (Update)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Unauthorized Upd",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Agents (Update)": {
+      "main": [
+        [
+          {
+            "node": "Validate Patch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Patch": {
+      "main": [
+        [
+          {
+            "node": "Valid? (Update)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid? (Update)": {
+      "main": [
+        [
+          {
+            "node": "Update Employee Row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Invalid Upd",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Employee Row": {
+      "main": [
+        [
+          {
+            "node": "Respond Updated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORS Preflight (api/employees)": {
+      "main": [
+        [
+          {
+            "node": "Ack Preflight",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORS Preflight (api/employees/update)": {
+      "main": [
+        [
+          {
+            "node": "Ack Preflight (Update)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "errorWorkflow": ""
+  },
+  "tags": []
+}
