@@ -133,6 +133,7 @@
         480,
         -120
       ],
+      "executeOnce": true,
       "alwaysOutputData": true,
       "onError": "stopWorkflow",
       "credentials": {
@@ -157,6 +158,40 @@
       "position": [
         740,
         -120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "agent-assigned",
+              "leftValue": "={{ $json.assigned }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-agent-assigned",
+      "name": "Agent Assigned?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1000,
+        -220
       ]
     },
     {
@@ -236,8 +271,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        1000,
-        -220
+        1260,
+        -300
       ],
       "onError": "stopWorkflow",
       "notes": "NOT atomic. Google Sheets has no compare-and-set. Mitigated by running this workflow with concurrency 1. See docs/ASSIGNMENT_ALGORITHM.md.",
@@ -1697,7 +1732,7 @@
       "main": [
         [
           {
-            "node": "Increment Agent Load",
+            "node": "Agent Assigned?",
             "type": "main",
             "index": 0
           },
@@ -1707,6 +1742,18 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Agent Assigned?": {
+      "main": [
+        [
+          {
+            "node": "Increment Agent Load",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     },
     "Build Conversation Row": {

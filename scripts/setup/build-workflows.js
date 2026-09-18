@@ -1590,6 +1590,11 @@ function buildConversationAndAssignment() {
     type: 'n8n-nodes-base.googleSheets',
     typeVersion: NODE_VERSION.googleSheets,
     position: [480, -120],
+    // Once, not once per input item. Its input is every Conversations row, and
+    // a Sheets read runs for each item it receives: 16 conversations meant 16
+    // identical reads of Agents per inbound message (64 rows for 4 agents),
+    // spending the 60-reads-a-minute quota on duplicates.
+    executeOnce: true,
     alwaysOutputData: true,
     onError: 'continueErrorOutput',
   });
@@ -1658,6 +1663,36 @@ function buildConversationAndAssignment() {
     )
   );
 
+  // When every agent is full or away, Select Agent decides WAITING_FOR_AGENT
+  // with an empty assigned_agent_id. Increment Agent Load used to receive that
+  // anyway; the Sheets update refuses an empty match value ("The 'Column to
+  // Match On' parameter is required"). Once failLoudly() turned that swallowed
+  // error into a stop, the stop also killed the parallel Build Conversation
+  // Row branch — so at full capacity a new customer's message was never
+  // written at all, instead of queuing for workflow 5.
+  nodes.push({
+    parameters: {
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          {
+            id: 'agent-assigned',
+            leftValue: '={{ $json.assigned }}',
+            rightValue: true,
+            operator: { type: 'boolean', operation: 'true', singleValue: true },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+    id: 'if-agent-assigned',
+    name: 'Agent Assigned?',
+    type: 'n8n-nodes-base.if',
+    typeVersion: NODE_VERSION.if,
+    position: [1000, -220],
+  });
+
   nodes.push({
     parameters: {
       operation: 'update',
@@ -1680,7 +1715,7 @@ function buildConversationAndAssignment() {
     name: 'Increment Agent Load',
     type: 'n8n-nodes-base.googleSheets',
     typeVersion: NODE_VERSION.googleSheets,
-    position: [1000, -220],
+    position: [1260, -300],
     onError: 'continueErrorOutput',
     notes:
       'NOT atomic. Google Sheets has no compare-and-set. Mitigated by running this workflow with concurrency 1. See docs/ASSIGNMENT_ALGORITHM.md.',
@@ -1927,10 +1962,13 @@ function buildConversationAndAssignment() {
   connections['Read Agents'] = { main: [[{ node: 'Select Agent', type: 'main', index: 0 }]] };
   connections['Select Agent'] = {
     main: [[
-      { node: 'Increment Agent Load', type: 'main', index: 0 },
+      { node: 'Agent Assigned?', type: 'main', index: 0 },
       { node: 'Build Conversation Row', type: 'main', index: 0 },
     ]],
   };
+  // False branch left empty on purpose: nothing to increment, and the row is
+  // still written as WAITING_FOR_AGENT by the Build Conversation Row branch.
+  connections['Agent Assigned?'] = { main: [[{ node: 'Increment Agent Load', type: 'main', index: 0 }], []] };
   connections['Build Conversation Row'] = { main: [[{ node: 'Create Or Update Row?', type: 'main', index: 0 }]] };
   connections['Create Or Update Row?'] = {
     main: [
@@ -2551,6 +2589,11 @@ function buildUnassignedRetry() {
     type: 'n8n-nodes-base.googleSheets',
     typeVersion: NODE_VERSION.googleSheets,
     position: [60, 0],
+    // Once, not once per waiting conversation. Per-item reads gave Assign
+    // Waiting Queue one copy of every agent per waiting row; it bumps the load
+    // on the FIRST copy only, so the next pick could land on another copy of
+    // the same agent at its old load and push it past max_open_conversations.
+    executeOnce: true,
     alwaysOutputData: true,
     onError: 'continueRegularOutput',
   });

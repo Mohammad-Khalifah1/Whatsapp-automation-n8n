@@ -176,7 +176,7 @@ Events and n8n's execution log.
 Find Existing Conversation
   → Decide Create Or Update
       → Needs Assignment?
-           ├── yes → Read Agents → Select Agent → Increment Agent Load
+           ├── yes → Read Agents → Select Agent → Agent Assigned? → Increment Agent Load
            │                                    ↘
            └── no ──────────────────────────────→ Build Conversation Row
                                                     → Create Or Update Row?
@@ -193,6 +193,14 @@ exist, the most recent reopens (configurable).
 
 **Assignment** is `LEAST_OPEN_CONVERSATIONS` with the documented tie-breaker
 chain. Every excluded agent and the reason is written to the Log sheet.
+
+**When nobody is eligible** (everyone at capacity or away), Select Agent returns
+`WAITING_FOR_AGENT` with no agent. `Agent Assigned?` then skips the Agents-row
+update — Sheets refuses an update whose match value is empty — and the
+conversation is still written by `Build Conversation Row`, for workflow 5 to
+assign later. Without that gate the failed update stopped the run and the
+message was never written. `Read Agents` runs once (`executeOnce`), not once per
+conversation row it receives.
 
 > **Concurrency 1 is not optional.** Google Sheets has no atomic
 > compare-and-set, so two parallel executions can both read "Mohammad has 3
