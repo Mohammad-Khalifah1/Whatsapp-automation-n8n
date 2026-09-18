@@ -5,7 +5,9 @@ Cloud API path in [META_WHATSAPP_SETUP.md](META_WHATSAPP_SETUP.md). Pick one
 per number; `WHATSAPP_CONNECTOR` selects which.
 
 Source: [WAHA documentation](https://waha.devlike.pro/docs/), verified
-2026-09-17.
+2026-09-17. For WAHA's own configuration, security model and API — and where
+this deployment departs from the official recommendations — see
+[WAHA_REFERENCE.md](WAHA_REFERENCE.md).
 
 ---
 
