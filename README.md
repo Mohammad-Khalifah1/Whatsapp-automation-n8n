@@ -369,6 +369,7 @@ code and the running code identical.
 | [WAHA_CONNECTOR.md](docs/WAHA_CONNECTOR.md) | Alternative: QR-linked number, no deletion, no Meta approval — and the real ban risk that comes with it |
 | [WAHA_REFERENCE.md](docs/WAHA_REFERENCE.md) | **WAHA itself, from the official docs** — install, security, sessions, webhooks, sending — and where this deployment differs from what the docs recommend |
 | [FUTURE_SESSION_SCOPED_ASSIGNMENT.md](docs/FUTURE_SESSION_SCOPED_ASSIGNMENT.md) | Plan: employees scoped to one or more WhatsApp accounts/sessions, shared-account fairness, and a gap check against upstream WAHA |
+| [FUTURE_WAHA_NATIVE_UI.md](docs/FUTURE_WAHA_NATIVE_UI.md) | Plan: full independence from WAHA's own dashboard — a capability-by-capability audit and what's left to build |
 | [N8N_WORKFLOWS.md](docs/N8N_WORKFLOWS.md) | Each workflow: inputs, outputs, errors, idempotency |
 | [ui/management/README.md](ui/management/README.md) | A plain web page over workflows 9 &amp; 10 — a to-do board and team management, no build step |
 | [GOOGLE_SHEETS_SCHEMA.md](docs/GOOGLE_SHEETS_SCHEMA.md) | All six tabs, every column, and how to reply and archive from the sheet |
