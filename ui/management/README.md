@@ -8,16 +8,21 @@ No build step, no framework, no npm install — open `index.html` in a browser.
 ## Run it
 
 ```bash
-# n8n must already be running (docker compose up -d) and workflows 9/10 published
-python3 -m http.server 8765 --directory ui/management
-# or: npx serve ui/management
+docker compose up -d
 ```
 
-Open `http://localhost:8765`, enter your n8n base URL (`http://localhost:5678`
+That's it — `management-ui` (nginx, static files only) is part of the same
+stack as `n8n` and `waha` in `docker-compose.yml`. Open
+`http://localhost:8080`, enter your n8n base URL (`http://localhost:5678`
 locally) and the `MANAGEMENT_API_KEY` value from `.env`, then **Save & connect**.
 
-Opening `index.html` directly as a `file://` URL also works in most browsers —
-a local static server just avoids browser quirks around `file://` + `fetch`.
+No separate static-server step to remember — verified live, all three
+services come up healthy together from one `docker compose up -d`.
+
+Opening `index.html` directly as a `file://` URL, or serving it with
+`python3 -m http.server ui/management`, also works in a pinch (e.g. editing
+the page without rebuilding the container) — the page itself doesn't care
+who served it, only that it can reach the n8n URL you give it.
 
 ## Files
 
