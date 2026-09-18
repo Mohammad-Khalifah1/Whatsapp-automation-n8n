@@ -254,7 +254,8 @@ COMMIT;
 one commits. `SKIP LOCKED` lets a concurrent worker take the *next* eligible
 agent instead of waiting — so parallelism increases while correctness holds.
 
-**Result:** concurrency 1 is no longer needed. Multiple n8n instances become
+**Result:** the race is prevented rather than repaired. Workflow 8's
+duplicate-folding sweep becomes unnecessary, and multiple n8n instances become
 safe.
 
 Note that `ORDER BY` mirrors `compareLeastOpen()` exactly, including

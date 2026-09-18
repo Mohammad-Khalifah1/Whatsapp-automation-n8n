@@ -328,7 +328,7 @@ the Meta account, both $0 — the server is already paid for.
 |---|---|
 | "Send customers a reminder / promotion" | Needs Meta-approved templates. Paid per message. Not built. |
 | "Reply to someone who wrote 3 days ago" | Impossible without a template. Meta's rule. |
-| "Two agents editing at the same second" | Google Sheets has no atomic compare-and-set. Assignment runs at concurrency 1 for that reason. Documented in [ASSIGNMENT_ALGORITHM.md](ASSIGNMENT_ALGORITHM.md). |
+| "Two agents editing at the same second" | Google Sheets has no atomic compare-and-set. Serialising was tried and dropped messages under load, so a duplicate conversation is repaired within a minute instead. Documented in [ASSIGNMENT_ALGORITHM.md](ASSIGNMENT_ALGORITHM.md). |
 | "Thousands of messages a minute" | The 60 reads/minute Sheets quota is the ceiling. The PostgreSQL migration path is written up in [GOOGLE_SHEETS_TO_POSTGRES.md](GOOGLE_SHEETS_TO_POSTGRES.md). |
 | "Let an AI answer" | Deliberately out of scope. Design notes in [FUTURE_AI.md](FUTURE_AI.md). |
 

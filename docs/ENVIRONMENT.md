@@ -122,6 +122,15 @@ HTTP Request node never contains it inline.
 The **Phone Number ID**, not the phone number. A numeric id from the WhatsApp
 Manager. Used in the send path: `POST /{version}/{phone-number-id}/messages`.
 
+### `META_BUSINESS_PHONE`
+
+The business number as a person reads it, digits only — e.g. `15550001234`. Not
+a secret. Recorded as `sender_phone` on every outbound row in the Messages tab.
+
+Unset, outbound rows record `META_PHONE_NUMBER_ID` there instead, which is an id
+and not a phone number — so the Messages tab stops being able to answer "which
+of these did we send".
+
 ### `META_WABA_ID`
 
 WhatsApp Business Account id. Not required by the current workflows; recorded
@@ -204,9 +213,16 @@ closed and create a new one instead.
 
 ### `N8N_CONCURRENCY_PRODUCTION_LIMIT`
 
-**Set to `1`** if you cannot set per-workflow concurrency in the UI. This is
-what serializes assignment and prevents two simultaneous conversations going to
-the same agent. See
+**`-1` — no limit. Never set it to `1`.**
+
+Earlier versions of this document said to set it to `1`, to serialise
+assignment. On this deployment that did not queue the overflow — it dropped it.
+Under a burst, webhooks got HTTP 200 and then produced no conversation row, no
+message row and no log entry. `docker-compose.yml` now sets `-1` explicitly so
+it cannot be "fixed" back.
+
+The races a limit of 1 used to close are repaired instead: workflow 8 folds
+duplicate conversations, and load is counted live. See
 [ASSIGNMENT_ALGORITHM.md](ASSIGNMENT_ALGORITHM.md#concurrency-and-race-conditions).
 
 ---

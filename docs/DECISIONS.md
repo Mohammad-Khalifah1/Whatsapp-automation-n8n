@@ -59,9 +59,14 @@ advisory: between reading the lock and writing it, another execution can
 interleave. A locking layer that *looks* authoritative but is not is more
 dangerous than a documented limitation, because people trust it.
 
-**What was done instead.** Assignment runs with concurrency 1, which genuinely
-removes the race on a single n8n instance. An advisory lock exists as well, but
-is labelled advisory everywhere it appears — including in the code comments.
+**What was done instead.** Originally, assignment ran with a concurrency limit
+of 1. That was reversed in 0.6.0: under a burst of webhooks the limit did not
+queue the overflow, it dropped it, and a dropped webhook is a customer message
+that is simply gone. Now there is no limit; a duplicate conversation created by
+two simultaneous executions is folded back into one by workflow 8, and an
+uneven assignment corrects itself because load is counted live from the rows.
+An advisory lock exists as well, but is labelled advisory everywhere it appears
+— including in the code comments.
 
 Full analysis:
 [ASSIGNMENT_ALGORITHM.md](ASSIGNMENT_ALGORITHM.md#concurrency-and-race-conditions).

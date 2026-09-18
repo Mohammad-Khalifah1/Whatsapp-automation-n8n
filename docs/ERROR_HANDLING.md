@@ -116,7 +116,7 @@ The central limitation. Fully documented in
 |---|---|
 | Same event twice | Yes — dedupe |
 | Same customer, rapid messages | Yes — dedupe + conversation lookup |
-| Two customers, one n8n instance | Yes — concurrency 1 |
+| Two customers, one n8n instance | Mostly — a duplicate conversation is folded by workflow 8; rows appended in the same instant can collide ([ARCHITECTURE.md](ARCHITECTURE.md#known-limitation-messages-arriving-at-the-same-instant)) |
 | Two customers, multiple instances | **No** — needs Postgres |
 
 ### Manual editing of the sheet

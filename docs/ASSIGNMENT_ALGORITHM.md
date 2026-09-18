@@ -151,23 +151,38 @@ transactional database, and this project does not pretend otherwise.
 
 ### Mitigations actually implemented
 
-**1. Workflow-level serialization — the effective one.**
+**1. No serialization — deliberately.**
 
-Workflow 3 must run with **concurrency 1**. With a single n8n instance this
-removes the race entirely: executions queue instead of interleaving, so no two
-assignments can overlap.
+Workflow 3 used to run with a concurrency limit of 1, on the theory that
+executions would queue instead of interleaving. On this deployment, under a
+burst of webhooks, the overflow was not queued: it was **dropped**. HTTP 200 had
+already gone back to Meta, so no redelivery came, and the message produced no
+conversation row, no message row and no log entry. See the warning at the end
+of this document.
 
-Set it in the workflow's settings, or globally:
+So there is no limit, on the workflow or globally:
 
 ```yaml
 - N8N_CONCURRENCY_PRODUCTION_LIMIT=-1   # NOT 1 - see the warning below
 ```
 
-Cost: assignment throughput becomes serial. At the volume Google Sheets can
-support anyway (60 reads/min/user), this is not the bottleneck.
+That reopens the two races the limit was closing. Neither loses data, and both
+are repaired rather than prevented:
 
-Limit: it only holds for **one** n8n instance. Scale to multiple mains or queue
-mode and the race returns — at which point you should be on PostgreSQL.
+- **Two executions both create a conversation for the same new customer.**
+  Workflow 8 finds two open conversations for the same customer and business
+  number on its next sweep — within a minute — and folds the newer into the
+  oldest, which keeps `first_message_at`.
+- **Two new customers go to the same agent.** Load is counted live from the
+  Conversations rows on every assignment, not from a stored counter, so the
+  imbalance corrects itself on the very next one.
+
+What remains is the one race that does lose data: two rows appended in the same
+instant can collide in Google Sheets itself. It is written up with measurements
+in [ARCHITECTURE.md](ARCHITECTURE.md#known-limitation-messages-arriving-at-the-same-instant).
+
+Beyond one n8n instance none of this is enough — at which point you should be on
+PostgreSQL.
 
 **2. Fast acknowledgement reduces retry-driven concurrency.**
 

@@ -203,8 +203,10 @@ node scripts/testing/send-fixture.js text-message.json --twice   # duplicate
 
 The race is **demonstrated, not fixed at the logic layer** — because it cannot
 be. The test asserts that two executions reading identical state pick the same
-agent, which is exactly the failure Google Sheets permits. The mitigation is
-workflow concurrency 1, and the real fix is PostgreSQL. Documented in
+agent, which is exactly the failure Google Sheets permits. It is not prevented
+by serialising — a concurrency limit of 1 was measured dropping webhooks under
+load. Instead load is counted live from the rows, so an uneven assignment
+corrects itself on the next one; the real fix is PostgreSQL. Documented in
 [ASSIGNMENT_ALGORITHM.md](ASSIGNMENT_ALGORITHM.md#concurrency-and-race-conditions).
 
 ---

@@ -138,7 +138,7 @@ Real constraints, not roadmap items.
 | **WAHA is not sanctioned by Meta** | It automates WhatsApp Web, which the Terms of Service do not permit. Real, unpredictable ban risk with no reliable appeal — [the honest version](docs/WAHA_CONNECTOR.md) |
 | **Sheet replies take up to a minute** | The reply workflow polls once per minute. The WhatsApp Business app is instant |
 | **Google Sheets is not a database** | 60 writes per minute per user. Around 300 conversations a day it returns 429s — that is when to move to [Postgres](docs/GOOGLE_SHEETS_TO_POSTGRES.md) |
-| **Assignment is not atomic** | Sheets has no compare-and-set, so two simultaneous conversations can reach the same agent. Workflow 3 serializes with `concurrency: 1` — [the analysis](docs/ASSIGNMENT_ALGORITHM.md) |
+| **Assignment is not atomic** | Sheets has no compare-and-set, so two simultaneous conversations can reach the same agent. A concurrency limit of 1 was tried and dropped webhooks under load, so the races are repaired instead: load is counted live, and duplicates are folded back together — [the analysis](docs/ASSIGNMENT_ALGORITHM.md) |
 | **Replies from a personal account are invisible** | Meta only emits webhooks for the business number. [Coexistence](docs/COEXISTENCE.md) mirrors Business-app replies; a personal WhatsApp is not tracked |
 | **Coexistence caps throughput at 20 messages/second** | Against 80 by default. Irrelevant below a few hundred conversations a day |
 | **Meta's test mode allows 5 recipients** | Until business verification, which takes days to weeks |
