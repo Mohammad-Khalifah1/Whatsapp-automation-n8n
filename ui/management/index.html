@@ -189,6 +189,10 @@
         <label for="empMax">Max open conversations</label>
         <input id="empMax" type="number" min="1" value="5">
       </div>
+      <div>
+        <label for="empAccounts">WhatsApp account(s) — optional</label>
+        <input id="empAccounts" placeholder="waha:default (leave blank = any account)">
+      </div>
     </div>
     <button class="action" id="addEmployee">Add employee</button>
     <div id="addEmpMsg" class="msg"></div>
@@ -198,7 +202,7 @@
     <h2>Team</h2>
     <table>
       <thead>
-        <tr><th>Name</th><th>Phone</th><th>Load</th><th>Active</th><th>Available</th><th>Role</th><th></th></tr>
+        <tr><th>Name</th><th>Phone</th><th>Load</th><th>Active</th><th>Available</th><th>Role</th><th>Accounts</th><th></th></tr>
       </thead>
       <tbody id="employeesBody"></tbody>
     </table>
@@ -362,7 +366,7 @@
     var body = document.getElementById('employeesBody');
     body.innerHTML = '';
     if (state.employees.length === 0) {
-      body.innerHTML = '<tr><td colspan="7" class="empty">No employees yet — add the first one above.</td></tr>';
+      body.innerHTML = '<tr><td colspan="8" class="empty">No employees yet — add the first one above.</td></tr>';
       return;
     }
     state.employees.forEach(function (a) {
@@ -370,6 +374,7 @@
       var tr = document.createElement('tr');
       var active = String(a.active) === 'true' || String(a.active) === 'TRUE';
       var available = String(a.available) === 'true' || String(a.available) === 'TRUE';
+      var accounts = a.whatsapp_accounts ? String(a.whatsapp_accounts) : '';
       tr.innerHTML =
         '<td>' + escapeHtml(a.name) + '</td>' +
         '<td>' + escapeHtml(String(a.phone)) + '</td>' +
@@ -377,6 +382,7 @@
         '<td>' + (active ? '<span class="badge ok">active</span>' : '<span class="badge off">inactive</span>') + '</td>' +
         '<td>' + (available ? '<span class="badge ok">available</span>' : '<span class="badge off">unavailable</span>') + '</td>' +
         '<td>' + escapeHtml(a.role || '') + '</td>' +
+        '<td>' + (accounts ? escapeHtml(accounts) : '<span class="muted">any</span>') + '</td>' +
         '<td><button class="link-btn" data-toggle-available="' + a.agent_id + '" data-current="' + available + '">' +
           (available ? 'Mark unavailable' : 'Mark available') + '</button>' +
           ' · <button class="link-btn" data-toggle-active="' + a.agent_id + '" data-current="' + active + '">' +
@@ -403,6 +409,7 @@
       name: document.getElementById('empName').value,
       phone: document.getElementById('empPhone').value,
       max_open_conversations: document.getElementById('empMax').value,
+      whatsapp_accounts: document.getElementById('empAccounts').value, // comma-separated; blank = unrestricted
     };
     var check = L.validateNewEmployee(fields, state.employees);
     if (!check.valid) { showMsg('addEmpMsg', 'error', check.errors.join('; ')); return; }
@@ -412,6 +419,7 @@
         document.getElementById('empName').value = '';
         document.getElementById('empPhone').value = '';
         document.getElementById('empMax').value = '5';
+        document.getElementById('empAccounts').value = '';
         loadEmployees();
       })
       .catch(function (err) { showMsg('addEmpMsg', 'error', L.describeApiError(err)); });

@@ -9,6 +9,7 @@ const {
   selectAgent,
   evaluateAgent,
   parseBoolean,
+  parseAccountList,
   STRATEGIES,
   INELIGIBLE,
   NO_AGENT_REASON,
@@ -293,5 +294,88 @@ describe('assignment — concurrency exposure (scenario 4)', () => {
 
     const after2 = [agent('A2', 'Mohammad', 5), agent('A3', 'Sara', 4)];
     assert.equal(selectAgent(after2).agent.name, 'Sara', 'load now genuinely favours Sara');
+  });
+});
+
+describe('parseAccountList', () => {
+  it('splits a comma-separated list and trims whitespace', () => {
+    assert.deepEqual(parseAccountList('waha:default, 1385581811295002 ,waha:sales'),
+      ['waha:default', '1385581811295002', 'waha:sales']);
+  });
+
+  it('treats empty/missing as unrestricted (no accounts, not one blank account)', () => {
+    assert.deepEqual(parseAccountList(''), []);
+    assert.deepEqual(parseAccountList(undefined), []);
+    assert.deepEqual(parseAccountList(null), []);
+  });
+
+  it('drops empty entries from stray commas', () => {
+    assert.deepEqual(parseAccountList('waha:default,,waha:sales,'), ['waha:default', 'waha:sales']);
+  });
+});
+
+describe('session-scoped assignment (docs/FUTURE_SESSION_SCOPED_ASSIGNMENT.md)', () => {
+  it('BACKWARD COMPATIBILITY: an agent with no whatsapp_accounts is eligible for any conversation, even when businessPhoneNumberId is given', () => {
+    const a = evaluateAgent(agent('A1', 'Ahmed', 0), { businessPhoneNumberId: 'waha:default' });
+    assert.equal(a.eligible, true);
+    assert.deepEqual(a.ineligible_reasons, []);
+  });
+
+  it('BACKWARD COMPATIBILITY: the WRONG_ACCOUNT check never fires when the caller does not pass businessPhoneNumberId at all — existing callers are unaffected', () => {
+    const a = evaluateAgent(agent('A1', 'Ahmed', 0, 5, { whatsapp_accounts: 'waha:sales' }));
+    assert.equal(a.eligible, true, 'a restricted agent must still be eligible when the caller never asked for scoping');
+  });
+
+  it('a restricted agent is eligible for their own account', () => {
+    const a = evaluateAgent(agent('A1', 'Ahmed', 0, 5, { whatsapp_accounts: 'waha:default' }), { businessPhoneNumberId: 'waha:default' });
+    assert.equal(a.eligible, true);
+  });
+
+  it('a restricted agent is ineligible for a different account, with WRONG_ACCOUNT recorded', () => {
+    const a = evaluateAgent(agent('A1', 'Ahmed', 0, 5, { whatsapp_accounts: 'waha:sales' }), { businessPhoneNumberId: 'waha:default' });
+    assert.equal(a.eligible, false);
+    assert.ok(a.ineligible_reasons.indexOf(INELIGIBLE.WRONG_ACCOUNT) !== -1);
+  });
+
+  it('an agent responsible for multiple accounts is eligible for any of them', () => {
+    const overrides = { whatsapp_accounts: 'waha:default,waha:sales' };
+    assert.equal(evaluateAgent(agent('A1', 'Ahmed', 0, 5, overrides), { businessPhoneNumberId: 'waha:default' }).eligible, true);
+    assert.equal(evaluateAgent(agent('A1', 'Ahmed', 0, 5, overrides), { businessPhoneNumberId: 'waha:sales' }).eligible, true);
+    assert.equal(evaluateAgent(agent('A1', 'Ahmed', 0, 5, overrides), { businessPhoneNumberId: 'waha:other' }).eligible, false);
+  });
+
+  it('an unrestricted agent is excluded from a specific account\'s pool only by the normal reasons (load/capacity/active), never WRONG_ACCOUNT', () => {
+    const a = evaluateAgent(agent('A1', 'Ahmed', 5, 5), { businessPhoneNumberId: 'waha:default' });
+    assert.equal(a.eligible, false);
+    assert.deepEqual(a.ineligible_reasons, [INELIGIBLE.AT_CAPACITY]);
+  });
+
+  it('two agents sharing one account split fairly between just them, exactly like the unscoped algorithm — an exclusive third agent on a different account never enters the pool', () => {
+    const shared = 'waha:default';
+    const agents = [
+      agent('A1', 'Ahmed', 3, 5, { whatsapp_accounts: shared }),
+      agent('A2', 'Mohammad', 1, 5, { whatsapp_accounts: shared }),
+      agent('A3', 'Sara', 0, 5, { whatsapp_accounts: 'waha:sales' }), // exclusive to a DIFFERENT account
+    ];
+    const decision = selectAgent(agents, { businessPhoneNumberId: shared });
+    assert.equal(decision.agent.name, 'Mohammad', 'fewest open (1) among the two sharing this account');
+    assert.equal(decision.candidates.length, 2, 'Sara (a different account) must not even be a candidate');
+  });
+
+  it('an account with no eligible agent still yields WAITING_FOR_AGENT, never a thrown error or a wrong-account assignment', () => {
+    const agents = [agent('A1', 'Ahmed', 0, 5, { whatsapp_accounts: 'waha:sales' })];
+    const decision = selectAgent(agents, { businessPhoneNumberId: 'waha:default' });
+    assert.equal(decision.assigned, false);
+    assert.equal(decision.status, 'WAITING_FOR_AGENT');
+    assert.equal(decision.reason, NO_AGENT_REASON.NO_ELIGIBLE_AGENT);
+  });
+
+  it('exclusive ownership: the sole agent listing an account gets every conversation from it regardless of another agent\'s load elsewhere', () => {
+    const agents = [
+      agent('A1', 'Ahmed', 0, 5, { whatsapp_accounts: 'waha:default' }),
+      agent('A2', 'Mohammad', 0, 5, { whatsapp_accounts: 'waha:sales' }),
+    ];
+    assert.equal(selectAgent(agents, { businessPhoneNumberId: 'waha:default' }).agent.name, 'Ahmed');
+    assert.equal(selectAgent(agents, { businessPhoneNumberId: 'waha:sales' }).agent.name, 'Mohammad');
   });
 });

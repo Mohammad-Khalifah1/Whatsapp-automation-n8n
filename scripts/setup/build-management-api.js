@@ -264,6 +264,14 @@ const nowIso = new Date().toISOString();
 const maxOpen = Number.isFinite(Number(body.max_open_conversations)) && Number(body.max_open_conversations) > 0
   ? Math.floor(Number(body.max_open_conversations)) : 5;
 
+// Accepts an array or a comma-string; normalizes to the same comma-string
+// shape scripts/lib/assignment.js's parseAccountList() reads. Empty/omitted
+// = unrestricted (eligible for every account) — see
+// docs/FUTURE_SESSION_SCOPED_ASSIGNMENT.md.
+const whatsappAccounts = Array.isArray(body.whatsapp_accounts)
+  ? body.whatsapp_accounts.map(String).map(function (s) { return s.trim(); }).filter(Boolean).join(',')
+  : (typeof body.whatsapp_accounts === 'string' ? body.whatsapp_accounts.trim() : '');
+
 if (errors.length > 0) {
   return [{ json: { valid: false, errors } }];
 }
@@ -282,6 +290,7 @@ return [{ json: {
     role: typeof body.role === 'string' && body.role ? body.role : 'agent',
     working_hours: typeof body.working_hours === 'string' && body.working_hours ? body.working_hours : '09:00-17:00',
     timezone: typeof body.timezone === 'string' && body.timezone ? body.timezone : ($env.TZ || 'Asia/Amman'),
+    whatsapp_accounts: whatsappAccounts,
     created_at: nowIso,
     updated_at: nowIso,
   },
@@ -319,10 +328,11 @@ return [{ json: {
           max_open_conversations: '={{ $json.row.max_open_conversations }}', open_conversations: '={{ $json.row.open_conversations }}',
           last_assigned_at: '={{ $json.row.last_assigned_at }}', role: '={{ $json.row.role }}',
           working_hours: '={{ $json.row.working_hours }}', timezone: '={{ $json.row.timezone }}',
+          whatsapp_accounts: '={{ $json.row.whatsapp_accounts }}',
           created_at: '={{ $json.row.created_at }}', updated_at: '={{ $json.row.updated_at }}',
         },
         matchingColumns: [],
-        schema: sheetsSchema(['agent_id', 'name', 'phone', 'active', 'available', 'max_open_conversations', 'open_conversations', 'last_assigned_at', 'role', 'working_hours', 'timezone', 'created_at', 'updated_at']),
+        schema: sheetsSchema(['agent_id', 'name', 'phone', 'active', 'available', 'max_open_conversations', 'open_conversations', 'last_assigned_at', 'role', 'working_hours', 'timezone', 'whatsapp_accounts', 'created_at', 'updated_at']),
         attemptToConvertTypes: false, convertFieldsToString: true,
       },
       options: {},
@@ -399,7 +409,7 @@ if (!existing) {
   return [{ json: { valid: false, errors: ['no employee with agent_id ' + agentId], notFound: true } }];
 }
 
-const ALLOWED = ['name', 'phone', 'active', 'available', 'max_open_conversations', 'role', 'working_hours', 'timezone'];
+const ALLOWED = ['name', 'phone', 'active', 'available', 'max_open_conversations', 'role', 'working_hours', 'timezone', 'whatsapp_accounts'];
 const provided = ALLOWED.filter(k => Object.prototype.hasOwnProperty.call(body, k));
 if (provided.length === 0) {
   return [{ json: { valid: false, errors: ['no updatable fields provided: ' + ALLOWED.join(', ')] } }];
@@ -410,6 +420,13 @@ for (const k of ALLOWED) {
   patch[k] = provided.includes(k) ? body[k] : existing[k];
 }
 if (patch.phone) patch.phone = String(patch.phone).replace(/[^0-9]/g, '');
+// Same array-or-comma-string normalization as create (Validate & Assign Id) —
+// see docs/FUTURE_SESSION_SCOPED_ASSIGNMENT.md.
+if (provided.includes('whatsapp_accounts')) {
+  patch.whatsapp_accounts = Array.isArray(body.whatsapp_accounts)
+    ? body.whatsapp_accounts.map(String).map(function (s) { return s.trim(); }).filter(Boolean).join(',')
+    : (typeof body.whatsapp_accounts === 'string' ? body.whatsapp_accounts.trim() : '');
+}
 patch.updated_at = new Date().toISOString();
 
 return [{ json: { valid: true, agent_id: agentId, patch, changed_fields: provided } }];
@@ -458,10 +475,11 @@ return [{ json: { valid: true, agent_id: agentId, patch, changed_fields: provide
           role: '={{ $json.patch.role }}',
           working_hours: '={{ $json.patch.working_hours }}',
           timezone: '={{ $json.patch.timezone }}',
+          whatsapp_accounts: '={{ $json.patch.whatsapp_accounts }}',
           updated_at: '={{ $json.patch.updated_at }}',
         },
         matchingColumns: ['agent_id'],
-        schema: sheetsSchema(['agent_id', 'name', 'phone', 'active', 'available', 'max_open_conversations', 'role', 'working_hours', 'timezone', 'updated_at'], ['agent_id']),
+        schema: sheetsSchema(['agent_id', 'name', 'phone', 'active', 'available', 'max_open_conversations', 'role', 'working_hours', 'timezone', 'whatsapp_accounts', 'updated_at'], ['agent_id']),
         attemptToConvertTypes: false, convertFieldsToString: true,
       },
       options: {},

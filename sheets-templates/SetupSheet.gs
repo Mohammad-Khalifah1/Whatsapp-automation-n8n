@@ -29,7 +29,8 @@ var SCHEMA = {
   Agents: [
     'agent_id', 'name', 'phone', 'active', 'available',
     'max_open_conversations', 'open_conversations', 'last_assigned_at',
-    'role', 'working_hours', 'timezone', 'created_at', 'updated_at'
+    'role', 'working_hours', 'timezone', 'whatsapp_accounts',
+    'created_at', 'updated_at'
   ],
   Conversations: [
     'customer_name', 'customer_phone', 'assigned_agent_name', 'status',

@@ -33,6 +33,7 @@ const INELIGIBLE = {
   AT_CAPACITY: 'AT_CAPACITY',
   MALFORMED_RECORD: 'MALFORMED_RECORD',
   OUTSIDE_WORKING_HOURS: 'OUTSIDE_WORKING_HOURS',
+  WRONG_ACCOUNT: 'WRONG_ACCOUNT',
 };
 
 const NO_AGENT_REASON = {
@@ -83,10 +84,32 @@ function parseTimestamp(value) {
 }
 
 /**
+ * Parse the Agents-sheet `whatsapp_accounts` column: a comma-separated list
+ * of `business_phone_number_id` values this agent may be assigned from.
+ * Empty/missing = unrestricted — eligible for every account. This is the
+ * single default that makes session scoping additive rather than breaking:
+ * every row written before this column existed reads back as unrestricted,
+ * identical to the behaviour before this feature. See
+ * docs/FUTURE_SESSION_SCOPED_ASSIGNMENT.md.
+ */
+function parseAccountList(value) {
+  const s = value === undefined || value === null ? '' : String(value).trim();
+  if (!s) return [];
+  return s.split(',').map((v) => v.trim()).filter(Boolean);
+}
+
+/**
  * Normalize one raw agent row (as read from Google Sheets) into a typed record,
  * and decide eligibility. Never throws on a malformed row — marks it ineligible
  * with MALFORMED_RECORD so one bad spreadsheet row cannot break routing for
  * everyone.
+ *
+ * @param {object} rawAgent
+ * @param {object} [options]
+ * @param {string} [options.businessPhoneNumberId]  The conversation's account
+ *   (Meta phone_number_id, or "waha:<session>"). Omitted/empty -> the
+ *   WRONG_ACCOUNT check never fires, so callers that do not pass it get
+ *   exactly today's unrestricted behaviour.
  */
 function evaluateAgent(rawAgent, options) {
   const opts = options || {};
@@ -104,6 +127,7 @@ function evaluateAgent(rawAgent, options) {
     open_conversations: parseIntSafe(rawAgent ? rawAgent.open_conversations : undefined, 0),
     last_assigned_at_ms: parseTimestamp(rawAgent ? rawAgent.last_assigned_at : undefined),
     last_assigned_at: rawAgent && rawAgent.last_assigned_at ? String(rawAgent.last_assigned_at) : null,
+    whatsapp_accounts: parseAccountList(rawAgent ? rawAgent.whatsapp_accounts : undefined),
     _raw: rawAgent,
   };
 
@@ -120,6 +144,18 @@ function evaluateAgent(rawAgent, options) {
     ineligibleReasons.push(INELIGIBLE.AT_CAPACITY);
   } else if (agent.open_conversations >= agent.max_open_conversations) {
     ineligibleReasons.push(INELIGIBLE.AT_CAPACITY);
+  }
+
+  // Session/account scoping: unrestricted (empty list) is always eligible.
+  // A restricted agent is eligible only when the conversation's account is
+  // in their list — and only when the caller actually told us which
+  // account this conversation is on; no businessPhoneNumberId means this
+  // check cannot fire, preserving today's behaviour for any caller that
+  // has not been updated to pass it.
+  if (agent.whatsapp_accounts.length > 0 && opts.businessPhoneNumberId) {
+    if (agent.whatsapp_accounts.indexOf(String(opts.businessPhoneNumberId)) === -1) {
+      ineligibleReasons.push(INELIGIBLE.WRONG_ACCOUNT);
+    }
   }
 
   agent.eligible = ineligibleReasons.length === 0;
@@ -180,6 +216,8 @@ const COMPARATORS = {
  * @param {object} [options]
  * @param {string} [options.strategy='LEAST_OPEN_CONVERSATIONS']
  * @param {number} [options.defaultMaxOpenConversations=5]
+ * @param {string} [options.businessPhoneNumberId]  See evaluateAgent — omit
+ *   for today's unrestricted behaviour.
  * @returns {{
  *   assigned: boolean,
  *   agent: object|null,
@@ -289,6 +327,7 @@ module.exports = {
   parseBoolean,
   parseIntSafe,
   parseTimestamp,
+  parseAccountList,
   STRATEGIES,
   INELIGIBLE,
   NO_AGENT_REASON,

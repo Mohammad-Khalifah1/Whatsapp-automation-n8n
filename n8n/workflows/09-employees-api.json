@@ -312,7 +312,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Validates the new-employee request and computes the next agent_id.\n// Existing ids follow \"A<n>\" (see sheets-templates/Agents.csv); this keeps\n// that convention rather than introducing a second id shape.\n\nconst body = $('Check Auth (Add)').first().json.body || {};\nconst existing = $input.all().map(i => i.json);\n\nconst errors = [];\nconst name = typeof body.name === 'string' ? body.name.trim() : '';\nconst phone = typeof body.phone === 'string' ? body.phone.replace(/[^0-9]/g, '') : '';\nif (!name) errors.push('name is required');\nif (!phone || phone.length < 8) errors.push('phone must be a valid number (digits only, with country code)');\n\nconst phoneTaken = existing.some(r => String(r.phone || '').replace(/[^0-9]/g, '') === phone && phone);\nif (phoneTaken) errors.push('an employee with this phone already exists');\n\nlet maxN = 0;\nfor (const r of existing) {\n  const m = /^A(\\d+)$/.exec(String(r.agent_id || ''));\n  if (m) maxN = Math.max(maxN, parseInt(m[1], 10));\n}\nconst agentId = 'A' + (maxN + 1);\n\nconst nowIso = new Date().toISOString();\nconst maxOpen = Number.isFinite(Number(body.max_open_conversations)) && Number(body.max_open_conversations) > 0\n  ? Math.floor(Number(body.max_open_conversations)) : 5;\n\nif (errors.length > 0) {\n  return [{ json: { valid: false, errors } }];\n}\n\nreturn [{ json: {\n  valid: true,\n  row: {\n    agent_id: agentId,\n    name,\n    phone,\n    active: true,\n    available: body.available === false ? false : true,\n    max_open_conversations: maxOpen,\n    open_conversations: 0,\n    last_assigned_at: '',\n    role: typeof body.role === 'string' && body.role ? body.role : 'agent',\n    working_hours: typeof body.working_hours === 'string' && body.working_hours ? body.working_hours : '09:00-17:00',\n    timezone: typeof body.timezone === 'string' && body.timezone ? body.timezone : ($env.TZ || 'Asia/Amman'),\n    created_at: nowIso,\n    updated_at: nowIso,\n  },\n} }];"
+        "jsCode": "// Validates the new-employee request and computes the next agent_id.\n// Existing ids follow \"A<n>\" (see sheets-templates/Agents.csv); this keeps\n// that convention rather than introducing a second id shape.\n\nconst body = $('Check Auth (Add)').first().json.body || {};\nconst existing = $input.all().map(i => i.json);\n\nconst errors = [];\nconst name = typeof body.name === 'string' ? body.name.trim() : '';\nconst phone = typeof body.phone === 'string' ? body.phone.replace(/[^0-9]/g, '') : '';\nif (!name) errors.push('name is required');\nif (!phone || phone.length < 8) errors.push('phone must be a valid number (digits only, with country code)');\n\nconst phoneTaken = existing.some(r => String(r.phone || '').replace(/[^0-9]/g, '') === phone && phone);\nif (phoneTaken) errors.push('an employee with this phone already exists');\n\nlet maxN = 0;\nfor (const r of existing) {\n  const m = /^A(\\d+)$/.exec(String(r.agent_id || ''));\n  if (m) maxN = Math.max(maxN, parseInt(m[1], 10));\n}\nconst agentId = 'A' + (maxN + 1);\n\nconst nowIso = new Date().toISOString();\nconst maxOpen = Number.isFinite(Number(body.max_open_conversations)) && Number(body.max_open_conversations) > 0\n  ? Math.floor(Number(body.max_open_conversations)) : 5;\n\n// Accepts an array or a comma-string; normalizes to the same comma-string\n// shape scripts/lib/assignment.js's parseAccountList() reads. Empty/omitted\n// = unrestricted (eligible for every account) — see\n// docs/FUTURE_SESSION_SCOPED_ASSIGNMENT.md.\nconst whatsappAccounts = Array.isArray(body.whatsapp_accounts)\n  ? body.whatsapp_accounts.map(String).map(function (s) { return s.trim(); }).filter(Boolean).join(',')\n  : (typeof body.whatsapp_accounts === 'string' ? body.whatsapp_accounts.trim() : '');\n\nif (errors.length > 0) {\n  return [{ json: { valid: false, errors } }];\n}\n\nreturn [{ json: {\n  valid: true,\n  row: {\n    agent_id: agentId,\n    name,\n    phone,\n    active: true,\n    available: body.available === false ? false : true,\n    max_open_conversations: maxOpen,\n    open_conversations: 0,\n    last_assigned_at: '',\n    role: typeof body.role === 'string' && body.role ? body.role : 'agent',\n    working_hours: typeof body.working_hours === 'string' && body.working_hours ? body.working_hours : '09:00-17:00',\n    timezone: typeof body.timezone === 'string' && body.timezone ? body.timezone : ($env.TZ || 'Asia/Amman'),\n    whatsapp_accounts: whatsappAccounts,\n    created_at: nowIso,\n    updated_at: nowIso,\n  },\n} }];"
       },
       "id": "emp-add-validate",
       "name": "Validate & Assign Id",
@@ -418,6 +418,7 @@
             "role": "={{ $json.row.role }}",
             "working_hours": "={{ $json.row.working_hours }}",
             "timezone": "={{ $json.row.timezone }}",
+            "whatsapp_accounts": "={{ $json.row.whatsapp_accounts }}",
             "created_at": "={{ $json.row.created_at }}",
             "updated_at": "={{ $json.row.updated_at }}"
           },
@@ -526,6 +527,16 @@
             {
               "id": "timezone",
               "displayName": "timezone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "whatsapp_accounts",
+              "displayName": "whatsapp_accounts",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -743,7 +754,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Only known, non-identity fields may be changed here. agent_id itself is\n// immutable (it's the join key every conversation row already points at).\n//\n// The Google Sheets \"update\" node sets every column it is given — a column\n// whose value is undefined still overwrites the cell with blank (see the\n// same note in workflow 7's Interpret Sheet Send). A partial PATCH must\n// therefore read the row first and carry forward every field the caller did\n// not ask to change, rather than only sending what changed.\nconst body = $('Check Auth (Update)').first().json.body || {};\nconst agentId = typeof body.agent_id === 'string' ? body.agent_id.trim() : '';\nif (!agentId) {\n  return [{ json: { valid: false, errors: ['agent_id is required'] } }];\n}\n\nconst rows = $input.all().map(i => i.json);\nconst existing = rows.find(r => String(r.agent_id || '') === agentId);\nif (!existing) {\n  return [{ json: { valid: false, errors: ['no employee with agent_id ' + agentId], notFound: true } }];\n}\n\nconst ALLOWED = ['name', 'phone', 'active', 'available', 'max_open_conversations', 'role', 'working_hours', 'timezone'];\nconst provided = ALLOWED.filter(k => Object.prototype.hasOwnProperty.call(body, k));\nif (provided.length === 0) {\n  return [{ json: { valid: false, errors: ['no updatable fields provided: ' + ALLOWED.join(', ')] } }];\n}\n\nconst patch = { agent_id: agentId };\nfor (const k of ALLOWED) {\n  patch[k] = provided.includes(k) ? body[k] : existing[k];\n}\nif (patch.phone) patch.phone = String(patch.phone).replace(/[^0-9]/g, '');\npatch.updated_at = new Date().toISOString();\n\nreturn [{ json: { valid: true, agent_id: agentId, patch, changed_fields: provided } }];"
+        "jsCode": "// Only known, non-identity fields may be changed here. agent_id itself is\n// immutable (it's the join key every conversation row already points at).\n//\n// The Google Sheets \"update\" node sets every column it is given — a column\n// whose value is undefined still overwrites the cell with blank (see the\n// same note in workflow 7's Interpret Sheet Send). A partial PATCH must\n// therefore read the row first and carry forward every field the caller did\n// not ask to change, rather than only sending what changed.\nconst body = $('Check Auth (Update)').first().json.body || {};\nconst agentId = typeof body.agent_id === 'string' ? body.agent_id.trim() : '';\nif (!agentId) {\n  return [{ json: { valid: false, errors: ['agent_id is required'] } }];\n}\n\nconst rows = $input.all().map(i => i.json);\nconst existing = rows.find(r => String(r.agent_id || '') === agentId);\nif (!existing) {\n  return [{ json: { valid: false, errors: ['no employee with agent_id ' + agentId], notFound: true } }];\n}\n\nconst ALLOWED = ['name', 'phone', 'active', 'available', 'max_open_conversations', 'role', 'working_hours', 'timezone', 'whatsapp_accounts'];\nconst provided = ALLOWED.filter(k => Object.prototype.hasOwnProperty.call(body, k));\nif (provided.length === 0) {\n  return [{ json: { valid: false, errors: ['no updatable fields provided: ' + ALLOWED.join(', ')] } }];\n}\n\nconst patch = { agent_id: agentId };\nfor (const k of ALLOWED) {\n  patch[k] = provided.includes(k) ? body[k] : existing[k];\n}\nif (patch.phone) patch.phone = String(patch.phone).replace(/[^0-9]/g, '');\n// Same array-or-comma-string normalization as create (Validate & Assign Id) —\n// see docs/FUTURE_SESSION_SCOPED_ASSIGNMENT.md.\nif (provided.includes('whatsapp_accounts')) {\n  patch.whatsapp_accounts = Array.isArray(body.whatsapp_accounts)\n    ? body.whatsapp_accounts.map(String).map(function (s) { return s.trim(); }).filter(Boolean).join(',')\n    : (typeof body.whatsapp_accounts === 'string' ? body.whatsapp_accounts.trim() : '');\n}\npatch.updated_at = new Date().toISOString();\n\nreturn [{ json: { valid: true, agent_id: agentId, patch, changed_fields: provided } }];"
       },
       "id": "emp-upd-validate",
       "name": "Validate Patch",
@@ -847,6 +858,7 @@
             "role": "={{ $json.patch.role }}",
             "working_hours": "={{ $json.patch.working_hours }}",
             "timezone": "={{ $json.patch.timezone }}",
+            "whatsapp_accounts": "={{ $json.patch.whatsapp_accounts }}",
             "updated_at": "={{ $json.patch.updated_at }}"
           },
           "matchingColumns": [
@@ -944,6 +956,16 @@
               "removed": false
             },
             {
+              "id": "whatsapp_accounts",
+              "displayName": "whatsapp_accounts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
               "id": "updated_at",
               "displayName": "updated_at",
               "required": false,
@@ -1026,7 +1048,7 @@
         -700,
         620
       ],
-      "webhookId": "emp-cors1-opt-l5vdja0i"
+      "webhookId": "emp-cors1-opt-g0ll50fd"
     },
     {
       "parameters": {
@@ -1076,7 +1098,7 @@
         -700,
         780
       ],
-      "webhookId": "emp-cors2-opt-xo3bbg05"
+      "webhookId": "emp-cors2-opt-o2eyzi2e"
     },
     {
       "parameters": {

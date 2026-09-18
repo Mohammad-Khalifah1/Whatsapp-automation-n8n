@@ -115,6 +115,7 @@ an agent means adding a row here.
 | `role` | text | human | Informational, e.g. `agent`, `supervisor` |
 | `working_hours` | text | human | Informational — **not enforced** |
 | `timezone` | text | human | Informational — **not enforced** |
+| `whatsapp_accounts` | text | human | Comma-separated `business_phone_number_id` values (e.g. `waha:default`) this agent may be assigned from. **Enforced** — empty means unrestricted (eligible for every account), exactly today's behaviour. See [FUTURE_SESSION_SCOPED_ASSIGNMENT.md](FUTURE_SESSION_SCOPED_ASSIGNMENT.md) |
 | `created_at` | ISO-8601 | human | |
 | `updated_at` | ISO-8601 | **system** | |
 
@@ -474,7 +475,7 @@ columns are system-owned.
 
 **Safe to edit:**
 `Agents`: `name`, `phone`, `active`, `available`, `max_open_conversations`,
-`role`, `working_hours`, `timezone`.
+`role`, `working_hours`, `timezone`, `whatsapp_accounts`.
 `Conversations`: `status` (to close/reopen), `customer_name`.
 
 **Do not edit:**
