@@ -14,6 +14,7 @@ const {
   agentCapacity,
   validateNewEmployee,
   describeApiError,
+  describeSessionStatus,
 } = require('../../ui/management/logic');
 
 describe('groupTasksByColumn', () => {
@@ -151,5 +152,31 @@ describe('describeApiError', () => {
   it('never throws on a bare network failure with no status', () => {
     assert.doesNotThrow(() => describeApiError(new Error('fetch failed')));
     assert.doesNotThrow(() => describeApiError(undefined));
+  });
+});
+
+describe('describeSessionStatus (workflow 11)', () => {
+  it('shows the QR only for SCAN_QR_CODE', () => {
+    assert.equal(describeSessionStatus('SCAN_QR_CODE').showQr, true);
+    for (const s of ['WORKING', 'STARTING', 'FAILED', 'STOPPED', 'anything else']) {
+      assert.equal(describeSessionStatus(s).showQr, false, s + ' must not show a QR');
+    }
+  });
+
+  it('is case-insensitive, matching how WAHA actually sends it', () => {
+    assert.equal(describeSessionStatus('working').tone, 'ok');
+    assert.equal(describeSessionStatus('Working').tone, 'ok');
+  });
+
+  it('flags FAILED distinctly from a normal not-yet-connected state', () => {
+    assert.equal(describeSessionStatus('FAILED').tone, 'bad');
+    assert.equal(describeSessionStatus('SCAN_QR_CODE').tone, 'warn');
+  });
+
+  it('never throws on missing or unrecognised status, and still returns a label', () => {
+    assert.doesNotThrow(() => describeSessionStatus(undefined));
+    assert.doesNotThrow(() => describeSessionStatus(null));
+    assert.ok(describeSessionStatus(null).label);
+    assert.ok(describeSessionStatus('SOME_NEW_STATUS_WAHA_ADDS_LATER').label);
   });
 });

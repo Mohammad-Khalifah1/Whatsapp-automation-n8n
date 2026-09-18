@@ -116,6 +116,12 @@ services:
       # admin WAHA_API_KEY: a compromised n8n could then send, but not read
       # history, log the number out, or create sessions.
       - WAHA_SEND_API_KEY=${WAHA_SEND_API_KEY}
+      # A second key, scoped to WAHA_SESSION with read+control but never
+      # send — minted by the same script. Used only by workflow 11 (the
+      # management UI's Connection tab: status/QR/restart). Kept separate
+      # from WAHA_SEND_API_KEY on purpose: neither key alone can both read
+      # connection state and send as the business.
+      - WAHA_STATUS_API_KEY=${WAHA_STATUS_API_KEY}
       - WAHA_HMAC_SECRET=${WAHA_HMAC_SECRET}
       - WAHA_SESSION=${WAHA_SESSION:-default}
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Put the WAHA session this project uses into the state docs/WAHA_REFERENCE.md
- * describes, and mint the send-only key n8n uses.
+ * describes, and mint the two scoped keys n8n uses.
  *
  * IDEMPOTENT. Re-running converges on the same state and changes nothing
  * that is already right.
@@ -24,7 +24,13 @@
  *      WAHA_SEND_API_KEY. The value is never printed. Recreate n8n afterwards
  *      (`docker compose up -d n8n`) so it picks the key up.
  *
- *   3. Warns about any OTHER session with a webhook pointing outside this
+ *   3. A SECOND key, scoped to WAHA_SESSION with read+control but never
+ *      send, written to .env as WAHA_STATUS_API_KEY — for the management
+ *      UI's Connection tab (status, QR, restart). Kept separate from the
+ *      send-only key: neither key alone can both read connection state
+ *      and send as the business.
+ *
+ *   4. Warns about any OTHER session with a webhook pointing outside this
  *      stack. The Dashboard's "Add webhook" button fills in
  *      https://httpbin.org/post, a public third-party service.
  *
@@ -46,6 +52,14 @@ const ENV_PATH = path.join(ROOT, '.env');
 const CHECK_ONLY = process.argv.includes('--check');
 
 const SEND_ONLY = { read: false, send: true, control: false, setting: false, app: false, delete: false };
+// Session status + QR + restart, for the management UI's Connection tab —
+// same least-privilege reasoning as SEND_ONLY: this key can see connection
+// state and reconnect the session, but cannot send a message, change
+// settings, or touch any OTHER session. No dedicated /api/keys/status
+// convenience endpoint exists (unlike /api/keys/control, which grants
+// control alone but not read), so this goes through the generic
+// POST /api/keys with explicit actions, same as SEND_ONLY does.
+const STATUS_AND_CONTROL = { read: true, send: false, control: true, setting: false, app: false, delete: false };
 
 function readEnv() {
   const out = {};
@@ -92,6 +106,11 @@ function configMatches(config) {
 function isSendOnlyKeyFor(k, session) {
   if (!k || k.isAdmin || !k.isActive || k.session !== session || !k.actions) return false;
   return Object.keys(SEND_ONLY).every((a) => k.actions[a] === SEND_ONLY[a]);
+}
+
+function isStatusKeyFor(k, session) {
+  if (!k || k.isAdmin || !k.isActive || k.session !== session || !k.actions) return false;
+  return Object.keys(STATUS_AND_CONTROL).every((a) => k.actions[a] === STATUS_AND_CONTROL[a]);
 }
 
 async function main() {
@@ -184,7 +203,48 @@ async function main() {
       + (denied ? ' (denied, as intended)' : ' — EXPECTED A DENIAL, check the key scope'));
   }
 
-  // ---- 3. Foreign webhooks on other sessions -----------------------------
+  // ---- 3. Status/control key (read + control, no send) -------------------
+  // For the management UI's Connection tab: session status, QR, restart —
+  // never a message. Kept as a THIRD key, not folded into sendKey or the
+  // admin key, so a compromised UI can reconnect a session but never send
+  // as the business, and a compromised n8n send path still cannot read
+  // connection state or force a reconnect.
+  let statusKey = keys.json.find((k) => isStatusKeyFor(k, session));
+
+  if (!statusKey && !CHECK_ONLY) {
+    const r = await call('POST', '/api/keys', { isAdmin: false, session, isActive: true, actions: STATUS_AND_CONTROL });
+    if (r.status >= 300 || !r.json || !r.json.key) throw new Error('create status key failed: HTTP ' + r.status);
+    statusKey = r.json;
+    console.log('  [ok] status/control key created for "' + session + '" (id ' + statusKey.id + ')');
+  } else if (statusKey) {
+    console.log('  [ok] status/control key exists for "' + session + '" (id ' + statusKey.id + ')');
+  } else {
+    console.log('  [--] no status/control key for "' + session + '"');
+  }
+
+  if (statusKey) {
+    if (env.WAHA_STATUS_API_KEY === statusKey.key) {
+      console.log('  [ok] .env WAHA_STATUS_API_KEY matches it');
+    } else if (CHECK_ONLY) {
+      console.log('  [!!] .env WAHA_STATUS_API_KEY ' + (env.WAHA_STATUS_API_KEY ? 'does not match it' : 'is empty'));
+    } else {
+      writeEnvValue('WAHA_STATUS_API_KEY', statusKey.key);
+      console.log('  [ok] .env WAHA_STATUS_API_KEY written (' + statusKey.key.length + ' chars, value not shown)');
+      console.log('       -> recreate n8n so it picks the key up:  docker compose up -d n8n');
+    }
+
+    // Prove the scope both ways: can read, cannot send.
+    const readProbe = await call('GET', '/api/sessions/' + encodeURIComponent(session), undefined, statusKey.key);
+    console.log('  [' + (readProbe.status === 200 ? 'ok' : '!!') + '] status key reading session info -> HTTP ' + readProbe.status
+      + (readProbe.status === 200 ? ' (allowed, as intended)' : ' — EXPECTED SUCCESS, check the key scope'));
+
+    const sendProbe = await call('POST', '/api/sendText', { session, chatId: '000000000000@c.us', text: 'scope probe — should be rejected' }, statusKey.key);
+    const sendDenied = sendProbe.status === 401 || sendProbe.status === 403;
+    console.log('  [' + (sendDenied ? 'ok' : '!!') + '] status key attempting to send -> HTTP ' + sendProbe.status
+      + (sendDenied ? ' (denied, as intended)' : ' — EXPECTED A DENIAL, check the key scope'));
+  }
+
+  // ---- 4. Foreign webhooks on other sessions -----------------------------
   const all = await call('GET', '/api/sessions?all=true');
   const warnings = [];
   for (const s of Array.isArray(all.json) ? all.json : []) {

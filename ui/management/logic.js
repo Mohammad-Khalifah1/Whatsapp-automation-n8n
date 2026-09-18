@@ -107,6 +107,21 @@ function describeApiError(err) {
   return err.message || 'Network error — is n8n reachable at the configured URL?';
 }
 
+/**
+ * Maps a WAHA session status (from GET /api/waha/status, workflow 11) to a
+ * badge label/tone and whether the QR image is worth showing right now.
+ * WAHA's own status strings, not reinvented — see docs/WAHA_REFERENCE.md.
+ */
+function describeSessionStatus(status) {
+  var s = String(status || '').toUpperCase();
+  if (s === 'WORKING') return { label: 'Connected', tone: 'ok', showQr: false };
+  if (s === 'SCAN_QR_CODE') return { label: 'Scan the QR code', tone: 'warn', showQr: true };
+  if (s === 'STARTING') return { label: 'Starting…', tone: 'warn', showQr: false };
+  if (s === 'FAILED') return { label: 'Failed — try restart', tone: 'bad', showQr: false };
+  if (s === 'STOPPED') return { label: 'Stopped', tone: 'off', showQr: false };
+  return { label: s || 'Unknown', tone: 'off', showQr: false };
+}
+
 const api = {
   COLUMNS,
   COLUMN_LABELS,
@@ -115,6 +130,7 @@ const api = {
   agentCapacity,
   validateNewEmployee,
   describeApiError,
+  describeSessionStatus,
 };
 
 if (typeof module !== 'undefined' && module.exports) {

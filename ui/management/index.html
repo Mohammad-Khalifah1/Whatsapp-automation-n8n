@@ -132,11 +132,34 @@
 </div>
 
 <nav>
-  <button class="tab-btn active" data-tab="tasks">Tasks</button>
+  <button class="tab-btn active" data-tab="connection">Connection</button>
+  <button class="tab-btn" data-tab="tasks">Tasks</button>
   <button class="tab-btn" data-tab="employees">Employees</button>
 </nav>
 
-<section id="tab-tasks" class="active">
+<section id="tab-connection" class="active">
+  <div class="panel">
+    <h2>WhatsApp session</h2>
+    <div class="row" style="align-items:center;">
+      <div style="flex:none;">
+        <span id="sessionBadge" class="badge off">…</span>
+      </div>
+      <div style="flex:none;">
+        <button class="action secondary" id="refreshStatus">Refresh</button>
+        <button class="action danger" id="restartSession">Restart session</button>
+      </div>
+    </div>
+    <div id="connMsg" class="msg"></div>
+    <div id="qrWrap" style="margin-top:16px; display:none;">
+      <div class="muted" style="margin-bottom:8px;">
+        WhatsApp app → Linked Devices → Link a Device, then scan. The code refreshes automatically.
+      </div>
+      <img id="qrImage" alt="WhatsApp QR code" style="max-width:260px; border-radius:8px; border:1px solid var(--rule); background:#fff; padding:8px;">
+    </div>
+  </div>
+</section>
+
+<section id="tab-tasks">
   <div class="row" style="align-items:flex-end;">
     <div style="max-width:260px;">
       <label for="agentFilter">Filter by employee</label>
@@ -256,9 +279,70 @@
       setConnStatus(false, 'Enter the n8n URL and Management API key above.');
       return;
     }
+    loadSessionStatus();
     loadEmployees();
     loadTasks();
   }
+
+  // ---- WhatsApp session (workflow 11) ----
+
+  var qrPollTimer = null;
+
+  function loadSessionStatus() {
+    api('/api/waha/status').then(function (s) {
+      setConnStatus(true);
+      renderSession(s);
+    }).catch(function (err) {
+      showMsg('connMsg', 'error', L.describeApiError(err));
+    });
+  }
+
+  function renderSession(s) {
+    var info = L.describeSessionStatus(s.status);
+    var badge = document.getElementById('sessionBadge');
+    badge.textContent = info.label + (s.me && s.me.pushName ? ' — ' + s.me.pushName : '');
+    badge.className = 'badge ' + (info.tone === 'ok' ? 'ok' : info.tone === 'bad' ? 'full' : 'off');
+
+    var wrap = document.getElementById('qrWrap');
+    if (info.showQr) {
+      wrap.style.display = 'block';
+      refreshQrImage();
+      if (!qrPollTimer) qrPollTimer = setInterval(refreshQrImage, 15000); // WAHA's QR rotates roughly every ~20s
+    } else {
+      wrap.style.display = 'none';
+      if (qrPollTimer) { clearInterval(qrPollTimer); qrPollTimer = null; }
+    }
+  }
+
+  var qrObjectUrl = null;
+
+  function refreshQrImage() {
+    // A plain <img src="..."> cannot send the X-Management-Key header the
+    // way every other call here does, and putting the key in the URL
+    // instead would leak it into browser history and n8n's access logs —
+    // fetch the bytes through the same authenticated api() call everything
+    // else uses, then point the <img> at an object URL.
+    fetch(state.baseUrl + '/webhook/api/waha/qr', { headers: { 'X-Management-Key': state.apiKey } })
+      .then(function (res) {
+        if (!res.ok) throw Object.assign(new Error('HTTP ' + res.status), { status: res.status });
+        return res.blob();
+      })
+      .then(function (blob) {
+        if (qrObjectUrl) URL.revokeObjectURL(qrObjectUrl); // don't leak one every 15s
+        qrObjectUrl = URL.createObjectURL(blob);
+        document.getElementById('qrImage').src = qrObjectUrl;
+      })
+      .catch(function (err) { showMsg('connMsg', 'error', L.describeApiError(err)); });
+  }
+
+  document.getElementById('refreshStatus').addEventListener('click', loadSessionStatus);
+
+  document.getElementById('restartSession').addEventListener('click', function () {
+    showMsg('connMsg', 'ok', 'Restarting…');
+    api('/api/waha/restart', { method: 'POST' })
+      .then(function () { setTimeout(loadSessionStatus, 2000); })
+      .catch(function (err) { showMsg('connMsg', 'error', L.describeApiError(err)); });
+  });
 
   // ---- Employees ----
 

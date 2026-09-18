@@ -1,0 +1,906 @@
+{
+  "id": "whatsappWahaSess011",
+  "name": "WhatsApp — 11 WAHA Session API",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/waha/status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "st-wh",
+      "name": "Get Status (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        -300
+      ],
+      "webhookId": "a1b2c3d4-0000-4000-8000-wahastatget1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\nfunction safeEqual(a, b) {\n  const bufA = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();\n  const bufB = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();\n  return crypto.timingSafeEqual(bufA, bufB);\n}\nconst item = $input.first();\nconst headers = (item.json && item.json.headers) || {};\nconst provided = headers['x-management-key'] || '';\nconst expected = $env.MANAGEMENT_API_KEY;\nlet ok = false;\nlet reason = 'UNKNOWN';\nif (!expected || String(expected).trim() === '') {\n  reason = 'MANAGEMENT_API_KEY_NOT_CONFIGURED';\n} else if (!provided) {\n  reason = 'MISSING_KEY_HEADER';\n} else {\n  ok = safeEqual(String(provided), String(expected));\n  reason = ok ? 'OK' : 'KEY_MISMATCH';\n}\nreturn [{ json: { auth_ok: ok, auth_reason: reason } }];"
+      },
+      "id": "st-auth",
+      "name": "Check Auth (Status)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "auth-ok",
+              "leftValue": "={{ $json.auth_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "st-if",
+      "name": "Authorized? (Status)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -220,
+        -300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? \"server misconfigured\" : \"unauthorized\" } }}",
+        "options": {
+          "responseCode": "={{ $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? 500 : 401 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "st-401",
+      "name": "Reject Unauthorized (Status)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        40,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.WAHA_BASE_URL + \"/api/sessions/\" + $env.WAHA_SESSION }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.WAHA_STATUS_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "st-call",
+      "name": "Call WAHA (Status)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        40,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $input.first().json || {};\nreturn [{ json: {\n  session: $env.WAHA_SESSION,\n  status: r.status || 'UNKNOWN',\n  engine: r.engine && r.engine.engine ? r.engine.engine : null,\n  connected: r.status === 'WORKING',\n  me: r.me ? { id: r.me.id, pushName: r.me.pushName } : null,\n} }];"
+      },
+      "id": "st-map",
+      "name": "Simplify Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "st-200",
+      "name": "Respond Status",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        500,
+        -380
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "api/waha/qr",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "qr-wh",
+      "name": "Get QR (GET)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        0
+      ],
+      "webhookId": "a1b2c3d4-0000-4000-8000-wahaqrget001"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\nfunction safeEqual(a, b) {\n  const bufA = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();\n  const bufB = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();\n  return crypto.timingSafeEqual(bufA, bufB);\n}\nconst item = $input.first();\nconst headers = (item.json && item.json.headers) || {};\nconst provided = headers['x-management-key'] || '';\nconst expected = $env.MANAGEMENT_API_KEY;\nlet ok = false;\nlet reason = 'UNKNOWN';\nif (!expected || String(expected).trim() === '') {\n  reason = 'MANAGEMENT_API_KEY_NOT_CONFIGURED';\n} else if (!provided) {\n  reason = 'MISSING_KEY_HEADER';\n} else {\n  ok = safeEqual(String(provided), String(expected));\n  reason = ok ? 'OK' : 'KEY_MISMATCH';\n}\nreturn [{ json: { auth_ok: ok, auth_reason: reason } }];"
+      },
+      "id": "qr-auth",
+      "name": "Check Auth (QR)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "auth-ok",
+              "leftValue": "={{ $json.auth_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "qr-if",
+      "name": "Authorized? (QR)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? \"server misconfigured\" : \"unauthorized\" } }}",
+        "options": {
+          "responseCode": "={{ $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? 500 : 401 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "qr-401",
+      "name": "Reject Unauthorized (QR)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        40,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.WAHA_BASE_URL + \"/api/\" + $env.WAHA_SESSION + \"/auth/qr?format=image\" }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.WAHA_STATUS_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "qr-call",
+      "name": "Call WAHA (QR)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        40,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        },
+        "responseDataSource": "firstEntryBinary"
+      },
+      "id": "qr-200",
+      "name": "Respond QR",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        280,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "api/waha/restart",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "rs-wh",
+      "name": "Restart (POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        320
+      ],
+      "webhookId": "a1b2c3d4-0000-4000-8000-wharestpost1"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\nfunction safeEqual(a, b) {\n  const bufA = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();\n  const bufB = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();\n  return crypto.timingSafeEqual(bufA, bufB);\n}\nconst item = $input.first();\nconst headers = (item.json && item.json.headers) || {};\nconst provided = headers['x-management-key'] || '';\nconst expected = $env.MANAGEMENT_API_KEY;\nlet ok = false;\nlet reason = 'UNKNOWN';\nif (!expected || String(expected).trim() === '') {\n  reason = 'MANAGEMENT_API_KEY_NOT_CONFIGURED';\n} else if (!provided) {\n  reason = 'MISSING_KEY_HEADER';\n} else {\n  ok = safeEqual(String(provided), String(expected));\n  reason = ok ? 'OK' : 'KEY_MISMATCH';\n}\nreturn [{ json: { auth_ok: ok, auth_reason: reason } }];"
+      },
+      "id": "rs-auth",
+      "name": "Check Auth (Restart)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "auth-ok",
+              "leftValue": "={{ $json.auth_ok }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "rs-if",
+      "name": "Authorized? (Restart)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"error\": $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? \"server misconfigured\" : \"unauthorized\" } }}",
+        "options": {
+          "responseCode": "={{ $json.auth_reason === \"MANAGEMENT_API_KEY_NOT_CONFIGURED\" ? 500 : 401 }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "rs-401",
+      "name": "Reject Unauthorized (Restart)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        40,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WAHA_BASE_URL + \"/api/sessions/\" + $env.WAHA_SESSION + \"/restart\" }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.WAHA_STATUS_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "rs-call",
+      "name": "Call WAHA (Restart)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        40,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const r = $input.first().json || {};\nreturn [{ json: { session: $env.WAHA_SESSION, status: r.status || 'UNKNOWN', restarted: !!r.status } }];"
+      },
+      "id": "rs-map",
+      "name": "Confirm Restart",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "rs-200",
+      "name": "Respond Restart",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        500,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "OPTIONS",
+        "path": "api/waha/status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wc0-opt-wh",
+      "name": "CORS Preflight (api/waha/status)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        620
+      ],
+      "webhookId": "wc0-opt-0v2qe01k"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {} }}",
+        "options": {
+          "responseCode": 204,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "wc0-opt-resp",
+      "name": "wc0-ack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -440,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "OPTIONS",
+        "path": "api/waha/qr",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wc1-opt-wh",
+      "name": "CORS Preflight (api/waha/qr)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        780
+      ],
+      "webhookId": "wc1-opt-ddoljhsi"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {} }}",
+        "options": {
+          "responseCode": 204,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "wc1-opt-resp",
+      "name": "wc1-ack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -440,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "OPTIONS",
+        "path": "api/waha/restart",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wc2-opt-wh",
+      "name": "CORS Preflight (api/waha/restart)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -700,
+        940
+      ],
+      "webhookId": "wc2-opt-8ltaqplp"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {} }}",
+        "options": {
+          "responseCode": 204,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "GET, POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, X-Management-Key"
+              }
+            ]
+          }
+        }
+      },
+      "id": "wc2-opt-resp",
+      "name": "wc2-ack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -440,
+        940
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Workflow 11 — WAHA Session API\n\nGET /api/waha/status — session status, mapped down to {status, engine,\nconnected, me}\nGET /api/waha/qr — the QR image, streamed through as binary\nPOST /api/waha/restart — restart the session\n\nUses WAHA_STATUS_API_KEY only (read+control, never send — minted by\nscripts/setup/configure-waha.js). Never the admin key, never the\nsend-only key workflows 4/7 use.\n\nSame X-Management-Key auth as workflows 9/10, fails closed.",
+        "height": 300,
+        "width": 640,
+        "color": 4
+      },
+      "id": "note",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -700,
+        -700
+      ]
+    }
+  ],
+  "connections": {
+    "Get Status (GET)": {
+      "main": [
+        [
+          {
+            "node": "Check Auth (Status)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Auth (Status)": {
+      "main": [
+        [
+          {
+            "node": "Authorized? (Status)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorized? (Status)": {
+      "main": [
+        [
+          {
+            "node": "Call WAHA (Status)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Unauthorized (Status)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call WAHA (Status)": {
+      "main": [
+        [
+          {
+            "node": "Simplify Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simplify Status": {
+      "main": [
+        [
+          {
+            "node": "Respond Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get QR (GET)": {
+      "main": [
+        [
+          {
+            "node": "Check Auth (QR)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Auth (QR)": {
+      "main": [
+        [
+          {
+            "node": "Authorized? (QR)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorized? (QR)": {
+      "main": [
+        [
+          {
+            "node": "Call WAHA (QR)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Unauthorized (QR)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call WAHA (QR)": {
+      "main": [
+        [
+          {
+            "node": "Respond QR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restart (POST)": {
+      "main": [
+        [
+          {
+            "node": "Check Auth (Restart)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Auth (Restart)": {
+      "main": [
+        [
+          {
+            "node": "Authorized? (Restart)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorized? (Restart)": {
+      "main": [
+        [
+          {
+            "node": "Call WAHA (Restart)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Unauthorized (Restart)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call WAHA (Restart)": {
+      "main": [
+        [
+          {
+            "node": "Confirm Restart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Restart": {
+      "main": [
+        [
+          {
+            "node": "Respond Restart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORS Preflight (api/waha/status)": {
+      "main": [
+        [
+          {
+            "node": "wc0-ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORS Preflight (api/waha/qr)": {
+      "main": [
+        [
+          {
+            "node": "wc1-ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CORS Preflight (api/waha/restart)": {
+      "main": [
+        [
+          {
+            "node": "wc2-ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "errorWorkflow": ""
+  },
+  "tags": []
+}
