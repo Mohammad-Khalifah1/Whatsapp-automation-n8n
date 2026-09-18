@@ -92,9 +92,34 @@ return [{ json: {
 
 const adaptCode = `// Adapts a WAHA "message" event into the Meta Cloud API webhook envelope
 // shape, so workflow 2's existing parser (scripts/lib/webhook-parser.js)
-// handles it unmodified. v1 scope: TEXT messages only — see
-// docs/WAHA_CONNECTOR.md for what media/group messages do today (parsed as
-// an unsupported placeholder, not dropped, not crashed on).
+// handles it unmodified.
+//
+// Group messages (chat id ending "@g.us") are explicitly recognised and
+// SKIPPED, not misinterpreted — WAHA's payload.from for a group is the
+// GROUP's id, with the actual sender in payload.participant. Earlier code
+// split payload.from on "@" without checking this, which would have created
+// a bogus "conversation" keyed on a group id used as if it were a customer
+// phone number. Recorded as an unhandled event (visible in the Log sheet),
+// not silently dropped.
+//
+// Media messages (payload.hasMedia) are typed from payload.media.mimetype —
+// image/audio/video prefix, else "document" — with caption/filename/mime
+// captured the same fields Meta's own parser already reads
+// (m[type].caption, m[type].filename, m[type].mime_type). The media file
+// itself is not downloaded, matching how Meta's own path only ever captures
+// media_id/mime_type too (see scripts/lib/webhook-parser.js) — downloading
+// and storing either connector's media is a separate, not-yet-built step.
+//
+// Broadcast/newsletter/channel senders (status@broadcast, @broadcast,
+// @newsletter) are skipped the same way groups are — not a customer.
+//
+// LID senders ("<digits>@lid", WhatsApp's privacy-preserving id) are
+// resolved via the raw event's key.remoteJidAlt, NOT used as-is: this
+// project's phone normalization accepts a bare 14-15 digit string as a
+// plausible foreign number, so an unresolved LID passed through would risk
+// a reply routed to a different, possibly real, person. See
+// docs/WAHA_REFERENCE.md. Unresolvable -> recorded and dropped, never
+// guessed.
 //
 // payload.fromMe === true means the message was sent from the linked phone
 // itself (the owner replying in the regular WhatsApp app while the session
@@ -106,11 +131,60 @@ const event = body.event;
 const session = body.session || $env.WAHA_SESSION || 'default';
 const payload = body.payload || {};
 
-const waId = String(payload.from || payload.to || '').split('@')[0];
+const rawFrom = String(payload.from || payload.to || '');
+const isGroup = rawFrom.indexOf('@g.us') !== -1;
+// Broadcast lists and newsletter/channel posts are not a customer — same
+// "do not misinterpret as a phone number" reasoning as groups.
+const isBroadcastOrChannel =
+  rawFrom.indexOf('status@broadcast') !== -1 ||
+  rawFrom.indexOf('@broadcast') !== -1 ||
+  rawFrom.indexOf('@newsletter') !== -1;
+
+// A LID ("Linked ID") sender: WhatsApp's privacy-preserving id instead of a
+// phone number. NOWEB can pass payload.from as "<digits>@lid" unchanged.
+// Those digits are NOT a phone number, but this project's own phone
+// normalization accepts a bare 14-15 digit string as a plausible foreign
+// E.164 number — so treating a LID as-is risks routing a reply to a
+// different, possibly real, person. Resolve via the raw event's
+// key.remoteJidAlt (present for 1:1 chats on the engine this project runs);
+// unresolvable is NOT the same as safe-to-guess, so it is recorded and
+// dropped instead of guessed at. See docs/WAHA_REFERENCE.md.
+const isLid = rawFrom.indexOf('@lid') !== -1;
+function resolveLid() {
+  const raw = payload._data && payload._data.key ? payload._data.key : {};
+  const alt = typeof raw.remoteJidAlt === 'string' ? raw.remoteJidAlt : '';
+  if (!alt) return null;
+  const digits = alt.split('@')[0].split(':')[0];
+  return digits || null;
+}
+
+const waId = isLid ? (resolveLid() || rawFrom.split('@')[0]) : rawFrom.split('@')[0];
+const lidUnresolved = isLid && !resolveLid();
 const businessId = 'waha:' + session;
 
 function textOf(p) {
   return typeof p.body === 'string' && p.body !== '' ? p.body : null;
+}
+
+/** Meta-style media type + type-keyed object (m.image = {...}), or null for plain text. */
+function mediaOf(p) {
+  if (!p.hasMedia) return null;
+  const media = p.media || {};
+  const mimetype = typeof media.mimetype === 'string' ? media.mimetype : '';
+  let type = 'document';
+  if (mimetype.indexOf('image/') === 0) type = 'image';
+  else if (mimetype.indexOf('audio/') === 0) type = 'audio';
+  else if (mimetype.indexOf('video/') === 0) type = 'video';
+  const text = textOf(p);
+  return {
+    type,
+    payload: {
+      id: null, // WAHA gives a fetchable media.url, not a Meta-style media id — not downloaded yet
+      mime_type: mimetype || null,
+      caption: text || undefined,
+      filename: typeof media.filename === 'string' ? media.filename : undefined,
+    },
+  };
 }
 
 const base = {
@@ -122,18 +196,32 @@ const base = {
 
 let value = {};
 
-if (event === 'message' && payload.fromMe !== true) {
+if (isGroup) {
+  value = { unhandled_waha_event: 'group_message', group_id: waId, participant: payload.participant || null };
+} else if (isBroadcastOrChannel) {
+  value = { unhandled_waha_event: 'broadcast_or_channel', raw_from: rawFrom };
+} else if (isLid && lidUnresolved) {
+  // Fail closed: an unresolvable LID must never fall through to being
+  // treated as a phone number. Visible in the Log sheet, not silently lost.
+  value = { unhandled_waha_event: 'message_unresolved_lid', raw_from: rawFrom };
+} else if (event === 'message' && payload.fromMe !== true) {
+  const media = mediaOf(payload);
   const text = textOf(payload);
+  const msg = {
+    from: waId,
+    id: payload.id || null,
+    timestamp: payload.timestamp != null ? String(payload.timestamp) : null,
+    type: media ? media.type : 'text',
+  };
+  if (media) {
+    msg[media.type] = media.payload;
+  } else {
+    msg.text = { body: text || '' };
+  }
   value = {
     metadata: { phone_number_id: businessId, display_phone_number: session },
     contacts: [{ wa_id: waId, profile: { name: null } }],
-    messages: [{
-      from: waId,
-      id: payload.id || null,
-      timestamp: payload.timestamp != null ? String(payload.timestamp) : null,
-      type: 'text',
-      text: { body: payload.hasMedia && !text ? '[media via WAHA — not yet parsed, see docs/WAHA_CONNECTOR.md]' : (text || '') },
-    }],
+    messages: [msg],
   };
 } else if (event === 'message' && payload.fromMe === true) {
   const text = textOf(payload);
