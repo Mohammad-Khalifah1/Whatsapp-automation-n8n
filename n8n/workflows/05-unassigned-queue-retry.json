@@ -92,6 +92,7 @@
         60,
         0
       ],
+      "executeOnce": true,
       "alwaysOutputData": true,
       "onError": "continueRegularOutput",
       "credentials": {

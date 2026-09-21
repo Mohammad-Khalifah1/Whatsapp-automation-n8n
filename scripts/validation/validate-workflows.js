@@ -269,6 +269,28 @@ function validateWorkflow(file) {
       String(node.parameters.jsonBody || '').indexOf('$("Sheets Access")') !== -1);
   }
 
+  // --- a full team must not stop a message being written ---
+  // With every agent at capacity, Select Agent decides WAITING_FOR_AGENT with
+  // no agent id. An Agents update with an empty match value fails, and the
+  // failure stopped the parallel branch that writes the conversation row, so
+  // the customer's message was written nowhere. The update must only ever run
+  // when an agent was actually chosen.
+  if (byName.has('Increment Agent Load')) {
+    const feeders = [];
+    for (const src of Object.keys(wf.connections)) {
+      ((wf.connections[src] || {}).main || []).forEach((targets, index) => {
+        for (const t of targets || []) {
+          if (t.node === 'Increment Agent Load') feeders.push(src + '[' + index + ']');
+        }
+      });
+    }
+    check(
+      'Increment Agent Load runs only when an agent was chosen',
+      feeders.length > 0 && feeders.every((f) => f === 'Agent Assigned?[0]'),
+      'fed by: ' + feeders.join(', ') + ' (expected only the true output of Agent Assigned?)'
+    );
+  }
+
   // --- the access branch runs before anything appends ---
   // With executionOrder v1, n8n runs a node's branches topmost first. The
   // access branch hangs off the trigger and must be its topmost child, or an

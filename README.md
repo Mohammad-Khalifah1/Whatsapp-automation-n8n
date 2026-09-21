@@ -282,7 +282,7 @@ worth understanding — the other seven are short.
      │           ▼
      │      Select Agent ──────── fewest open conversations wins;
      │           │                ties go to whoever waited longest
-     │           ├──────────────► Increment Agent Load
+     │           ├──────────────► Increment Agent Load   (only if an agent was chosen)
      │           │
      ▼           ▼
  Build Conversation Row ──────── one object, write_row, holding exactly

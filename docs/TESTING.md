@@ -7,8 +7,8 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **192 passing** |
-| 2 — Workflow validation | No | **504 checks passing** |
+| 1 — Unit tests (business logic) | No | **230 passing** |
+| 2 — Workflow validation | No | **812 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
 | 4 — **End-to-end against the live deployment** | Yes (both) | **26 checks passing** |
@@ -83,7 +83,7 @@ inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
 node scripts/validation/validate-workflows.js
 ```
 
-807 checks across the 9 workflows:
+812 checks across the 9 workflows:
 
 - every Code node body **parses as JavaScript** (`vm.Script` compile)
 - no leftover `module.exports` or relative `require()` from inlining
@@ -92,8 +92,10 @@ node scripts/validation/validate-workflows.js
 - node names and ids are unique
 - every `typeVersion` is one the installed n8n supports
 - no Sheets-node append except as the fallback of an API append; every API
-  append uses `INSERT_ROWS` and places values by column name; the token branch
+  append uses `INSERT_ROWS` and places values by column name; the access branch
   is the trigger's topmost child, so it runs first
+- `Increment Agent Load` is fed only by the true output of `Agent Assigned?`,
+  so a full team can never stop a conversation row being written
 - **no hard-coded secrets** (Meta tokens, private keys, bearer literals, API keys)
 
 This catches things that would otherwise fail at 3am. It found two real bugs

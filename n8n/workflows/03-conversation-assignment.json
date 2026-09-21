@@ -133,6 +133,7 @@
         480,
         -120
       ],
+      "executeOnce": true,
       "alwaysOutputData": true,
       "onError": "stopWorkflow",
       "credentials": {
@@ -157,6 +158,40 @@
       "position": [
         740,
         -120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "agent-assigned",
+              "leftValue": "={{ $json.assigned }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-agent-assigned",
+      "name": "Agent Assigned?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1000,
+        -220
       ]
     },
     {
@@ -236,11 +271,11 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        1000,
-        -220
+        1260,
+        -300
       ],
       "onError": "stopWorkflow",
-      "notes": "NOT atomic. Google Sheets has no compare-and-set. Mitigated by running this workflow with concurrency 1. See docs/ASSIGNMENT_ALGORITHM.md.",
+      "notes": "NOT atomic. Google Sheets has no compare-and-set. Selection does not trust this counter: load is counted live from the Conversations rows. See docs/ASSIGNMENT_ALGORITHM.md.",
       "credentials": {
         "googleApi": {
           "id": "googleSheetsWaSupport",
@@ -1529,13 +1564,13 @@
     },
     {
       "parameters": {
-        "content": "## Workflow 3 — Conversation Resolution + Agent Assignment\n\n### CONCURRENCY WARNING\nThis workflow MUST run with concurrency 1.\nGoogle Sheets has no atomic compare-and-set, so two simultaneous\nexecutions can both read \"Mohammad has 3 open\" before either writes,\nand both assign him. Serializing execution removes the race on a\nsingle n8n instance.\n\nSet it in the workflow settings, or via env:\n`N8N_CONCURRENCY_PRODUCTION_LIMIT=1`\n\nThe real fix is PostgreSQL with `SELECT ... FOR UPDATE` —\nsee docs/GOOGLE_SHEETS_TO_POSTGRES.md.\n\n### Never drops a conversation\nIf no agent is eligible, status becomes WAITING_FOR_AGENT with a\nrecorded `unassigned_reason`, and workflow 7 retries the queue.",
+        "content": "## Workflow 3 — Conversation Resolution + Agent Assignment\n\n### Do NOT limit concurrency\nGoogle Sheets has no atomic compare-and-set, so two simultaneous\nexecutions can both read \"Mohammad has 3 open\" before either writes,\nand both assign him. A concurrency limit of 1 was tried for that and\nDROPPED the overflow instead of queueing it: messages were lost.\nKeep `N8N_CONCURRENCY_PRODUCTION_LIMIT=-1`. The race is repaired\ninstead: load is counted live from the rows, and workflow 8 folds\nduplicate conversations back together.\n\nThe real fix is PostgreSQL with `SELECT ... FOR UPDATE` —\nsee docs/GOOGLE_SHEETS_TO_POSTGRES.md.\n\n### Never drops a conversation\nIf no agent is eligible, `Agent Assigned?` skips the Agents update,\nthe row is still written as WAITING_FOR_AGENT with a recorded\n`unassigned_reason`, and workflow 5 retries the queue.",
         "height": 420,
         "width": 640,
         "color": 3
       },
-      "id": "sticky-3eb22cea",
-      "name": "Note 26b5",
+      "id": "sticky-7cbabe3c",
+      "name": "Note 3e41",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
@@ -1941,7 +1976,7 @@
       "main": [
         [
           {
-            "node": "Increment Agent Load",
+            "node": "Agent Assigned?",
             "type": "main",
             "index": 0
           },
@@ -1951,6 +1986,18 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Agent Assigned?": {
+      "main": [
+        [
+          {
+            "node": "Increment Agent Load",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     },
     "Build Conversation Row": {

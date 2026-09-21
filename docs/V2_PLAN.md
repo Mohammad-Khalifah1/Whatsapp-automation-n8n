@@ -580,15 +580,16 @@ These ship first, because every later phase builds on the paths they fix.
 - Still to do: **`verify-burst.js` passes** (E3) and `verify-live.js` still
   passes, against a test spreadsheet on the local stack.
 
-**V2-02 · Port the capacity fix** · S · risk low · after V2-01
-- Do: `git cherry-pick -n e5fdaec` (verified clean), regenerate, update the
-  workflow check count in `docs/TESTING.md` (504 → 508, or whatever
-  `validate-workflows.js` reports after V2-01), commit with our own message
-  (C-25). This adds "Agent Assigned?" in front of "Increment Agent Load", and
-  `executeOnce` on Read Agents in workflows 3 and 5.
-- Test: a validator rule that "Increment Agent Load" is reachable only through
-  the true branch. Live: `scenario-multi-agent.js` with every agent at capacity
-  (E2).
+**V2-02 · Port the capacity fix** · S · risk low · after V2-01 ·
+**built; offline gates pass; live scenario pending**
+- As built: `git cherry-pick -n e5fdaec` applied cleanly on top of V2-01 and
+  was committed with our own message (C-25). It adds "Agent Assigned?" in front
+  of "Increment Agent Load", and `executeOnce` on Read Agents in workflows 3
+  and 5. Workflow 3's canvas note, which still told operators to set a
+  concurrency limit of 1, was corrected in the same commit.
+- Tests: a validator rule that "Increment Agent Load" is fed only by the true
+  branch, proven by wiring it back to Select Agent.
+- Still to do: `scenario-multi-agent.js` with every agent at capacity (E2).
 
 **V2-03 · Remove the full-tab sort** · S · risk low · after V2-01
 - Files: `build-workflows.js` (wf3: remove "Build Sort Request", "Read Tab Ids",

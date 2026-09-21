@@ -5,6 +5,40 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-02 — A full team no longer loses messages
+
+Ported from the `add-waha-connector` branch (`e5fdaec`), where it was found
+from a failed execution in n8n's own database.
+
+### Fixed
+
+- **At full capacity, a new customer's message was written nowhere.** With
+  every agent at `max_open_conversations`, Select Agent correctly decides
+  `WAITING_FOR_AGENT` with no agent, but it fed "Increment Agent Load" anyway.
+  The Sheets update refuses an empty match value, and since failures stop the
+  workflow, the parallel branch that writes the conversation row stopped too.
+  A new IF, `Agent Assigned?`, now gates only the Agents update; the row is
+  written on every path, and workflow 5 assigns it later.
+- `Read Agents` in workflows 3 and 5 ran once per input item: one run read the
+  Agents tab 16 times. In workflow 5 the duplicate agent copies could also push
+  an agent past capacity. Both now read once (`executeOnce`).
+- Workflow 3's canvas note told operators to set
+  `N8N_CONCURRENCY_PRODUCTION_LIMIT=1`, the setting 0.6.0 proved drops
+  messages, and named workflow 7 as the queue retry. It now says the opposite,
+  and names workflow 5.
+
+### Added
+
+- `validate-workflows.js`: "Increment Agent Load" may only be fed by the true
+  output of `Agent Assigned?`. Proven by wiring it back to Select Agent on
+  purpose.
+
+### Not yet verified
+
+- `scenario-multi-agent.js` with every agent at capacity, on the local stack.
+
+---
+
 ## [Unreleased] — Version 2, task V2-01 — Appends that cannot overwrite each other
 
 The limitation left open in 0.6.0 is closed in the build. The live burst test
