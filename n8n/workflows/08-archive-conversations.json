@@ -492,7 +492,264 @@
     },
     {
       "parameters": {
-        "operation": "delete",
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "delete-via-api",
+              "leftValue": "={{ $('Sheets Access').isExecuted && !!$('Sheets Access').first().json.token }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-delete-via-api",
+      "name": "Delete Via API?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        340,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ===================== end generated block ================================\n\n// Only rows that reached here were copied to the Archive: a copy that\n// fails on both paths stops the workflow, so nothing below can delete a\n// row that was not copied.\nconst archived = $input.all().map((item, i) => $('Select Archivable').itemMatching(i).json);\nif (archived.length === 0) return [];\nreturn [{ json: { archived } }];"
+      },
+      "id": "plan-deletes",
+      "name": "Plan Deletes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        580,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}?ranges=Conversations&includeGridData=true&fields=sheets(properties(sheetId%2Ctitle)%2Cdata(rowData(values(formattedValue))))",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $(\"Sheets Access\").first().json.token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "read-before-delete",
+      "name": "Read Conversations Before Delete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        820,
+        -120
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js, scripts/lib/rows.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ----- scripts/lib/rows.js -----\n/**\n * Row bookkeeping for the one place that deletes rows: the archive.\n *\n * Deleting a row shifts every row below it up by one. The archive used to\n * delete by the row_number it read at the start of the run, one request per\n * row, while other workflows kept writing. Here the delete is planned from a\n * read taken right before it, sent as one batch from the bottom up, and then\n * checked against a second read: an archived id still present is reported,\n * and a row that vanished without being archived is handed back to be\n * re-appended, from the copy read just before.\n *\n * Every function is pure: it takes what the Sheets API returned and says what\n * to do. Workflow 8 makes the calls.\n */\n\n\n/**\n * One tab of a `spreadsheets.get` response made with includeGridData, as a\n * header and plain rows of strings.\n *\n * @param {object} response  The API response.\n * @param {string} title     The tab.\n * @returns {{sheetId:number, header:string[], rows:string[][]}|null}\n *          `rows[i]` is sheet row i + 2 (row 1 is the header). Null when the\n *          tab is not in the response, so a failed read is never mistaken for\n *          an empty tab.\n */\nfunction readGrid(response, title) {\n  const sheets = (response && response.sheets) || [];\n  const sheet = sheets.find((s) => s && s.properties && s.properties.title === title);\n  if (!sheet) return null;\n  const data = (sheet.data || [])[0];\n  if (!data) return null;\n  const values = (data.rowData || []).map((r) =>\n    ((r && r.values) || []).map((c) =>\n      (c && c.formattedValue !== undefined && c.formattedValue !== null ? String(c.formattedValue) : '')));\n  return {\n    sheetId: sheet.properties.sheetId,\n    header: (values[0] || []).map((h) => h.trim()),\n    rows: values.slice(1),\n  };\n}\n\n/**\n * Plan the deletion of every row carrying one of `ids`.\n *\n * A row is found by its id, in the grid read just now, never by a remembered\n * row number. Every row carrying the id is deleted: two rows with one id are\n * two copies of the same conversation, and it was archived. Requests run from\n * the bottom up, so each delete only shifts rows that were already handled.\n *\n * @param {object}   grid      From readGrid.\n * @param {string[]} ids       Conversation ids that were copied to the Archive.\n * @param {string}   [column]  The id column, default conversation_id.\n * @returns {{requests:object[], deleted:string[], missing:string[], repeated:string[], error?:string}}\n */\nfunction planDeletes(grid, ids, column) {\n  const wanted = (ids || []).map((id) => String(id || '').trim()).filter(Boolean);\n  const empty = { requests: [], deleted: [], missing: wanted.slice(), repeated: [] };\n  if (!grid) return Object.assign(empty, { error: 'no_grid' });\n  const col = grid.header.indexOf(column || 'conversation_id');\n  if (col === -1) return Object.assign(empty, { error: 'no_id_column' });\n\n  const want = new Set(wanted);\n  const hits = [];\n  grid.rows.forEach((row, i) => {\n    const id = String(row[col] || '').trim();\n    if (id && want.has(id)) hits.push({ id, index: i + 1 }); // grid index 0 is the header\n  });\n\n  const counts = {};\n  for (const h of hits) counts[h.id] = (counts[h.id] || 0) + 1;\n  const found = Object.keys(counts);\n\n  hits.sort((a, b) => b.index - a.index);\n  return {\n    requests: hits.map((h) => ({\n      deleteDimension: {\n        range: { sheetId: grid.sheetId, dimension: 'ROWS', startIndex: h.index, endIndex: h.index + 1 },\n      },\n    })),\n    deleted: found,\n    missing: wanted.filter((id) => !counts[id]),\n    repeated: found.filter((id) => counts[id] > 1),\n  };\n}\n\n/**\n * Compare the tab before and after the delete.\n *\n * @param {object}   before      From readGrid, the read the plan was made from.\n * @param {object}   after       From readGrid, read after the delete.\n * @param {string[]} deletedIds  The ids the plan deleted.\n * @param {string}   [column]    The id column, default conversation_id.\n * @returns {{stillPresent:string[], lost:Array<{id:string,row:object}>, error?:string}}\n *   `lost` holds rows that were there before, were not meant to be deleted,\n *   and are gone: a delete that landed on the wrong row. Each carries its\n *   values by column name, ready to be appended back. Anything that does not\n *   look like a misplaced delete (no id column, or lost rows not matched one\n *   for one by archived rows still present) restores nothing and says so,\n *   rather than re-appending rows that may still be there.\n */\nfunction checkDeletes(before, after, deletedIds, column) {\n  const key = column || 'conversation_id';\n  if (!before || !after) return { stillPresent: [], lost: [], error: 'no_grid' };\n  const bCol = before.header.indexOf(key);\n  const aCol = after.header.indexOf(key);\n  if (bCol === -1 || aCol === -1) return { stillPresent: [], lost: [], error: 'no_id_column' };\n\n  const deleted = new Set((deletedIds || []).map(String));\n  const afterIds = new Set(after.rows.map((r) => String(r[aCol] || '').trim()).filter(Boolean));\n\n  const stillPresent = Array.from(deleted).filter((id) => afterIds.has(id));\n\n  const lost = [];\n  const seen = new Set();\n  for (const row of before.rows) {\n    const id = String(row[bCol] || '').trim();\n    if (!id || deleted.has(id) || afterIds.has(id) || seen.has(id)) continue;\n    seen.add(id);\n    const values = {};\n    before.header.forEach((h, i) => {\n      if (h) values[h] = row[i] === undefined ? '' : row[i];\n    });\n    lost.push({ id, row: values });\n  }\n\n  // A delete that lands on the wrong row does two things at once: it removes\n  // a row it should not have, and it leaves the row it meant behind. So every\n  // genuinely lost row is matched by one archived id still present. Anything\n  // else (an empty or truncated second read, a row someone deleted by hand)\n  // is not a misplaced delete, and re-appending would duplicate rows that are\n  // still there.\n  if (lost.length > 0 && lost.length !== stillPresent.length) {\n    return {\n      stillPresent,\n      lost: [],\n      error: 'implausible_loss:lost=' + lost.length + ',missed=' + stillPresent.length,\n    };\n  }\n  return { stillPresent, lost };\n}\n\n// ===================== end generated block ================================\n\nconst archived = $('Plan Deletes').first().json.archived;\nconst grid = readGrid($input.first().json, 'Conversations');\nconst plan = planDeletes(grid, archived.map((r) => r.conversation_id));\n\nconsole.log(JSON.stringify({\n  event: 'archive_delete_plan',\n  archived: archived.length,\n  deleting: plan.requests.length,\n  missing: plan.missing,\n  repeated: plan.repeated,\n  error: plan.error || null,\n}));\n\n// Nothing found to delete: already gone, or the read was unusable.\n// Either way, delete nothing.\nif (plan.requests.length === 0) return [];\n\nreturn [{ json: {\n  body: { requests: plan.requests },\n  deleted_ids: plan.deleted,\n  before: grid,\n} }];"
+      },
+      "id": "build-delete-request",
+      "name": "Build Delete Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}:batchUpdate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $(\"Sheets Access\").first().json.token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "delete-archived-rows",
+      "name": "Delete Archived Rows",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1300,
+        -120
+      ],
+      "onError": "stopWorkflow",
+      "notes": "One batchUpdate, bottom-up deleteDimension requests planned from a read taken just before."
+    },
+    {
+      "parameters": {
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}?ranges=Conversations&includeGridData=true&fields=sheets(properties(sheetId%2Ctitle)%2Cdata(rowData(values(formattedValue))))",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $(\"Sheets Access\").first().json.token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "read-after-delete",
+      "name": "Read Conversations After Delete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1540,
+        -120
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js, scripts/lib/rows.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ----- scripts/lib/rows.js -----\n/**\n * Row bookkeeping for the one place that deletes rows: the archive.\n *\n * Deleting a row shifts every row below it up by one. The archive used to\n * delete by the row_number it read at the start of the run, one request per\n * row, while other workflows kept writing. Here the delete is planned from a\n * read taken right before it, sent as one batch from the bottom up, and then\n * checked against a second read: an archived id still present is reported,\n * and a row that vanished without being archived is handed back to be\n * re-appended, from the copy read just before.\n *\n * Every function is pure: it takes what the Sheets API returned and says what\n * to do. Workflow 8 makes the calls.\n */\n\n\n/**\n * One tab of a `spreadsheets.get` response made with includeGridData, as a\n * header and plain rows of strings.\n *\n * @param {object} response  The API response.\n * @param {string} title     The tab.\n * @returns {{sheetId:number, header:string[], rows:string[][]}|null}\n *          `rows[i]` is sheet row i + 2 (row 1 is the header). Null when the\n *          tab is not in the response, so a failed read is never mistaken for\n *          an empty tab.\n */\nfunction readGrid(response, title) {\n  const sheets = (response && response.sheets) || [];\n  const sheet = sheets.find((s) => s && s.properties && s.properties.title === title);\n  if (!sheet) return null;\n  const data = (sheet.data || [])[0];\n  if (!data) return null;\n  const values = (data.rowData || []).map((r) =>\n    ((r && r.values) || []).map((c) =>\n      (c && c.formattedValue !== undefined && c.formattedValue !== null ? String(c.formattedValue) : '')));\n  return {\n    sheetId: sheet.properties.sheetId,\n    header: (values[0] || []).map((h) => h.trim()),\n    rows: values.slice(1),\n  };\n}\n\n/**\n * Plan the deletion of every row carrying one of `ids`.\n *\n * A row is found by its id, in the grid read just now, never by a remembered\n * row number. Every row carrying the id is deleted: two rows with one id are\n * two copies of the same conversation, and it was archived. Requests run from\n * the bottom up, so each delete only shifts rows that were already handled.\n *\n * @param {object}   grid      From readGrid.\n * @param {string[]} ids       Conversation ids that were copied to the Archive.\n * @param {string}   [column]  The id column, default conversation_id.\n * @returns {{requests:object[], deleted:string[], missing:string[], repeated:string[], error?:string}}\n */\nfunction planDeletes(grid, ids, column) {\n  const wanted = (ids || []).map((id) => String(id || '').trim()).filter(Boolean);\n  const empty = { requests: [], deleted: [], missing: wanted.slice(), repeated: [] };\n  if (!grid) return Object.assign(empty, { error: 'no_grid' });\n  const col = grid.header.indexOf(column || 'conversation_id');\n  if (col === -1) return Object.assign(empty, { error: 'no_id_column' });\n\n  const want = new Set(wanted);\n  const hits = [];\n  grid.rows.forEach((row, i) => {\n    const id = String(row[col] || '').trim();\n    if (id && want.has(id)) hits.push({ id, index: i + 1 }); // grid index 0 is the header\n  });\n\n  const counts = {};\n  for (const h of hits) counts[h.id] = (counts[h.id] || 0) + 1;\n  const found = Object.keys(counts);\n\n  hits.sort((a, b) => b.index - a.index);\n  return {\n    requests: hits.map((h) => ({\n      deleteDimension: {\n        range: { sheetId: grid.sheetId, dimension: 'ROWS', startIndex: h.index, endIndex: h.index + 1 },\n      },\n    })),\n    deleted: found,\n    missing: wanted.filter((id) => !counts[id]),\n    repeated: found.filter((id) => counts[id] > 1),\n  };\n}\n\n/**\n * Compare the tab before and after the delete.\n *\n * @param {object}   before      From readGrid, the read the plan was made from.\n * @param {object}   after       From readGrid, read after the delete.\n * @param {string[]} deletedIds  The ids the plan deleted.\n * @param {string}   [column]    The id column, default conversation_id.\n * @returns {{stillPresent:string[], lost:Array<{id:string,row:object}>, error?:string}}\n *   `lost` holds rows that were there before, were not meant to be deleted,\n *   and are gone: a delete that landed on the wrong row. Each carries its\n *   values by column name, ready to be appended back. Anything that does not\n *   look like a misplaced delete (no id column, or lost rows not matched one\n *   for one by archived rows still present) restores nothing and says so,\n *   rather than re-appending rows that may still be there.\n */\nfunction checkDeletes(before, after, deletedIds, column) {\n  const key = column || 'conversation_id';\n  if (!before || !after) return { stillPresent: [], lost: [], error: 'no_grid' };\n  const bCol = before.header.indexOf(key);\n  const aCol = after.header.indexOf(key);\n  if (bCol === -1 || aCol === -1) return { stillPresent: [], lost: [], error: 'no_id_column' };\n\n  const deleted = new Set((deletedIds || []).map(String));\n  const afterIds = new Set(after.rows.map((r) => String(r[aCol] || '').trim()).filter(Boolean));\n\n  const stillPresent = Array.from(deleted).filter((id) => afterIds.has(id));\n\n  const lost = [];\n  const seen = new Set();\n  for (const row of before.rows) {\n    const id = String(row[bCol] || '').trim();\n    if (!id || deleted.has(id) || afterIds.has(id) || seen.has(id)) continue;\n    seen.add(id);\n    const values = {};\n    before.header.forEach((h, i) => {\n      if (h) values[h] = row[i] === undefined ? '' : row[i];\n    });\n    lost.push({ id, row: values });\n  }\n\n  // A delete that lands on the wrong row does two things at once: it removes\n  // a row it should not have, and it leaves the row it meant behind. So every\n  // genuinely lost row is matched by one archived id still present. Anything\n  // else (an empty or truncated second read, a row someone deleted by hand)\n  // is not a misplaced delete, and re-appending would duplicate rows that are\n  // still there.\n  if (lost.length > 0 && lost.length !== stillPresent.length) {\n    return {\n      stillPresent,\n      lost: [],\n      error: 'implausible_loss:lost=' + lost.length + ',missed=' + stillPresent.length,\n    };\n  }\n  return { stillPresent, lost };\n}\n\n// ===================== end generated block ================================\n\nconst plan = $('Build Delete Request').first().json;\nconst archived = $('Plan Deletes').first().json.archived;\nconst after = readGrid($input.first().json, 'Conversations');\nconst check = checkDeletes(plan.before, after, plan.deleted_ids);\n\nif (check.error) {\n  console.log(JSON.stringify({ event: 'archive_check_skipped', reason: check.error }));\n}\nif (check.stillPresent.length > 0) {\n  // Copied to the Archive but still here. The next run copies it again.\n  console.log(JSON.stringify({ event: 'archive_delete_missed', ids: check.stillPresent }));\n}\n\nconst out = [];\nfor (const lost of check.lost) {\n  console.log(JSON.stringify({ event: 'archive_row_restored', conversation_id: lost.id }));\n  out.push({ json: { kind: 'restore', conversation_id: lost.id, restore_row: lost.row } });\n}\nfor (const row of archived) {\n  out.push({ json: {\n    kind: 'archived',\n    conversation_id: row.conversation_id,\n    closed_at: row.closed_at,\n    customer_phone: row.customer_phone,\n    archive_reason: row.archive_reason || '',\n  } });\n}\nreturn out;"
+      },
+      "id": "check-deletes",
+      "name": "Check Deletes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "lost-row",
+              "leftValue": "={{ $json.kind }}",
+              "rightValue": "restore",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-lost-row",
+      "name": "Lost Row?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2020,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}/values/Conversations!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $(\"Sheets Access\").first().json.token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Conversations\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Conversations\"); const byName = { \"customer_name\": ($json.restore_row['customer_name']), \"customer_phone\": ($json.restore_row['customer_phone']), \"assigned_agent_name\": ($json.restore_row['assigned_agent_name']), \"status\": ($json.restore_row['status']), \"unanswered_count\": ($json.restore_row['unanswered_count']), \"unanswered_messages\": ($json.restore_row['unanswered_messages']), \"last_message\": ($json.restore_row['last_message']), \"last_message_type\": ($json.restore_row['last_message_type']), \"last_message_direction\": ($json.restore_row['last_message_direction']), \"product\": ($json.restore_row['product']), \"quantity\": ($json.restore_row['quantity']), \"first_message_at\": ($json.restore_row['first_message_at']), \"last_activity_at\": ($json.restore_row['last_activity_at']), \"reply_text\": ($json.restore_row['reply_text']), \"reply_status\": ($json.restore_row['reply_status']), \"unread\": ($json.restore_row['unread']), \"wa_link\": ($json.restore_row['wa_link']), \"conversation_id\": ($json.restore_row['conversation_id']), \"assigned_agent_id\": ($json.restore_row['assigned_agent_id']), \"business_phone_number_id\": ($json.restore_row['business_phone_number_id']), \"last_message_id\": ($json.restore_row['last_message_id']), \"last_customer_message_at\": ($json.restore_row['last_customer_message_at']), \"last_agent_message_at\": ($json.restore_row['last_agent_message_at']), \"created_at\": ($json.restore_row['created_at']), \"updated_at\": ($json.restore_row['updated_at']), \"closed_at\": ($json.restore_row['closed_at']), \"unassigned_reason\": ($json.restore_row['unassigned_reason']), \"reply_error\": ($json.restore_row['reply_error']), \"reply_sent_at\": ($json.restore_row['reply_sent_at']) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "restore-lost-row",
+      "name": "Restore Lost Row",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2260,
+        -240
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Appends with INSERT_ROWS so simultaneous executions cannot overwrite each other. On any failure the Sheets node below writes the same row instead."
+    },
+    {
+      "parameters": {
+        "operation": "append",
         "authentication": "serviceAccount",
         "documentId": {
           "__rl": true,
@@ -504,21 +761,347 @@
           "value": "Conversations",
           "mode": "name"
         },
-        "toDelete": "rows",
-        "startIndex": "={{ $(\"Select Archivable\").item.json.row_number }}",
-        "numberToDelete": 1
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "customer_name": "={{ $(\"Lost Row?\").item.json.restore_row['customer_name'] }}",
+            "customer_phone": "={{ $(\"Lost Row?\").item.json.restore_row['customer_phone'] }}",
+            "assigned_agent_name": "={{ $(\"Lost Row?\").item.json.restore_row['assigned_agent_name'] }}",
+            "status": "={{ $(\"Lost Row?\").item.json.restore_row['status'] }}",
+            "unanswered_count": "={{ $(\"Lost Row?\").item.json.restore_row['unanswered_count'] }}",
+            "unanswered_messages": "={{ $(\"Lost Row?\").item.json.restore_row['unanswered_messages'] }}",
+            "last_message": "={{ $(\"Lost Row?\").item.json.restore_row['last_message'] }}",
+            "last_message_type": "={{ $(\"Lost Row?\").item.json.restore_row['last_message_type'] }}",
+            "last_message_direction": "={{ $(\"Lost Row?\").item.json.restore_row['last_message_direction'] }}",
+            "product": "={{ $(\"Lost Row?\").item.json.restore_row['product'] }}",
+            "quantity": "={{ $(\"Lost Row?\").item.json.restore_row['quantity'] }}",
+            "first_message_at": "={{ $(\"Lost Row?\").item.json.restore_row['first_message_at'] }}",
+            "last_activity_at": "={{ $(\"Lost Row?\").item.json.restore_row['last_activity_at'] }}",
+            "reply_text": "={{ $(\"Lost Row?\").item.json.restore_row['reply_text'] }}",
+            "reply_status": "={{ $(\"Lost Row?\").item.json.restore_row['reply_status'] }}",
+            "unread": "={{ $(\"Lost Row?\").item.json.restore_row['unread'] }}",
+            "wa_link": "={{ $(\"Lost Row?\").item.json.restore_row['wa_link'] }}",
+            "conversation_id": "={{ $(\"Lost Row?\").item.json.restore_row['conversation_id'] }}",
+            "assigned_agent_id": "={{ $(\"Lost Row?\").item.json.restore_row['assigned_agent_id'] }}",
+            "business_phone_number_id": "={{ $(\"Lost Row?\").item.json.restore_row['business_phone_number_id'] }}",
+            "last_message_id": "={{ $(\"Lost Row?\").item.json.restore_row['last_message_id'] }}",
+            "last_customer_message_at": "={{ $(\"Lost Row?\").item.json.restore_row['last_customer_message_at'] }}",
+            "last_agent_message_at": "={{ $(\"Lost Row?\").item.json.restore_row['last_agent_message_at'] }}",
+            "created_at": "={{ $(\"Lost Row?\").item.json.restore_row['created_at'] }}",
+            "updated_at": "={{ $(\"Lost Row?\").item.json.restore_row['updated_at'] }}",
+            "closed_at": "={{ $(\"Lost Row?\").item.json.restore_row['closed_at'] }}",
+            "unassigned_reason": "={{ $(\"Lost Row?\").item.json.restore_row['unassigned_reason'] }}",
+            "reply_error": "={{ $(\"Lost Row?\").item.json.restore_row['reply_error'] }}",
+            "reply_sent_at": "={{ $(\"Lost Row?\").item.json.restore_row['reply_sent_at'] }}"
+          },
+          "schema": [
+            {
+              "id": "customer_name",
+              "displayName": "customer_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "customer_phone",
+              "displayName": "customer_phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "assigned_agent_name",
+              "displayName": "assigned_agent_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "unanswered_count",
+              "displayName": "unanswered_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "unanswered_messages",
+              "displayName": "unanswered_messages",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message",
+              "displayName": "last_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message_type",
+              "displayName": "last_message_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message_direction",
+              "displayName": "last_message_direction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "product",
+              "displayName": "product",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "quantity",
+              "displayName": "quantity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "first_message_at",
+              "displayName": "first_message_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_activity_at",
+              "displayName": "last_activity_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_text",
+              "displayName": "reply_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_status",
+              "displayName": "reply_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "unread",
+              "displayName": "unread",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "wa_link",
+              "displayName": "wa_link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "conversation_id",
+              "displayName": "conversation_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "assigned_agent_id",
+              "displayName": "assigned_agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "business_phone_number_id",
+              "displayName": "business_phone_number_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message_id",
+              "displayName": "last_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_customer_message_at",
+              "displayName": "last_customer_message_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_agent_message_at",
+              "displayName": "last_agent_message_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "closed_at",
+              "displayName": "closed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "unassigned_reason",
+              "displayName": "unassigned_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_error",
+              "displayName": "reply_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_sent_at",
+              "displayName": "reply_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
       },
-      "id": "archive-delete",
-      "name": "Remove From Conversations",
+      "id": "restore-lost-row-fallback",
+      "name": "Fallback: Restore Lost Row",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        340,
-        0
+        2260,
+        -40
       ],
       "onError": "stopWorkflow",
-      "executeOnce": false,
-      "notes": "Runs ONLY after a successful archive copy. Items arrive sorted by row_number DESCENDING so deletes do not shift rows still to be processed.",
+      "notes": "Runs only when the API append above fails, for example when .env has no service account.",
       "credentials": {
         "googleApi": {
           "id": "googleSheetsWaSupport",
@@ -548,7 +1131,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Log\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Log\"); const byName = { \"event_id\": (\"archive-\" + $(\"Select Archivable\").item.json.conversation_id), \"event_type\": \"CONVERSATION_ARCHIVED\", \"conversation_id\": ($(\"Select Archivable\").item.json.conversation_id), \"source\": \"archive_workflow\", \"timestamp\": ($now.toISO()), \"status\": \"ARCHIVED\", \"details\": (JSON.stringify({ closed_at: $(\"Select Archivable\").item.json.closed_at, customer_phone: $(\"Select Archivable\").item.json.customer_phone })) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
+        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Log\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Log\"); const byName = { \"event_id\": (($(\"Check Deletes\").item.json.kind === \"restore\" ? \"archive-restore-\" : \"archive-\") + $(\"Check Deletes\").item.json.conversation_id), \"event_type\": ($(\"Check Deletes\").item.json.kind === \"restore\" ? \"ARCHIVE_ROW_RESTORED\" : \"CONVERSATION_ARCHIVED\"), \"conversation_id\": ($(\"Check Deletes\").item.json.conversation_id), \"source\": \"archive_workflow\", \"timestamp\": ($now.toISO()), \"status\": ($(\"Check Deletes\").item.json.kind === \"restore\" ? \"ERROR\" : \"ARCHIVED\"), \"details\": (JSON.stringify({ closed_at: $(\"Check Deletes\").item.json.closed_at, customer_phone: $(\"Check Deletes\").item.json.customer_phone, archive_reason: $(\"Check Deletes\").item.json.archive_reason })) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
         "options": {
           "timeout": 15000,
           "response": {
@@ -563,8 +1146,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        580,
-        0
+        2500,
+        -120
       ],
       "onError": "continueErrorOutput",
       "notes": "Appends with INSERT_ROWS so simultaneous executions cannot overwrite each other. On any failure the Sheets node below writes the same row instead."
@@ -586,13 +1169,13 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "event_id": "={{ \"archive-\" + $(\"Select Archivable\").item.json.conversation_id }}",
-            "event_type": "CONVERSATION_ARCHIVED",
-            "conversation_id": "={{ $(\"Select Archivable\").item.json.conversation_id }}",
+            "event_id": "={{ ($(\"Check Deletes\").item.json.kind === \"restore\" ? \"archive-restore-\" : \"archive-\") + $(\"Check Deletes\").item.json.conversation_id }}",
+            "event_type": "={{ $(\"Check Deletes\").item.json.kind === \"restore\" ? \"ARCHIVE_ROW_RESTORED\" : \"CONVERSATION_ARCHIVED\" }}",
+            "conversation_id": "={{ $(\"Check Deletes\").item.json.conversation_id }}",
             "source": "archive_workflow",
             "timestamp": "={{ $now.toISO() }}",
-            "status": "ARCHIVED",
-            "details": "={{ JSON.stringify({ closed_at: $(\"Select Archivable\").item.json.closed_at, customer_phone: $(\"Select Archivable\").item.json.customer_phone }) }}"
+            "status": "={{ $(\"Check Deletes\").item.json.kind === \"restore\" ? \"ERROR\" : \"ARCHIVED\" }}",
+            "details": "={{ JSON.stringify({ closed_at: $(\"Check Deletes\").item.json.closed_at, customer_phone: $(\"Check Deletes\").item.json.customer_phone, archive_reason: $(\"Check Deletes\").item.json.archive_reason }) }}"
           },
           "schema": [
             {
@@ -677,8 +1260,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        580,
-        200
+        2500,
+        80
       ],
       "onError": "continueRegularOutput",
       "notes": "Runs only when the API append above fails, for example when .env has no service account.",
@@ -694,13 +1277,215 @@
     },
     {
       "parameters": {
-        "content": "## Workflow 8 — Archive Old Conversations\n\nNightly at 03:00, moves conversations that have been **CLOSED** for\nmore than `ARCHIVE_AFTER_DAYS` (default 30) into\n`Conversations_Archive`, keeping the working sheet small and fast.\n\n### Three safety rules\n1. **Only CLOSED rows.** An open conversation is live work.\n2. **Copy before delete.** The copy node is `stopWorkflow` on error,\n   so a failed copy can never be followed by a delete.\n3. **Delete bottom-up.** Rows are sorted by row_number DESCENDING,\n   because deleting a row shifts everything below it. Deleting\n   top-down would corrupt the indices of rows still queued.\n\n### Unreadable dates are skipped\nA row whose closed_at cannot be parsed is left alone rather than\narchived on a guess.\n\nSet `ARCHIVE_AFTER_DAYS=0` to disable entirely.",
+        "operation": "delete",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "toDelete": "rows",
+        "startIndex": "={{ $('Select Archivable').item.json.row_number }}",
+        "numberToDelete": 1
+      },
+      "id": "archive-delete",
+      "name": "Remove From Conversations",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        580,
+        160
+      ],
+      "onError": "stopWorkflow",
+      "executeOnce": false,
+      "notes": "Used only without a service account in .env. Runs ONLY after a successful archive copy; items arrive sorted by row_number DESCENDING.",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}/values/Log!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $(\"Sheets Access\").first().json.token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Log\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Log\"); const byName = { \"event_id\": (($(\"Select Archivable\").item.json.kind === \"restore\" ? \"archive-restore-\" : \"archive-\") + $(\"Select Archivable\").item.json.conversation_id), \"event_type\": ($(\"Select Archivable\").item.json.kind === \"restore\" ? \"ARCHIVE_ROW_RESTORED\" : \"CONVERSATION_ARCHIVED\"), \"conversation_id\": ($(\"Select Archivable\").item.json.conversation_id), \"source\": \"archive_workflow\", \"timestamp\": ($now.toISO()), \"status\": ($(\"Select Archivable\").item.json.kind === \"restore\" ? \"ERROR\" : \"ARCHIVED\"), \"details\": (JSON.stringify({ closed_at: $(\"Select Archivable\").item.json.closed_at, customer_phone: $(\"Select Archivable\").item.json.customer_phone, archive_reason: $(\"Select Archivable\").item.json.archive_reason })) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "archive-audit-row-delete",
+      "name": "Audit Archive After Row Delete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        820,
+        160
+      ],
+      "onError": "continueErrorOutput",
+      "notes": "Appends with INSERT_ROWS so simultaneous executions cannot overwrite each other. On any failure the Sheets node below writes the same row instead."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "event_id": "={{ ($(\"Select Archivable\").item.json.kind === \"restore\" ? \"archive-restore-\" : \"archive-\") + $(\"Select Archivable\").item.json.conversation_id }}",
+            "event_type": "={{ $(\"Select Archivable\").item.json.kind === \"restore\" ? \"ARCHIVE_ROW_RESTORED\" : \"CONVERSATION_ARCHIVED\" }}",
+            "conversation_id": "={{ $(\"Select Archivable\").item.json.conversation_id }}",
+            "source": "archive_workflow",
+            "timestamp": "={{ $now.toISO() }}",
+            "status": "={{ $(\"Select Archivable\").item.json.kind === \"restore\" ? \"ERROR\" : \"ARCHIVED\" }}",
+            "details": "={{ JSON.stringify({ closed_at: $(\"Select Archivable\").item.json.closed_at, customer_phone: $(\"Select Archivable\").item.json.customer_phone, archive_reason: $(\"Select Archivable\").item.json.archive_reason }) }}"
+          },
+          "schema": [
+            {
+              "id": "event_id",
+              "displayName": "event_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "event_type",
+              "displayName": "event_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "conversation_id",
+              "displayName": "conversation_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "details",
+              "displayName": "details",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "matchingColumns": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "archive-audit-row-delete-fallback",
+      "name": "Fallback: Audit Archive After Row Delete",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        820,
+        360
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Runs only when the API append above fails, for example when .env has no service account.",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "content": "## Workflow 8 — Archive Conversations\n\nEvery minute, moves into the `Archive` tab: rows a person set to\n**ARCHIVED**, rows **CLOSED** for more than `ARCHIVE_AFTER_DAYS`\n(default 30), and duplicate open conversations (folded into the\noldest). This is the ONLY thing that deletes rows.\n\n### Safety rules\n1. **Only CLOSED or ARCHIVED rows**, and duplicates. Open work stays.\n2. **Copy before delete.** A copy that fails on both paths stops the\n   workflow, so an uncopied row is never deleted.\n3. **Delete by id, from a fresh read, in one batch.** Rows are found\n   by conversation_id right before the delete, removed bottom-up in\n   one request, and the tab is read again: a row that vanished\n   without being archived is appended back.\n4. **Without a service account** the old per-row delete runs instead.\n\n### Unreadable dates are skipped\nA row whose closed_at cannot be parsed is left alone rather than\narchived on a guess.\n\nSet `ARCHIVE_AFTER_DAYS=0` to disable entirely.",
         "height": 460,
         "width": 620,
         "color": 3
       },
-      "id": "sticky-68158a07",
-      "name": "Note 5f71",
+      "id": "sticky-22586134",
+      "name": "Note 016b",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
@@ -719,7 +1504,7 @@
       "typeVersion": 2,
       "position": [
         -380,
-        -360
+        -600
       ]
     },
     {
@@ -753,7 +1538,7 @@
       "typeVersion": 2.3,
       "position": [
         -160,
-        -360
+        -600
       ]
     },
     {
@@ -799,7 +1584,7 @@
       "typeVersion": 4.5,
       "position": [
         60,
-        -480
+        -720
       ],
       "onError": "continueRegularOutput"
     },
@@ -834,13 +1619,13 @@
       "typeVersion": 2.3,
       "position": [
         280,
-        -360
+        -600
       ]
     },
     {
       "parameters": {
         "method": "GET",
-        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}/values:batchGet?majorDimension=ROWS&ranges=Archive!1%3A1&ranges=Log!1%3A1",
+        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}/values:batchGet?majorDimension=ROWS&ranges=Archive!1%3A1&ranges=Conversations!1%3A1&ranges=Log!1%3A1",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -866,7 +1651,7 @@
       "typeVersion": 4.5,
       "position": [
         500,
-        -240
+        -480
       ],
       "notes": "One batchGet for every tab this workflow appends to: a single read request.",
       "onError": "continueRegularOutput"
@@ -874,7 +1659,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ===================== end generated block ================================\n\n// What every API append in this workflow needs: a token, and the header\n// row of its tab so it can place values BY NAME (rowByHeaderExpr).\nconst store = $getWorkflowStaticData('global');\nconst signed = $('Sign Sheets Token Request').first().json;\nconst input = ($input.first() || {}).json || {};\nconst WRITTEN = {\"Archive\":[\"customer_name\",\"customer_phone\",\"assigned_agent_name\",\"status\",\"unanswered_count\",\"unanswered_messages\",\"last_message\",\"last_message_type\",\"last_message_direction\",\"product\",\"quantity\",\"first_message_at\",\"last_activity_at\",\"reply_text\",\"reply_status\",\"unread\",\"wa_link\",\"conversation_id\",\"assigned_agent_id\",\"business_phone_number_id\",\"last_message_id\",\"last_customer_message_at\",\"last_agent_message_at\",\"created_at\",\"updated_at\",\"closed_at\",\"unassigned_reason\",\"reply_error\",\"reply_sent_at\",\"archived_at\"],\"Log\":[\"event_id\",\"event_type\",\"conversation_id\",\"source\",\"timestamp\",\"status\",\"details\"]};\n\nlet token = signed.token || null;\nif (!token) {\n  // Get Sheets Token ran only if the cache had no usable token.\n  try {\n    const got = $('Get Sheets Token').first().json || {};\n    if (got.access_token) {\n      token = got.access_token;\n      const seconds = Number(got.expires_in) > 0 ? Number(got.expires_in) : 3600;\n      store.sheetsToken = { value: token, expiresAt: Date.now() + seconds * 1000 };\n    }\n  } catch (e) {\n    token = null;\n  }\n}\n\n// A token Google no longer accepts must not be reused for the next hour.\nif (input.error && Number(input.error.code) === 401) {\n  delete store.sheetsToken;\n  token = null;\n}\n\nlet headers = null;\nif (Array.isArray(input.valueRanges)) {\n  headers = {};\n  for (const vr of input.valueRanges) {\n    // \"Messages!A1:S1\", or \"'My Tab'!A1:S1\" when the name needs quoting.\n    const tab = String(vr.range || '').split('!')[0].replace(/^'(.*)'$/, '$1').split(\"''\").join(\"'\");\n    headers[tab] = ((vr.values || [])[0] || []).map((h) => String(h).trim());\n  }\n  store.sheetHeaders = { at: Date.now(), headers };\n\n  // A column the workflow writes but the sheet lacks is dropped from the\n  // row. Say so where an operator will see it.\n  for (const tab of Object.keys(WRITTEN)) {\n    const missing = WRITTEN[tab].filter((c) => (headers[tab] || []).indexOf(c) === -1);\n    if (missing.length > 0) {\n      console.log(JSON.stringify({ event: 'sheet_header_mismatch', tab, missing }));\n    }\n  }\n} else if (store.sheetHeaders && store.sheetHeaders.headers) {\n  headers = store.sheetHeaders.headers;\n}\n\nif (!token || !headers) {\n  // Every API append in this execution will fall over to its Sheets node.\n  console.log(JSON.stringify({ event: 'sheets_access_unavailable', token: !!token, headers: !!headers }));\n}\nreturn [{ json: { token, headers: headers || {} } }];"
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ===================== end generated block ================================\n\n// What every API append in this workflow needs: a token, and the header\n// row of its tab so it can place values BY NAME (rowByHeaderExpr).\nconst store = $getWorkflowStaticData('global');\nconst signed = $('Sign Sheets Token Request').first().json;\nconst input = ($input.first() || {}).json || {};\nconst WRITTEN = {\"Archive\":[\"customer_name\",\"customer_phone\",\"assigned_agent_name\",\"status\",\"unanswered_count\",\"unanswered_messages\",\"last_message\",\"last_message_type\",\"last_message_direction\",\"product\",\"quantity\",\"first_message_at\",\"last_activity_at\",\"reply_text\",\"reply_status\",\"unread\",\"wa_link\",\"conversation_id\",\"assigned_agent_id\",\"business_phone_number_id\",\"last_message_id\",\"last_customer_message_at\",\"last_agent_message_at\",\"created_at\",\"updated_at\",\"closed_at\",\"unassigned_reason\",\"reply_error\",\"reply_sent_at\",\"archived_at\"],\"Conversations\":[\"customer_name\",\"customer_phone\",\"assigned_agent_name\",\"status\",\"unanswered_count\",\"unanswered_messages\",\"last_message\",\"last_message_type\",\"last_message_direction\",\"product\",\"quantity\",\"first_message_at\",\"last_activity_at\",\"reply_text\",\"reply_status\",\"unread\",\"wa_link\",\"conversation_id\",\"assigned_agent_id\",\"business_phone_number_id\",\"last_message_id\",\"last_customer_message_at\",\"last_agent_message_at\",\"created_at\",\"updated_at\",\"closed_at\",\"unassigned_reason\",\"reply_error\",\"reply_sent_at\"],\"Log\":[\"event_id\",\"event_type\",\"conversation_id\",\"source\",\"timestamp\",\"status\",\"details\"]};\n\nlet token = signed.token || null;\nif (!token) {\n  // Get Sheets Token ran only if the cache had no usable token.\n  try {\n    const got = $('Get Sheets Token').first().json || {};\n    if (got.access_token) {\n      token = got.access_token;\n      const seconds = Number(got.expires_in) > 0 ? Number(got.expires_in) : 3600;\n      store.sheetsToken = { value: token, expiresAt: Date.now() + seconds * 1000 };\n    }\n  } catch (e) {\n    token = null;\n  }\n}\n\n// A token Google no longer accepts must not be reused for the next hour.\nif (input.error && Number(input.error.code) === 401) {\n  delete store.sheetsToken;\n  token = null;\n}\n\nlet headers = null;\nif (Array.isArray(input.valueRanges)) {\n  headers = {};\n  for (const vr of input.valueRanges) {\n    // \"Messages!A1:S1\", or \"'My Tab'!A1:S1\" when the name needs quoting.\n    const tab = String(vr.range || '').split('!')[0].replace(/^'(.*)'$/, '$1').split(\"''\").join(\"'\");\n    headers[tab] = ((vr.values || [])[0] || []).map((h) => String(h).trim());\n  }\n  store.sheetHeaders = { at: Date.now(), headers };\n\n  // A column the workflow writes but the sheet lacks is dropped from the\n  // row. Say so where an operator will see it.\n  for (const tab of Object.keys(WRITTEN)) {\n    const missing = WRITTEN[tab].filter((c) => (headers[tab] || []).indexOf(c) === -1);\n    if (missing.length > 0) {\n      console.log(JSON.stringify({ event: 'sheet_header_mismatch', tab, missing }));\n    }\n  }\n} else if (store.sheetHeaders && store.sheetHeaders.headers) {\n  headers = store.sheetHeaders.headers;\n}\n\nif (!token || !headers) {\n  // Every API append in this execution will fall over to its Sheets node.\n  console.log(JSON.stringify({ event: 'sheets_access_unavailable', token: !!token, headers: !!headers }));\n}\nreturn [{ json: { token, headers: headers || {} } }];"
       },
       "id": "sheets-access",
       "name": "Sheets Access",
@@ -882,7 +1667,7 @@
       "typeVersion": 2,
       "position": [
         720,
-        -360
+        -600
       ]
     }
   ],
@@ -929,7 +1714,7 @@
       "main": [
         [
           {
-            "node": "Remove From Conversations",
+            "node": "Delete Via API?",
             "type": "main",
             "index": 0
           }
@@ -943,11 +1728,131 @@
         ]
       ]
     },
-    "Remove From Conversations": {
+    "Delete Via API?": {
+      "main": [
+        [
+          {
+            "node": "Plan Deletes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Remove From Conversations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan Deletes": {
+      "main": [
+        [
+          {
+            "node": "Read Conversations Before Delete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Conversations Before Delete": {
+      "main": [
+        [
+          {
+            "node": "Build Delete Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Delete Request": {
+      "main": [
+        [
+          {
+            "node": "Delete Archived Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Archived Rows": {
+      "main": [
+        [
+          {
+            "node": "Read Conversations After Delete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Conversations After Delete": {
+      "main": [
+        [
+          {
+            "node": "Check Deletes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Deletes": {
+      "main": [
+        [
+          {
+            "node": "Lost Row?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lost Row?": {
+      "main": [
+        [
+          {
+            "node": "Restore Lost Row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Audit Archive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore Lost Row": {
       "main": [
         [
           {
             "node": "Audit Archive",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback: Restore Lost Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove From Conversations": {
+      "main": [
+        [
+          {
+            "node": "Audit Archive After Row Delete",
             "type": "main",
             "index": 0
           }
@@ -958,7 +1863,18 @@
       "main": [
         [
           {
-            "node": "Remove From Conversations",
+            "node": "Delete Via API?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback: Restore Lost Row": {
+      "main": [
+        [
+          {
+            "node": "Audit Archive",
             "type": "main",
             "index": 0
           }
@@ -978,6 +1894,23 @@
       ]
     },
     "Fallback: Audit Archive": {
+      "main": [
+        []
+      ]
+    },
+    "Audit Archive After Row Delete": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Fallback: Audit Archive After Row Delete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback: Audit Archive After Row Delete": {
       "main": [
         []
       ]

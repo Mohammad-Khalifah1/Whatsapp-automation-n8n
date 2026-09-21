@@ -5,6 +5,63 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-05 — One deleter, deleting by id, checked
+
+### Fixed
+
+- **Rows were deleted by a row number read at the start of the run.** Workflow
+  8 runs every minute and deleted each archived row by the `row_number` it had
+  read, one request per row, while the other workflows kept writing. Deleting a
+  row shifts every row below it, so a row that moved in the meantime could be
+  deleted instead of the archived one. Now the rows are found by
+  `conversation_id` in a read taken right before the delete, removed in one
+  `batchUpdate` from the bottom up, and the tab is read again: an archived id
+  still present is logged, and a row that vanished without being archived is
+  appended back from the read taken just before (`ARCHIVE_ROW_RESTORED` in the
+  Log). The logic is `scripts/lib/rows.js`.
+- **Two things deleted archived rows.** The optional installable trigger in
+  `SheetTools.gs` moved a row to Archive the moment someone chose `ARCHIVED`,
+  and its "Archive selected rows" menu item did the same, while workflow 8
+  deleted the same rows every minute. Each delete shifted the rows under the
+  other. The script now only marks rows `ARCHIVED` and says they will move
+  within a minute; workflow 8 is the only deleter.
+- The operating guide suggested archiving by cutting rows and pasting them into
+  Archive, which moves rows under the system's writes. It now says to mark them
+  `ARCHIVED`.
+- Workflow 8's canvas note said it ran nightly at 03:00 into a tab called
+  `Conversations_Archive`. It runs every minute, into `Archive`.
+
+### Safe without a service account
+
+The new delete needs the Sheets token. A deployment with no service account in
+`.env` keeps the old per-row delete, behind an IF, rather than copying the same
+rows to Archive every minute without ever removing them.
+
+### Found by the tests while building
+
+The first version of the check would have re-appended rows that were still in
+the tab whenever the second read came back empty, because as many rows looked
+"lost" as had been deleted. A misplaced delete always leaves its intended row
+behind, so a row is now restored only when it is matched by an archived row
+still present.
+
+### Added
+
+- `validate-workflows.js`: a per-row Sheets delete runs only behind the no-token
+  output of an IF; every API delete is planned by `planDeletes` and checked by
+  `checkDeletes`. The previous workflow 8 fails it.
+- `tests/archive/rows.test.js` (17), `tests/build/archive-workflow.test.js` (9,
+  the generated code through a whole run) and
+  `tests/build/apps-script-rules.test.js` (5: no `.gs` file deletes, moves or
+  inserts rows; the previous `SheetTools.gs` did).
+
+### Not yet verified
+
+- `verify-archive.js` against the test spreadsheet, with and without a service
+  account in `.env`.
+
+---
+
 ## [Unreleased] — Version 2, task V2-04 — Replies from the sheet go to the right row, once
 
 ### Fixed

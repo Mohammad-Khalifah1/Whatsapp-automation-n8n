@@ -380,39 +380,64 @@ API, not from a poller.
 
 ---
 
-## Workflow 8 — Archive Old Conversations
+## Workflow 8 — Archive Conversations
 
-**Trigger:** Schedule, daily at 03:00 (in `GENERIC_TIMEZONE`).
-**Purpose:** Keep the working sheet small and fast.
+**Trigger:** Schedule, every minute at second 30 (half a minute behind
+workflow 7).
+**Purpose:** Keep the working sheet small and fast. It is the only thing in the
+system that deletes a row.
 
 | | |
 |---|---|
 | **Input** | The `Conversations` tab |
 | **Output** | Rows moved to `Archive`; an audit row per move |
-| **Selects** | `status = CLOSED` **and** closed longer ago than `ARCHIVE_AFTER_DAYS` |
+| **Selects** | `status = ARCHIVED`; `status = CLOSED` **and** closed longer ago than `ARCHIVE_AFTER_DAYS`; duplicate open conversations of one customer (the newer ones) |
 
 ### Flow
 
 ```
-Daily At 03:00
+Every Minute
    └─> Read Conversations
-        └─> Select Archivable      (CLOSED only, sorted row_number DESC)
-             └─> Copy To Archive          [stopWorkflow on error]
-                  └─> Remove From Conversations
-                       └─> Audit Archive
+        └─> Select Archivable
+             └─> Copy To Archive              (API append, INSERT_ROWS; stops the run if it fails)
+                  └─> Delete Via API?          (is there a Sheets token?)
+                       ├─ yes ─> Plan Deletes
+                       │          └─> Read Conversations Before Delete
+                       │               └─> Build Delete Request    (planDeletes: by id, bottom-up)
+                       │                    └─> Delete Archived Rows       (one batchUpdate)
+                       │                         └─> Read Conversations After Delete
+                       │                              └─> Check Deletes    (checkDeletes)
+                       │                                   └─> Lost Row?
+                       │                                        ├─ yes ─> Restore Lost Row ─> Audit Archive
+                       │                                        └─ no  ─> Audit Archive
+                       └─ no  ─> Remove From Conversations   (per row, by row_number)
+                                  └─> Audit Archive After Row Delete
 ```
 
-### The three safety rules
+### The safety rules
 
-1. **Only `CLOSED` rows.** An open conversation is live work; archiving one
-   would hide a waiting customer.
-2. **Copy before delete, and halt if the copy fails.** The archive-append node
-   is `onError: stopWorkflow` — the only node in the project that is. If the
-   copy fails and the delete still ran, the data would be gone.
-3. **Delete bottom-up.** Rows are sorted by `row_number` **descending** before
-   deletion, because deleting a row shifts every row beneath it. Top-down
-   deletion would corrupt the indices of rows still queued and delete the wrong
-   conversations.
+1. **Only archived, long-closed or duplicate rows.** An open conversation is
+   live work; archiving one would hide a waiting customer.
+2. **Copy before delete, and halt if the copy fails.** A copy that fails on
+   the API and on its Sheets fallback stops the run, so a row that was not
+   copied is never deleted.
+3. **Delete by id, from a fresh read, in one batch.** The rows are found by
+   `conversation_id` in a read taken right before the delete, never by the
+   `row_number` read at the start of the run, and removed in one
+   `batchUpdate` from the bottom up, so each delete only shifts rows that were
+   already handled.
+4. **Check afterwards.** The tab is read again. An archived id still present is
+   logged (`archive_delete_missed`). A row that vanished without being
+   archived is appended back from the read taken just before, and logged as
+   `ARCHIVE_ROW_RESTORED`. A row is only restored when it is matched by an
+   archived row that is still present, which is what a misplaced delete looks
+   like; an empty or odd second read restores nothing.
+5. **Without a service account** the old per-row Sheets delete runs, exactly as
+   before, so such a deployment keeps archiving instead of copying the same
+   rows every minute.
+
+The logic lives in `scripts/lib/rows.js` and is unit-tested; the sheet's own
+Apps Script no longer deletes anything, it only marks rows `ARCHIVED`.
 
 A row whose `closed_at` cannot be parsed is **skipped**, not archived on a
 guess.

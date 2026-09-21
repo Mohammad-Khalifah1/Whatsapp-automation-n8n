@@ -623,19 +623,25 @@ These ship first, because every later phase builds on the paths they fix.
 - Still to do: two sheet replies in the same minute and a hand-typed row,
   against the test spreadsheet.
 
-**V2-05 · One deleter, verified deletes** · M · risk medium · after V2-01
-- Files: new `scripts/lib/rows.js`, `build-workflows.js` (wf8),
-  `sheets-templates/SheetTools.gs` (the installable trigger no longer deletes;
-  it only shows a toast), `scripts/testing/verify-archive.js`, tests.
-- Do: `planDeletes(idColumn, idsToDelete)` returns `deleteDimension` requests
-  from the bottom up. Workflow 8 re-reads only the `conversation_id` column
-  right before deleting, reads the tab id (the node moved from workflow 3),
-  sends **one** `batchUpdate`, then re-reads the ids. An archived id still
-  present is logged. A non-archived id that went missing is re-appended from
-  the snapshot and logged at `ERROR`.
-- Test: unit tests (order, unknown ids, duplicate ids, gaps).
-  `verify-archive.js` compares full snapshots before and after: only the
-  archived ids differ.
+**V2-05 · One deleter, verified deletes** · M · risk medium · after V2-01 ·
+**built; offline gates pass; live check pending**
+- As built: `scripts/lib/rows.js` (`readGrid`, `planDeletes`, `checkDeletes`).
+  After the copy, workflow 8 reads the whole Conversations tab once
+  (`includeGridData`, which carries the tab id too), finds the archived rows by
+  id, deletes them in one bottom-up `batchUpdate`, reads the tab again, and
+  appends back any row the batch removed by mistake. A row is restored only
+  when it is matched one for one by an archived row still present; an empty or
+  odd second read restores nothing (a bug the tests caught in the first
+  version). Without a token, the old per-row delete runs behind an IF, so a
+  deployment without a service account does not copy the same rows every
+  minute. `SheetTools.gs` no longer deletes: the trigger and the menu mark rows
+  `ARCHIVED` and workflow 8 moves them.
+- Tests: validator rules (per-row delete only behind the no-token IF; every API
+  delete planned by `planDeletes` and checked by `checkDeletes`); 31 tests,
+  including the generated workflow 8 code through a whole run and a static
+  check that no `.gs` file deletes or moves rows.
+- Still to do: `verify-archive.js` against the test spreadsheet, with and
+  without a service account.
 
 **V2-06 · Customer text never becomes a formula** · S · risk low · after V2-01
 - Found while building V2-01 (R16). Every Sheets write is `USER_ENTERED`, so

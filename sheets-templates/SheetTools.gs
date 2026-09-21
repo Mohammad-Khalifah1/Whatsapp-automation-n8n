@@ -8,7 +8,9 @@
  *   - A status dropdown, coloured so the queue is readable without reading.
  *   - An agent dropdown fed from the Agents tab, so names cannot be mistyped.
  *     A mistyped name is not cosmetic: routing and reporting both key on it.
- *   - Choosing ARCHIVED moves the row to the Archive tab IMMEDIATELY, on edit.
+ *   - Choosing ARCHIVED marks the row; workflow 8 moves it to the Archive tab
+ *     within a minute. Nothing in this script deletes or moves a row: only
+ *     workflow 8 does, so there is exactly one deleter.
  *   - A menu for replying, opening the chat, and repairing agent counters.
  */
 
@@ -68,12 +70,20 @@ function installTriggers() {
     .create();
   applySheetFormatting();
   SpreadsheetApp.getUi().alert(
-    'Installed.\n\nChoosing ARCHIVED in the status column now moves that row to '
-    + 'the Archive tab immediately.'
+    'Installed.\n\nChoosing ARCHIVED in the status column now confirms that the '
+    + 'row will move to the Archive tab within a minute.'
   );
 }
 
-/** Fires on every edit. Only acts when status becomes ARCHIVED. */
+/**
+ * Fires on every edit. Only acts when status becomes ARCHIVED, and only to say
+ * what happens next.
+ *
+ * It used to move the row itself: copy it to Archive, then delete it. Workflow
+ * 8 deletes archived rows too, every minute, so the two raced, and a delete
+ * shifts every row below it under whatever the other one was doing. Workflow 8
+ * is now the only thing that deletes a row.
+ */
 function onEditInstallable(e) {
   try {
     if (!e || !e.range) return;
@@ -86,7 +96,8 @@ function onEditInstallable(e) {
     if (statusCol <= 0 || e.range.getColumn() !== statusCol) return;
 
     if (String(e.range.getValue()).trim().toUpperCase() === 'ARCHIVED') {
-      moveRowsToArchive_(sheet, [e.range.getRow()]);
+      SpreadsheetApp.getActiveSpreadsheet().toast(
+        'Moves to the ' + ARCHIVE_TAB + ' tab within a minute.');
     }
   } catch (err) {
     // Never let a trigger error block the user's edit.
@@ -96,6 +107,11 @@ function onEditInstallable(e) {
 
 /* ───────────────────────────── archiving ───────────────────────────── */
 
+/**
+ * Mark the selected rows ARCHIVED. Workflow 8 moves them within a minute: it
+ * copies each to the Archive tab, then deletes it from Conversations by its
+ * conversation_id, which stays right even if rows move in the meantime.
+ */
 function archiveSelected() {
   var sheet = SpreadsheetApp.getActiveSheet();
   var ui = SpreadsheetApp.getUi();
@@ -103,64 +119,21 @@ function archiveSelected() {
     ui.alert('Switch to the Conversations tab first.');
     return;
   }
+  var statusCol = headers_(sheet).indexOf('status') + 1;
+  if (statusCol <= 0) { ui.alert('No status column found.'); return; }
+
   var range = sheet.getActiveRange();
-  var rows = [];
+  var marked = 0;
   for (var i = 0; i < range.getNumRows(); i++) {
     var r = range.getRow() + i;
-    if (r >= 2) rows.push(r);
+    if (r < 2) continue;
+    sheet.getRange(r, statusCol).setValue('ARCHIVED');
+    marked++;
   }
-  if (!rows.length) { ui.alert('Select one or more conversation rows first.'); return; }
+  if (!marked) { ui.alert('Select one or more conversation rows first.'); return; }
 
-  var moved = moveRowsToArchive_(sheet, rows);
-  ui.alert(moved + ' conversation(s) moved to ' + ARCHIVE_TAB + '.');
-}
-
-/**
- * Move rows to the Archive tab.
- *
- * Rows are deleted in DESCENDING order because removing a row shifts every row
- * beneath it — deleting top-down would delete the wrong conversations. The
- * append happens before any delete, so a failure cannot lose data.
- */
-function moveRowsToArchive_(sheet, rowNumbers) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var archive = ss.getSheetByName(ARCHIVE_TAB);
-  if (!archive) { archive = ss.insertSheet(ARCHIVE_TAB); }
-
-  var convHeaders = headers_(sheet);
-  var archHeaders = headers_(archive);
-
-  // Give the archive a header the first time it is used.
-  if (archHeaders.length === 0 || !archHeaders[0]) {
-    archHeaders = convHeaders.concat(['archived_at']);
-    archive.getRange(1, 1, 1, archHeaders.length).setValues([archHeaders]);
-    archive.setFrozenRows(1);
-  }
-
-  var stamp = new Date().toISOString();
-  var sorted = rowNumbers.slice().sort(function (a, b) { return b - a; });
-  var moved = 0;
-
-  for (var i = 0; i < sorted.length; i++) {
-    var row = sorted[i];
-    var values = sheet.getRange(row, 1, 1, convHeaders.length).getValues()[0];
-    if (!values.join('')) continue;            // skip a blank row
-
-    // Map by NAME, not position, so a future column reorder cannot scramble
-    // the archive.
-    var out = [];
-    for (var c = 0; c < archHeaders.length; c++) {
-      var name = archHeaders[c];
-      if (name === 'archived_at') { out.push(stamp); continue; }
-      var idx = convHeaders.indexOf(name);
-      out.push(idx === -1 ? '' : values[idx]);
-    }
-
-    archive.appendRow(out);
-    sheet.deleteRow(row);
-    moved++;
-  }
-  return moved;
+  ui.alert(marked + ' conversation(s) marked ARCHIVED. They move to the ' +
+    ARCHIVE_TAB + ' tab within a minute.');
 }
 
 /* ───────────────────────────── formatting ───────────────────────────── */

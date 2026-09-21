@@ -306,6 +306,46 @@ function validateWorkflow(file) {
     );
   }
 
+  // --- rows are deleted by id, from a fresh read, and checked afterwards ---
+  // A per-row Sheets delete goes by the row_number read at the start of the
+  // run, while other workflows keep writing. It survives only for a
+  // deployment with no service account, behind the no-token output of an IF
+  // that asks Sheets Access for a token. Every API delete is planned by
+  // planDeletes and checked by checkDeletes (scripts/lib/rows.js).
+  for (const node of wf.nodes) {
+    if (!node.type || node.type.indexOf('googleSheets') === -1) continue;
+    if ((node.parameters || {}).operation !== 'delete') continue;
+    const feeders = [];
+    for (const src of Object.keys(wf.connections)) {
+      ((wf.connections[src] || {}).main || []).forEach((targets, index) => {
+        if ((targets || []).some((t) => t.node === node.name)) feeders.push({ src, index });
+      });
+    }
+    check(
+      'a per-row Sheets delete runs only without a token: ' + node.name,
+      feeders.length > 0 && feeders.every((f) => {
+        const ifNode = byName.get(f.src);
+        return f.index === 1 && !!ifNode && ifNode.type === 'n8n-nodes-base.if' &&
+          JSON.stringify(ifNode.parameters || {}).indexOf('Sheets Access') !== -1;
+      })
+    );
+  }
+  const codeOf = (n) => (n && n.type === 'n8n-nodes-base.code' ? String((n.parameters || {}).jsCode || '') : '');
+  for (const node of wf.nodes) {
+    if (node.type !== 'n8n-nodes-base.httpRequest') continue;
+    if (String((node.parameters || {}).url || '').indexOf(':batchUpdate') === -1) continue;
+    const feeders = Object.keys(wf.connections).filter((src) =>
+      (((wf.connections[src] || {}).main || [])[0] || []).some((t) => t.node === node.name));
+    check(
+      'a batchUpdate is planned by planDeletes: ' + node.name,
+      feeders.length > 0 && feeders.every((src) => codeOf(byName.get(src)).indexOf('planDeletes(') !== -1)
+    );
+    check(
+      'a batchUpdate delete is checked by checkDeletes: ' + node.name,
+      wf.nodes.some((n) => codeOf(n).indexOf('checkDeletes(') !== -1)
+    );
+  }
+
   // --- a full team must not stop a message being written ---
   // With every agent at capacity, Select Agent decides WAITING_FOR_AGENT with
   // no agent id. An Agents update with an empty match value fails, and the

@@ -424,18 +424,25 @@ That row answers "why did A2 get it and not A1" without any guesswork.
 
 ## Archiving
 
-Workflow 8 runs nightly at 03:00 and moves conversations that have been
-`CLOSED` for longer than `ARCHIVE_AFTER_DAYS` (default 30) into
-`Archive`, keeping the working sheet small and responsive.
+Workflow 8 runs every minute and moves into `Archive` the rows set to
+`ARCHIVED`, the rows `CLOSED` for longer than `ARCHIVE_AFTER_DAYS` (default
+30), and duplicate open conversations of one customer. It is the only thing
+that deletes a row; the sheet's Apps Script only marks rows `ARCHIVED`.
 
-Three safety rules make this non-destructive in practice:
+Four rules make this non-destructive in practice:
 
-1. **Only `CLOSED` rows are touched.** An open conversation is live work.
-2. **Copy before delete.** The archive-append node stops the workflow on error,
-   so a failed copy can never be followed by a delete.
-3. **Delete bottom-up.** Rows are processed in descending `row_number` order,
-   because deleting a row shifts every row beneath it — deleting top-down would
-   corrupt the indices of rows still queued.
+1. **Only archived, long-closed or duplicate rows are touched.** An open
+   conversation is live work.
+2. **Copy before delete.** A copy that fails stops the workflow, so a failed
+   copy can never be followed by a delete.
+3. **Delete by id, from a fresh read.** The rows are found by
+   `conversation_id` right before the delete and removed in one batch from the
+   bottom up, so rows that moved since the run started are still the right
+   ones.
+4. **Check afterwards.** A row that vanished without being archived is appended
+   back from the read taken just before the delete.
+
+Details: [N8N_WORKFLOWS.md](N8N_WORKFLOWS.md#workflow-8--archive-conversations).
 
 A row whose `closed_at` cannot be parsed is skipped rather than archived on a
 guess.

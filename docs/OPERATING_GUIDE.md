@@ -99,9 +99,11 @@ status returns to `UNANSWERED` so it reappears in the queue.
 
 ### Archiving
 
-Set `status` to `ARCHIVED`. Within a minute the row is copied to the `Archive`
-tab with an `archived_at` timestamp and removed from `Conversations`. Nothing is
-deleted — the copy happens before the removal.
+Set `status` to `ARCHIVED` (or select rows and use *Archive selected rows* in
+the menu, which does the same). Within a minute workflow 8 copies the row to the
+`Archive` tab with an `archived_at` timestamp and removes it from
+`Conversations`. Nothing is lost: the copy happens before the removal, and the
+removal finds the row by its id, not by where it sits.
 
 Conversations left `CLOSED` longer than `ARCHIVE_AFTER_DAYS` are swept the same
 way automatically.
@@ -214,25 +216,28 @@ than `ARCHIVE_AFTER_DAYS` (default 30) into `Archive`.
 holds roughly 3,000 rows: fast to open, filter and scroll. History accumulates
 in the archive tab, which nobody opens daily so its size does not matter.
 
-### Three safety rules
+### Safety rules
 
-1. **Only `CLOSED` rows** are ever archived. An open conversation is live work —
-   archiving it would hide a waiting customer.
-2. **Copy before delete.** The archive-append node halts the workflow on error,
-   so a failed copy can never be followed by a delete.
-3. **Delete bottom-up.** Rows are processed in descending `row_number`, because
-   deleting a row shifts every row beneath it. Top-down deletion would corrupt
-   the indices of rows still queued — this is the classic way to lose data in a
-   spreadsheet.
+1. **Only archived, long-closed or duplicate rows** are ever archived. An open
+   conversation is live work — archiving it would hide a waiting customer.
+2. **Copy before delete.** A failed copy halts the workflow, so it can never be
+   followed by a delete.
+3. **Delete by id, in one batch, bottom-up**, from a read taken right before
+   the delete. Deleting a row shifts every row beneath it; finding rows by id
+   in a fresh read is what keeps the right rows going.
+4. **Checked afterwards.** A row removed by mistake is put back automatically
+   and logged as `ARCHIVE_ROW_RESTORED`.
 
 A row whose `closed_at` cannot be parsed is **skipped**, not archived on a
 guess.
 
 ### Manual archiving
 
-The same effect without waiting for the schedule: filter to `CLOSED`, select the
-rows, cut, and paste into `Archive`. The workflow is a convenience,
-not a lock-in.
+To archive something now rather than after `ARCHIVE_AFTER_DAYS`, set its
+`status` to `ARCHIVED`, or select the rows and use *Archive selected rows*.
+Do **not** cut or delete rows by hand while the system is running: a row
+removed by hand shifts every row below it under whatever the system is writing
+at that moment.
 
 ---
 

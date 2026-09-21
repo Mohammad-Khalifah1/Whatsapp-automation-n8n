@@ -3577,10 +3577,10 @@ function buildArchive() {
 
   nodes.push({
     parameters: {
-      // Thirty seconds behind workflow 7. This one re-sorts Conversations,
-      // which renumbers rows, while workflow 7 writes a reply outcome back by
-      // physical row number. Running them at opposite ends of the minute keeps
-      // those two apart.
+      // Thirty seconds behind workflow 7. This one deletes rows, which
+      // renumbers everything below them, and workflow 7 still claims a
+      // hand-typed row by its row number. Running them at opposite ends of
+      // the minute keeps those two apart.
       rule: { interval: [{ field: 'cronExpression', expression: '30 * * * * *' }] },
     },
     id: 'archive-schedule',
@@ -3741,28 +3741,224 @@ function buildArchive() {
       'onError=stopWorkflow is deliberate: if the copy fails, the delete MUST NOT run, or the data is gone.',
   });
 
+  // ---- delete what was copied: by id, from a fresh read, verified ----------
+  //
+  // Deleting a row shifts every row below it. The delete used to go by the
+  // row_number read at the start of the run, one request per row, while the
+  // other workflows kept writing. Now the rows are found by id in a read taken
+  // right before the delete, removed in one batch from the bottom up, and the
+  // tab is read again afterwards: a row that vanished without being archived
+  // is appended back from the copy just read (scripts/lib/rows.js).
+  //
+  // That needs the API token. Without one (no service account in .env) the
+  // old per-row Sheets delete still runs, so such a deployment keeps archiving
+  // exactly as before instead of copying the same rows every minute.
   nodes.push({
     parameters: {
-      operation: 'delete',
-      authentication: 'serviceAccount',
-      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
-      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
-      toDelete: 'rows',
-      startIndex: '={{ $json.row_number }}',
-      numberToDelete: 1,
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          {
+            id: 'delete-via-api',
+            leftValue: "={{ $('Sheets Access').isExecuted && !!$('Sheets Access').first().json.token }}",
+            rightValue: true,
+            operator: { type: 'boolean', operation: 'true', singleValue: true },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
     },
-    id: 'archive-delete',
-    name: 'Remove From Conversations',
-    type: 'n8n-nodes-base.googleSheets',
-    typeVersion: NODE_VERSION.googleSheets,
+    id: 'if-delete-via-api',
+    name: 'Delete Via API?',
+    type: 'n8n-nodes-base.if',
+    typeVersion: NODE_VERSION.if,
     position: [340, 0],
-    onError: 'continueErrorOutput',
-    executeOnce: false,
-    notes:
-      'Runs ONLY after a successful archive copy. Items arrive sorted by row_number DESCENDING so deletes do not shift rows still to be processed.',
+  });
+
+  nodes.push(
+    codeNode(
+      'Plan Deletes',
+      'plan-deletes',
+      [580, -120],
+      [],
+      [
+        '// Only rows that reached here were copied to the Archive: a copy that',
+        '// fails on both paths stops the workflow, so nothing below can delete a',
+        '// row that was not copied.',
+        "const archived = $input.all().map((item, i) => $('Select Archivable').itemMatching(i).json);",
+        'if (archived.length === 0) return [];',
+        'return [{ json: { archived } }];',
+      ].join('\n')
+    )
+  );
+
+  const GRID_FIELDS = 'sheets(properties(sheetId,title),data(rowData(values(formattedValue))))';
+  const readGridNode = (name, id, position) => ({
+    parameters: {
+      url: '=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}' +
+        '?ranges=Conversations&includeGridData=true&fields=' + encodeURIComponent(GRID_FIELDS),
+      sendHeaders: true,
+      headerParameters: {
+        parameters: [{ name: 'Authorization', value: '=Bearer {{ $("Sheets Access").first().json.token }}' }],
+      },
+      options: { timeout: 20000, response: { response: { responseFormat: 'json' } } },
+    },
+    id,
+    name,
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: NODE_VERSION.httpRequest,
+    position,
+    retryOnFail: true,
+    maxTries: 3,
+    waitBetweenTries: 2000,
+    onError: 'stopWorkflow',
+  });
+
+  nodes.push(readGridNode('Read Conversations Before Delete', 'read-before-delete', [820, -120]));
+
+  nodes.push(
+    codeNode(
+      'Build Delete Request',
+      'build-delete-request',
+      [1060, -120],
+      ['rows.js'],
+      [
+        "const archived = $('Plan Deletes').first().json.archived;",
+        "const grid = readGrid($input.first().json, 'Conversations');",
+        'const plan = planDeletes(grid, archived.map((r) => r.conversation_id));',
+        '',
+        'console.log(JSON.stringify({',
+        "  event: 'archive_delete_plan',",
+        '  archived: archived.length,',
+        '  deleting: plan.requests.length,',
+        '  missing: plan.missing,',
+        '  repeated: plan.repeated,',
+        '  error: plan.error || null,',
+        '}));',
+        '',
+        '// Nothing found to delete: already gone, or the read was unusable.',
+        '// Either way, delete nothing.',
+        'if (plan.requests.length === 0) return [];',
+        '',
+        'return [{ json: {',
+        '  body: { requests: plan.requests },',
+        '  deleted_ids: plan.deleted,',
+        '  before: grid,',
+        '} }];',
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      method: 'POST',
+      url: '=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}:batchUpdate',
+      sendHeaders: true,
+      headerParameters: {
+        parameters: [
+          { name: 'Authorization', value: '=Bearer {{ $("Sheets Access").first().json.token }}' },
+          { name: 'Content-Type', value: 'application/json' },
+        ],
+      },
+      sendBody: true,
+      specifyBody: 'json',
+      jsonBody: '={{ JSON.stringify($json.body) }}',
+      options: { timeout: 20000, response: { response: { responseFormat: 'json' } } },
+    },
+    id: 'delete-archived-rows',
+    name: 'Delete Archived Rows',
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: NODE_VERSION.httpRequest,
+    position: [1300, -120],
+    onError: 'stopWorkflow',
+    notes: 'One batchUpdate, bottom-up deleteDimension requests planned from a read taken just before.',
+  });
+
+  nodes.push(readGridNode('Read Conversations After Delete', 'read-after-delete', [1540, -120]));
+
+  nodes.push(
+    codeNode(
+      'Check Deletes',
+      'check-deletes',
+      [1780, -120],
+      ['rows.js'],
+      [
+        "const plan = $('Build Delete Request').first().json;",
+        "const archived = $('Plan Deletes').first().json.archived;",
+        "const after = readGrid($input.first().json, 'Conversations');",
+        'const check = checkDeletes(plan.before, after, plan.deleted_ids);',
+        '',
+        'if (check.error) {',
+        "  console.log(JSON.stringify({ event: 'archive_check_skipped', reason: check.error }));",
+        '}',
+        'if (check.stillPresent.length > 0) {',
+        '  // Copied to the Archive but still here. The next run copies it again.',
+        "  console.log(JSON.stringify({ event: 'archive_delete_missed', ids: check.stillPresent }));",
+        '}',
+        '',
+        'const out = [];',
+        'for (const lost of check.lost) {',
+        "  console.log(JSON.stringify({ event: 'archive_row_restored', conversation_id: lost.id }));",
+        "  out.push({ json: { kind: 'restore', conversation_id: lost.id, restore_row: lost.row } });",
+        '}',
+        'for (const row of archived) {',
+        '  out.push({ json: {',
+        "    kind: 'archived',",
+        '    conversation_id: row.conversation_id,',
+        '    closed_at: row.closed_at,',
+        '    customer_phone: row.customer_phone,',
+        "    archive_reason: row.archive_reason || '',",
+        '  } });',
+        '}',
+        'return out;',
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          {
+            id: 'lost-row',
+            leftValue: '={{ $json.kind }}',
+            rightValue: 'restore',
+            operator: { type: 'string', operation: 'equals' },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+    id: 'if-lost-row',
+    name: 'Lost Row?',
+    type: 'n8n-nodes-base.if',
+    typeVersion: NODE_VERSION.if,
+    position: [2020, -120],
   });
 
   nodes.push({
+    parameters: {
+      operation: 'append',
+      authentication: 'serviceAccount',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      columns: { mappingMode: 'defineBelow', value: conversationColumnMap('$json.restore_row') },
+      options: {},
+    },
+    id: 'restore-lost-row',
+    name: 'Restore Lost Row',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [2260, -240],
+    onError: 'stopWorkflow',
+    notes: 'A row the batch delete removed by mistake, appended back from the read taken just before.',
+  });
+
+  // Log: one entry per archived conversation, and one per restored row.
+  const auditArchive = (name, id, position) => ({
     parameters: {
       operation: 'append',
       authentication: 'serviceAccount',
@@ -3771,41 +3967,72 @@ function buildArchive() {
       columns: {
         mappingMode: 'defineBelow',
         value: {
-          event_id: '={{ "archive-" + $json.conversation_id }}',
-          event_type: 'CONVERSATION_ARCHIVED',
+          event_id: '={{ ($json.kind === "restore" ? "archive-restore-" : "archive-") + $json.conversation_id }}',
+          event_type: '={{ $json.kind === "restore" ? "ARCHIVE_ROW_RESTORED" : "CONVERSATION_ARCHIVED" }}',
           conversation_id: '={{ $json.conversation_id }}',
           source: 'archive_workflow',
           timestamp: '={{ $now.toISO() }}',
-          status: 'ARCHIVED',
-          details: '={{ JSON.stringify({ closed_at: $json.closed_at, customer_phone: $json.customer_phone }) }}',
+          status: '={{ $json.kind === "restore" ? "ERROR" : "ARCHIVED" }}',
+          details: '={{ JSON.stringify({ closed_at: $json.closed_at, customer_phone: $json.customer_phone, archive_reason: $json.archive_reason }) }}',
         },
       },
       options: {},
     },
-    id: 'archive-audit',
-    name: 'Audit Archive',
+    id,
+    name,
     type: 'n8n-nodes-base.googleSheets',
     typeVersion: NODE_VERSION.googleSheets,
-    position: [580, 0],
+    position,
     onError: 'continueRegularOutput',
   });
+
+  nodes.push(auditArchive('Audit Archive', 'archive-audit', [2500, -120]));
+
+  // Without a token: the per-row Sheets delete, exactly as before. Items
+  // arrive sorted by row_number DESCENDING, so each delete only shifts rows
+  // that were already handled.
+  nodes.push({
+    parameters: {
+      operation: 'delete',
+      authentication: 'serviceAccount',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      toDelete: 'rows',
+      startIndex: "={{ $('Select Archivable').item.json.row_number }}",
+      numberToDelete: 1,
+    },
+    id: 'archive-delete',
+    name: 'Remove From Conversations',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [580, 160],
+    onError: 'continueErrorOutput',
+    executeOnce: false,
+    notes:
+      'Used only without a service account in .env. Runs ONLY after a successful archive copy; items arrive sorted by row_number DESCENDING.',
+  });
+
+  nodes.push(auditArchive('Audit Archive After Row Delete', 'archive-audit-row-delete', [820, 160]));
 
   nodes.push(
     stickyNote(
       [
-        '## Workflow 8 — Archive Old Conversations',
+        '## Workflow 8 — Archive Conversations',
         '',
-        'Nightly at 03:00, moves conversations that have been **CLOSED** for',
-        'more than `ARCHIVE_AFTER_DAYS` (default 30) into',
-        '`Conversations_Archive`, keeping the working sheet small and fast.',
+        'Every minute, moves into the `Archive` tab: rows a person set to',
+        '**ARCHIVED**, rows **CLOSED** for more than `ARCHIVE_AFTER_DAYS`',
+        '(default 30), and duplicate open conversations (folded into the',
+        'oldest). This is the ONLY thing that deletes rows.',
         '',
-        '### Three safety rules',
-        '1. **Only CLOSED rows.** An open conversation is live work.',
-        '2. **Copy before delete.** The copy node is `stopWorkflow` on error,',
-        '   so a failed copy can never be followed by a delete.',
-        '3. **Delete bottom-up.** Rows are sorted by row_number DESCENDING,',
-        '   because deleting a row shifts everything below it. Deleting',
-        '   top-down would corrupt the indices of rows still queued.',
+        '### Safety rules',
+        '1. **Only CLOSED or ARCHIVED rows**, and duplicates. Open work stays.',
+        '2. **Copy before delete.** A copy that fails on both paths stops the',
+        '   workflow, so an uncopied row is never deleted.',
+        '3. **Delete by id, from a fresh read, in one batch.** Rows are found',
+        '   by conversation_id right before the delete, removed bottom-up in',
+        '   one request, and the tab is read again: a row that vanished',
+        '   without being archived is appended back.',
+        '4. **Without a service account** the old per-row delete runs instead.',
         '',
         '### Unreadable dates are skipped',
         'A row whose closed_at cannot be parsed is left alone rather than',
@@ -3822,9 +4049,19 @@ function buildArchive() {
 
   connections['Every Minute'] = { main: [[{ node: 'Read Conversations', type: 'main', index: 0 }]] };
   connections['Read Conversations'] = { main: [[{ node: 'Select Archivable', type: 'main', index: 0 }]] };
-  connections['Select Archivable'] = { main: [[{ node: 'Copy To Archive', type: 'main', index: 0 }]] };
-  connections['Copy To Archive'] = { main: [[{ node: 'Remove From Conversations', type: 'main', index: 0 }]] };
-  connections['Remove From Conversations'] = { main: [[{ node: 'Audit Archive', type: 'main', index: 0 }]] };
+  const to = (node) => ({ node, type: 'main', index: 0 });
+  connections['Select Archivable'] = { main: [[to('Copy To Archive')]] };
+  connections['Copy To Archive'] = { main: [[to('Delete Via API?')]] };
+  connections['Delete Via API?'] = { main: [[to('Plan Deletes')], [to('Remove From Conversations')]] };
+  connections['Plan Deletes'] = { main: [[to('Read Conversations Before Delete')]] };
+  connections['Read Conversations Before Delete'] = { main: [[to('Build Delete Request')]] };
+  connections['Build Delete Request'] = { main: [[to('Delete Archived Rows')]] };
+  connections['Delete Archived Rows'] = { main: [[to('Read Conversations After Delete')]] };
+  connections['Read Conversations After Delete'] = { main: [[to('Check Deletes')]] };
+  connections['Check Deletes'] = { main: [[to('Lost Row?')]] };
+  connections['Lost Row?'] = { main: [[to('Restore Lost Row')], [to('Audit Archive')]] };
+  connections['Restore Lost Row'] = { main: [[to('Audit Archive')]] };
+  connections['Remove From Conversations'] = { main: [[to('Audit Archive After Row Delete')]] };
 
   return {
     id: WORKFLOW_ID.archive,
@@ -3861,8 +4098,8 @@ const ITEM_SOURCES = {
   '04-outgoing-agent-message.json': { 'Update Conversation After Reply': 'Interpret Send Result' },
   '05-unassigned-queue-retry.json': { 'Update Agent Load': 'Assign Waiting Queue' },
   '08-archive-conversations.json': {
-    'Remove From Conversations': 'Select Archivable',
-    'Audit Archive': 'Select Archivable',
+    'Audit Archive': 'Check Deletes',
+    'Audit Archive After Row Delete': 'Select Archivable',
   },
 };
 
