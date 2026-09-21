@@ -7,7 +7,7 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **327 passing** |
+| 1 — Unit tests (business logic) | No | **337 passing** |
 | 2 — Workflow validation | No | **928 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
@@ -58,7 +58,7 @@ node tests/run-tests.js assignment    # one area
 No npm install, no credentials, ~15 ms.
 
 ```
-327 passed, 0 failed, 327 total
+337 passed, 0 failed, 337 total
 ```
 
 | Suite | Tests | Covers |
@@ -74,6 +74,7 @@ No npm install, no credentials, ~15 ms.
 | `archive/rows.test.js` | 17 | The archive's delete plan: rows found by id in a fresh read, bottom-up batch, and the check afterwards that restores a row only when a delete clearly landed on it |
 | `build/archive-workflow.test.js` | 9 | Workflow 8's generated code through a whole run, including a misplaced delete and an empty second read |
 | `build/apps-script-rules.test.js` | 5 | The Apps Script files parse, and never delete, move or insert rows |
+| `labels/labels.test.js` | 10 | Codes inside, labels at the boundary: every status labelled, every code round-trips in every language, no repeated label, unknown values refused instead of guessed |
 | `window/window.test.js` | 10 | Meta's 24-hour customer service window: boundaries, rounding, offsets, a missing or unreadable timestamp counted as closed |
 | `build/sheet-safe.test.js` | 42 | Customer text is never a formula: the guard itself, every generated write checked, and a hostile message through a real generated append |
 | `build/reply-from-sheet.test.js` | 12 | Workflow 7's generated code: every reply of a poll gets its own outcome, each paired to its request; rows with an id are written back by id, hand-typed rows claimed by row number |

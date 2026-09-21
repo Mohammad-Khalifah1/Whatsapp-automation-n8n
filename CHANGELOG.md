@@ -5,6 +5,30 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-11 — A label layer for an Arabic sheet
+
+### Added
+
+- `scripts/lib/labels.js`. The workflows compare codes (`CLOSED`,
+  `UNANSWERED`); the sheet can show labels in the business's language. This is
+  the one place that converts between them, for status, stage, outcome, reply
+  status, direction, reply method and window state, and for tab titles.
+- The `en` pack is the codes themselves, so an English sheet looks exactly as it
+  always has. `WAITING_FOR_CUSTOMER` is labelled "on hold" in Arabic, which is
+  what it does: a person parks the case, and the next customer message moves it
+  back to `UNANSWERED`. `ARCHIVED` keeps its own code until V2-15 folds it into
+  `CLOSED`.
+- Reading accepts a code (in any case) or its label in any language, so a sheet
+  that switches language, or holds a mix during migration, still reads
+  correctly. An unknown value reads as null rather than a guess; an unknown code
+  is written unchanged rather than blanked.
+- `tests/labels/labels.test.js` (10 tests).
+
+Nothing uses it yet: V2-12 puts it at every read and write, and adds
+`SHEET_LANGUAGE`.
+
+---
+
 ## [Unreleased] — Version 2, task V2-14 — The 24-hour window rule, in one place
 
 ### Added

@@ -672,15 +672,17 @@ These ship first, because every later phase builds on the paths they fix.
 - Gate: Phase 3 waits for S1, S2, S3 and S7. Each "no" switches the affected
   tasks to their fallback first.
 
-**V2-11 · Label layer** · S · risk low
-- Files: new `scripts/lib/labels.js`, `tests/labels/*.test.js`, `check-env.js`
-  (`SHEET_LANGUAGE`).
-- Do: `en` and `ar` packs for everything in 4.3 and every tab name.
-  `toCode(field, value)` accepts a code, any label, or a read alias
-  (`ARCHIVED`). `toLabel(field, code, lang)`. `tabName(key, lang)`.
-- Test: round trip for every code in every pack; every status in
-  `CONVERSATION_STATUSES` has labels; no two codes share a label; unknown values
-  return `null` with a reason.
+**V2-11 · Label layer** · S · risk low · **done** (pure library, no live check needed)
+- As built: `scripts/lib/labels.js` with the packs in 4.3 and every tab title.
+  The `en` pack is the codes themselves, so an English sheet is unchanged.
+  `toCode` accepts a code in any case or a label in any language, and returns
+  null for anything else; `toLabel` writes an unknown code unchanged.
+  `ARCHIVED` keeps its own code until V2-15 folds it into `CLOSED` (an alias
+  now would break the V1 "archive now" path that workflow 8 still serves).
+- `SHEET_LANGUAGE` moves to V2-12, where it is first read: adding a setting
+  nothing reads would only add a line to every compose file.
+- Tests: 10, including a round trip of every code in every language, every
+  state-machine status labelled, no repeated label within a field.
 
 **V2-12 · Normalise on read, label on write** · M · risk medium · after V2-11
 - Files: `conversation.js`, `build-workflows.js`, `validate-workflows.js`, tests.
