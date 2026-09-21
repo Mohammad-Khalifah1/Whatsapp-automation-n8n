@@ -1,17 +1,18 @@
 # Version 2 — Plan
 
 Status: **plan only — nothing in this document is built yet.**
-Written: 21 September 2026. Baseline: `main` at `1c409b2`.
+Revision 2, 21 September 2026. Baseline: `main` at `1c409b2`.
 
 Version 2 turns the sheet into a real inbox that an Arabic-speaking merchant can
 run without training. It also gets the product ready for Meta's billing change
-on **1 October 2026**. The plan reuses what already works (the webhook path,
-assignment, reply from the sheet, archiving, the tests and validators). It also
+on **1 October 2026**. It reuses what already works: the webhook path,
+assignment, reply from the sheet, archiving, the tests and the validators. It
 records every conflict found between the V2 design and the existing code, and
-how each one is resolved before any code is written.
+the task that resolves each one, before any code is written.
 
 Contents
 
+0. [Review log](#0-review-log)
 1. [Where V2 comes from](#1-where-v2-comes-from)
 2. [Starting point and reuse map](#2-starting-point-and-reuse-map)
 3. [Design principles that resolve the conflicts](#3-design-principles-that-resolve-the-conflicts)
@@ -26,14 +27,40 @@ Contents
 
 ---
 
+## 0. Review log
+
+Revision 1 was checked line by line against the code on `main`, the source of
+n8n 2.38.5's Google Sheets node, and the prototype's flows document. These
+corrections were made in revision 2. Each one is backed by something that was
+read or run, not assumed.
+
+| # | Revision 1 said | What is actually true | Consequence |
+|---|---|---|---|
+| R1 | Appends use the Sheets API with `INSERT_ROWS` | `appendViaApi()` exists in `build-workflows.js` but **nothing calls it**. Every append uses n8n's Sheets node, which (per its 2.38.5 source) reads the sheet, computes the next row, and writes to that row. Two executions at once pick the same row. `ARCHITECTURE.md` documents this as a known limitation, and `verify-burst.js` fails on purpose until it is fixed | New first task V2-01. Burst scenario E3 is a release gate |
+| R2 | Workflow 8 archives at night | It runs **every minute** (cron at second 30). It deletes `ARCHIVED` rows at once and folds duplicates at once, by `row_number`, during working hours | Deleting during the day is a live defect on `main` (C-03). Moving deletes to the night is pulled forward to Phase 1 (V2-15) |
+| R3 | `ARCHIVED` is known only to `SheetTools.gs` | It is a documented V1 feature: workflow 8 moves `ARCHIVED` rows within a minute, **and** the optional installable `onEdit` in `SheetTools.gs` deletes the same rows. Two deleters race each other | C-10 rewritten. `ARCHIVED` becomes an alias of `CLOSED` on read |
+| R4 | The sort's token nodes could simply stay | The Sign/Get token pair in workflow 3 exists only to feed the sort | V2-01 moves the token in front of the appends before V2-03 removes the sort |
+| R5 | A hand-typed row can message a new number | Under the V2 window guard, a number that never wrote to us has no open window. Only a template can reach it | Scenario E19 corrected; outreach is template-only (C-27) |
+| R6 | Status list: five codes, labels only | The prototype also has "on hold" and "new". `WAITING_FOR_CUSTOMER` already behaves as "parked" (a customer message moves it to `UNANSWERED`) | "On hold" maps to `WAITING_FOR_CUSTOMER`; "new" is derived (C-29) |
+| R7 | Stage and a required outcome are separate | The prototype derives the outcome from the stage (won, lost) and adds "duplicate" | Outcome derived at archive time, human may override (V2-41) |
+| R8 | Dashboard: three filters | The prototype has eight filters and sections for money, stage and month | V2-36 matches it; needs a new `first_reply_at` column (V2-22) |
+| R9 | Follow-up reminder deferred | It is flow F6 of the prototype | Added as optional task V2-47 |
+| R10 | Reassigning by editing the agent's name is fine | Load is counted by `assigned_agent_id`; editing only the name leaves the id stale | New task V2-46 (C-28) |
+| R11 | Formula columns only need `null` in appends | n8n's append writes `''` into every unmapped column (source), and an `ARRAYFORMULA` that spills `""` to the bottom of the sheet can make append see a taller table. This project already met the same effect: whole-column validation produced 59 phantom Agents rows | Derived arrays are bounded to the data rows; spike S2 checks append placement |
+| R12 | New settings just go in `.env` | Both compose files pass variables to n8n one by one, and the server's compose file is maintained by hand | Every task that adds a variable updates both compose files, the examples, `check-env.js` and the server (C-31) |
+| R13 | `ARCHIVE_CLOSED_AFTER_HOURS=0` could replace `ARCHIVE_AFTER_DAYS` | In V1, `ARCHIVE_AFTER_DAYS=0` **disables** archiving. Reading it as "0 hours" would archive everything | Legacy meaning kept; new variables defined without inversion (C-30) |
+| R14 | Implementation on a new `v2` branch | The owner wants the work on the new branch that holds this plan | Implementation continues on `plan-v2` |
+| R15 | The cherry-pick of `e5fdaec` may conflict | Tried on a copy of `main`: it applies cleanly. Tests, the build check, workflow validation (now 508 checks) and schema consistency pass. The docs checker then fails once: `docs/TESTING.md` still quotes 504 | V2-02 is small and includes that one-line doc fix |
+
+---
+
 ## 1. Where V2 comes from
 
 V2 comes from a separate planning conversation that ended with three
 artifacts: a sheet prototype (`Sheet.v2.gs`), a flows document (entities, state
 machine, tabs, flows F1–F11, edge cases C1–C13, seven rules), and a plan update
-written for the 1 October billing change. The final result of that conversation
-is summarised here. Where this plan disagrees with the prototype, the reason is
-given in [section 5](#5-conflict-and-risk-register).
+written for the 1 October billing change. Where this plan disagrees with the
+prototype, [section 5](#5-conflict-and-risk-register) gives the reason.
 
 ### 1.1 Product and business decisions (adopted as-is)
 
@@ -48,39 +75,46 @@ given in [section 5](#5-conflict-and-risk-register).
 | Meta invoice | Paid by the client. The WABA is in the client's name. Stated in the contract |
 | Price | 350 JD installation + 25 JD/month support. The server and the Meta invoice are billed to the client |
 
-### 1.2 Meta pricing facts the design depends on (from 1 October 2026)
+### 1.2 Meta pricing the design depends on (from 1 October 2026)
 
 | Item | Value | Used by |
 |---|---|---|
 | Inbound messages and webhooks | Free | — |
-| Service message, Jordan (Rest of Middle East) | $0.0091 | Dashboard cost estimate |
-| Utility template | $0.0091 | Dashboard cost estimate |
-| Marketing template | $0.0392 | Dashboard cost estimate |
-| Free tier | 1,000 service messages per business number per month, not carried over | Dashboard "free messages left" |
+| Service message, Jordan (Rest of Middle East) | $0.0091 | Cost estimate |
+| Utility template | $0.0091; free when sent inside an open service window | Cost estimate |
+| Marketing template | $0.0392 | Cost estimate |
+| Free tier | 1,000 service messages per business number per month, not carried over | "Free messages left" |
 | Customer service window | 24 hours from the **customer's** last message | Send guard, window column |
-| Click-to-WhatsApp entry point | 72 hours free, instead of 24 (pricing only; see S6) | Cost estimate only |
-| Replies sent from the Business app | **Probably free — unconfirmed.** Must be tested (task O1) | Cost estimate, sales pitch |
+| Click-to-WhatsApp entry point | 72 hours free instead of 24 (pricing only, see S6) | Cost estimate |
+| Replies sent from the Business app | **Probably free, unconfirmed.** Must be tested (task O1) | Cost estimate, sales pitch |
 
-Rates live in one place, the Lists tab ([section 4.1](#41-tabs)). They are
-never written into formulas or code, because Meta changes them.
+These rates come from the planning conversation. That conversation itself
+warns that the rate card was not yet published when it was written. The rates
+therefore live only in the Lists tab. They are never written into formulas or
+code, and they must be checked against Meta's published card before quoting a
+client. The dashboard counts billable messages from the `pricing` block Meta
+sends in status webhooks. The rates only turn those counts into an estimate.
 
 ### 1.3 What V2 takes from the prototype
 
 | Prototype element | V2 verdict | Why |
 |---|---|---|
-| Separate "last customer message" column | **Adopted — it already exists** (`last_customer_message_at`) | Only the display is missing |
-| Window column (open N hours / closed, needs template) | Adopted, as a derived formula column | Time-based values must not be rewritten by n8n every minute |
+| Separate "last customer message" column | **Adopted; it already exists** (`last_customer_message_at`) | Only the display is missing |
+| Window column (open N hours / closed, needs template) | Adopted as a derived formula column | Time-based values must not be rewritten by n8n every minute |
 | Reply method column (app / sheet / template) | Adopted as `last_reply_via` | Needed for the billing split |
-| Guard on the reply cell when the window is closed | Adopted, but **the authority is n8n**, not `onEdit` | `onEdit` does not fire on mobile (prototype edge case C13) |
-| Status vs stage | Adopted | Status is what the system tracks; stage is the sales pipeline |
-| Outcome on close (bought / lost / no reply) | Adopted | Feeds the sales section of the dashboard |
-| Instant archive on close | **Adapted**: hidden instantly, moved physically at night | Deleting rows during the day corrupts concurrent writes (C-03) |
-| Newest conversation at the top (`moveRowToTop`) | **Rejected as a physical move**; replaced by sorted filter views | Same reason (C-01) |
-| `ingestMessage`, `pickAgent`, `nextCaseId`, `doPost` in Apps Script | **Rejected** | They duplicate workflows 2 and 3 with a second, untested writer (C-05) |
-| Human case number (`C-1042`) | Adapted: display-only case code, not sequential | No atomic counter exists without a database (C-12) |
-| Positional column map in Apps Script | Rejected | Columns are resolved by header name (C-06) |
+| Guard on the reply cell when the window is closed | Adopted, but **n8n is the authority**, not `onEdit` | `onEdit` does not fire on mobile (prototype edge case C13) |
+| Last speaker column | Adopted: `last_message_direction` shown with labels | Already stored |
+| Status vs stage | Adopted | Status tracks the reply; stage tracks the sale |
+| Stages new, interested, offer sent, won, lost | Adopted | Outcome derives from stage |
+| Instant archive on close | **Adapted**: hidden at once, moved physically at night | Deleting rows during the day corrupts concurrent writes (C-03) |
+| Newest conversation at the top (`insertRowBefore(2)`, `moveRowToTop`) | **Rejected as a physical move**; replaced by sorted filter views | Same reason (C-01) |
+| `ingestMessage`, `pickAgent`, `nextCaseId`, `doPost`, `LockService` | **Rejected** | They duplicate workflows 2 and 3 with a second, untested writer whose lock does not cover n8n (C-05) |
+| Human case number (`C-1042`) | Adapted: display-only case code, not sequential | No atomic counter without a database (C-12) |
+| Restore removes the row from the archive (F9) | Adapted: the archive row is kept and marked restored | The prototype's own rule 4 says the archive is append-only (C-34) |
+| Positional column map in Apps Script | Rejected | Columns are resolved by header key (C-06) |
 | Follow-up template menu item | Adopted, with a cost confirmation | Humans decide spending |
-| Dashboard with 24h window and billing sections | Adopted | |
+| Morning follow-up list per agent (F6) | Adopted as an optional task | V2-47 |
+| Dashboard filter panel and sections | Adopted | V2-36 |
 | Arabic headers, tabs and values | Adopted through a label layer | Code keeps English codes (C-08) |
 
 ---
@@ -96,72 +130,74 @@ never written into formulas or code, because Meta changes them.
 | `node scripts/validation/check-schema-consistency.js` | 9 schema checks pass |
 | `node scripts/validation/check-docs.js` | 26 documentation checks pass |
 | `node scripts/setup/build-workflows.js --check` | every workflow file is current |
+| `scripts/testing/verify-burst.js` (live) | **fails by design** per `ARCHITECTURE.md`: simultaneous appends lose rows (R1). Not re-run in this review, because Docker was down |
 
-Every V2 task must leave all five green. See [section 8](#8-verification).
+Every V2 task must leave the first five green. `verify-burst.js` must turn green
+in V2-01 and stay green.
 
 ### 2.2 What is reused, and how it changes
 
 | Existing asset | V2 use | Change |
 |---|---|---|
-| `scripts/lib/webhook-parser.js` | Unchanged core. It already extracts `pricing_category`, `billable` and `has_referral` | None, apart from new tests |
-| `scripts/lib/conversation.js` | State machine, row builders | Add `normalizeConversationRow`, case code, previous-case link |
-| `scripts/lib/assignment.js` | Live load counting, selection | None |
+| `scripts/lib/webhook-parser.js` | Unchanged core. It already extracts `pricing_category`, `billable` and `has_referral` | New tests only |
+| `scripts/lib/conversation.js` | State machine, row builders, live load count | `normalizeConversationRow`, case code, outcome from stage |
+| `scripts/lib/assignment.js` | Selection, live load | None |
 | `scripts/lib/idempotency.js`, `security.js`, `phone.js` | Unchanged | None. Apps Script never normalises phones itself |
-| `scripts/lib/time.js` | `localIso` stays the machine format | None. Dates are derived by formulas, not rewritten |
+| `scripts/lib/time.js` | `localIso` stays the machine format (Asia/Amman, offset included) | None. Human-facing dates are derived by formulas |
 | New `scripts/lib/labels.js` | Codes to Arabic/English labels, tab names | New |
 | New `scripts/lib/window.js` | The 24-hour rule, in one place | New |
 | New `scripts/lib/rows.js` | Safe delete planning for the archive | New |
-| `scripts/setup/build-workflows.js` | The only way workflow JSON is produced | Extended per task. JSON is never edited by hand |
-| `scripts/setup/apply-sheet-layout.js` | Headers, validation, colours | Extended: label row, Lists, views, protections |
+| `build-workflows.js` → `appendViaApi()` | Written in 0.6.0, never wired | **Wired for every append** (V2-01) |
+| wf3 "Sign Sheets Token Request" / "Get Sheets Token" / "Read Tab Ids" | Built for the sort | Token reused by appends; the tab-id read moves to workflow 8 for `deleteDimension` |
+| `scripts/setup/apply-sheet-layout.js` | The declared single source of the sheet's layout | Extended: label row, Lists, views, protections |
 | `scripts/setup/build-dashboard.js` | Dashboard formulas | Rewritten formulas (text-date bug), new sections |
-| `sheets-templates/SetupSheet.gs` + `SheetTools.gs` | Apps Script | Merged into one project with no duplicate names (C-09) |
-| `scripts/testing/*` (verify-live, verify-burst, verify-archive, scenario-multi-agent, send-fixture) | Live verification | Reused, extended with V2 scenarios |
+| `sheets-templates/SetupSheet.gs` + `SheetTools.gs` | A second setup path and a second dashboard builder, plus the menu | Merged into one runtime-only project (C-09) |
+| `scripts/testing/*` | Live verification | Reused, extended with V2 scenarios |
 | `scripts/validation/*` | Build-time gates | New rules per task |
 
 ### 2.3 Changes per workflow
+
+V2 adds no new workflow file. The same nine files change.
 
 | Workflow | V2 change |
 |---|---|
 | 01 webhook receiver | None |
 | 01b WAHA receiver | None. It stays buildable but is not part of the paid product |
-| 02 message processor | Write pricing fields on status updates. Set `last_reply_via=app` on Business-app echoes |
-| 03 conversation and assignment | Capacity fix, remove the full-tab sort, normalise on read, labels on write, case code, previous-case lookup |
-| 04 outgoing agent message | Window guard, `last_reply_via=api` |
-| 05 unassigned retry | `executeOnce` on Read Agents, normalise on read |
-| 06 error handler | None |
-| 07 reply from sheet | Writes keyed by `conversation_id`, window guard, templates, no retry loop on blocked replies, `closed_at` stamping, restore scan |
-| 08 archive | Nightly archive of every closed row, fresh-index deletes with verification, `Customers` upsert, fold duplicates first |
+| 02 message processor | Appends through the API; pricing fields on status updates; `last_reply_via=APP` and `first_reply_at` on Business-app echoes |
+| 03 conversation and assignment | Appends through the API; capacity fix; remove the full-tab sort; normalise on read; labels on write; case code; returning-customer lookup; re-show a reopened row |
+| 04 outgoing agent message | Append through the API; window guard; `last_reply_via=API` |
+| 05 unassigned retry | `executeOnce` on Read Agents; normalise on read |
+| 06 error handler | Append through the API |
+| 07 reply from sheet | Append through the API; writes keyed by `conversation_id`; window guard; templates; no retry loop; `closed_at` stamping; restore scan; name-to-id reconciliation |
+| 08 archive | Runs at night only; one verified `deleteDimension` batch; fold duplicates first; `Customers` upsert; outcome derivation |
 
 ---
 
 ## 3. Design principles that resolve the conflicts
 
-Each principle exists because of a specific conflict in [section 5](#5-conflict-and-risk-register).
-
 - **P1 — One structural writer.** Only n8n inserts, deletes or moves rows.
-  Apps Script may write only into the row a human just edited, only into
-  human-owned columns plus the `closed_at` stamp.
+  Apps Script never does, and never writes system columns.
 - **P2 — During the day, rows only get appended.** Nothing sorts, moves or
-  deletes rows in the active tabs between the nightly runs. A sort or delete
-  shifts row indexes under every write that is in flight. That includes n8n's
-  own update-by-key, which reads the index and then writes to it.
+  deletes rows in the active tabs between the nightly runs. n8n's update reads
+  the key column and then writes to the index it found (2.38.5 source). Any
+  sort or delete in between sends that write to the wrong row.
 - **P3 — Rows are addressed by `conversation_id`.** `row_number` is used in one
   place only: claiming a hand-typed row, which gets an id before anything else.
 - **P4 — Codes inside, labels at the boundary.** Code compares `CLOSED`, never
-  an Arabic string. The sheet shows labels. One module converts in both
-  directions. Reads accept a code or any known label, so a V1 sheet keeps working.
-- **P5 — Derive, do not rewrite.** Time-dependent values (window state, hours
-  waiting) and date values for formulas are spreadsheet formulas over the
-  machine columns. n8n never rewrites a cell just because time passed.
-- **P6 — The server guard is the authority.** The sheet warns. n8n refuses. A
-  warning that did not fire, on mobile for example, cannot cause a wrong send.
+  an Arabic string. The sheet shows labels. One module converts both ways.
+  Reads accept a code or any known label, so a V1 sheet keeps working.
+- **P5 — Derive, do not rewrite.** Window state, hours waiting and real date
+  values are bounded spreadsheet formulas over the machine columns. n8n never
+  rewrites a cell because time passed. All writes stay `RAW`.
+- **P6 — The server guard is the authority.** The sheet warns. n8n refuses.
 - **P7 — No money is spent without a human.** Templates are only sent from an
   explicit marker a person typed or inserted.
-- **P8 — One source of truth per kind.** Column names: the CSV templates.
-  Labels and tab names: `labels.js`, from which the Apps Script label block is
-  generated. Rates: the Lists tab. Secrets and template definitions: `.env`.
+- **P8 — One source of truth per kind.** Column names and order: the CSV
+  templates. Labels and tab names: `labels.js`, from which the Apps Script label
+  block is generated. Layout: `apply-sheet-layout.js`. Rates and SLA hours: the
+  Lists tab. Secrets and template definitions: `.env`.
 - **P9 — No new moving parts.** No Apps Script web app, no new database, no new
-  service. V2 is the same four components with better behaviour.
+  service. The same components, with better behaviour.
 
 ---
 
@@ -169,147 +205,163 @@ Each principle exists because of a specific conflict in [section 5](#5-conflict-
 
 ### 4.1 Tabs
 
-Tab titles come from `labels.js` for the chosen `SHEET_LANGUAGE` (`en` default
-for existing installs, `ar` for new Arabic clients). The key is what the code
-uses.
+Tab titles come from `labels.js` for the chosen `SHEET_LANGUAGE` (`en` by
+default for existing installs, `ar` for new Arabic clients). The key is what
+the code uses.
 
 | Key | Arabic title | Visible | Who writes | Purpose |
 |---|---|---|---|---|
-| `Start` | ابدأ من هنا | yes | setup only | How to work, and the seven rules |
-| `Dashboard` | لوحة التحكم | yes | formulas only | Now, team, 24h window, billing, follow-ups, sales |
-| `Conversations` | المحادثات | yes | n8n (structure); humans (their columns) | The inbox |
-| `FollowUps` | متابعات اليوم | yes | formulas only | Read-only list of due follow-ups, with links to the rows |
+| `Start` | ابدأ من هنا | yes | layout tool | How to work, colours, the rules in 4.10 |
+| `Dashboard` | لوحة التحكم | yes | formulas; filter cells by humans | Filters, now, money, stage, team, window, billing, month |
+| `Conversations` | المحادثات | yes | n8n (rows); humans (their columns) | The inbox |
+| `FollowUps` | متابعات اليوم | yes | formulas only | Read-only list of due follow-ups, linked to their rows |
 | `Archive` | الأرشيف | yes | n8n (append only); humans (restore tick) | Closed cases |
-| `Agents` | الموظفين | yes | humans; n8n (load) | Team, capacity, availability |
-| `Lists` | القوائم | yes | setup; owner (rates, stages) | Dropdown sources, rate card, template names |
-| `System` | النظام — لا تلمسه | yes, protected | n8n (heartbeat) | Version, last sweep time, health |
-| `Customers` | — | hidden | n8n (nightly) | One row per customer: last case, count of cases |
+| `Agents` | الموظفين | yes | humans; n8n (`last_assigned_at`) | Team, capacity, availability |
+| `Lists` | القوائم | yes | layout tool; owner (rates, stages, SLA) | Dropdown sources, rate card, template names |
+| `System` | النظام — لا تلمسه | yes, protected | n8n (heartbeat) | Version, last nightly run, last poll, time-zone offset |
+| `Customers` | — | hidden | n8n (nightly) | One row per customer: name, last case, count |
 | `Messages` | — | hidden | n8n | Unchanged, plus pricing columns |
 | `Log` | — | hidden | n8n | Unchanged |
 
 ### 4.2 Conversations columns
 
-Row 1 holds the machine keys, which n8n and Apps Script use. Row 2 holds the
-labels a person reads. Row 1 is hidden and both rows are frozen. Whether n8n
-supports this is spike S1. The fallback is in [section 6](#6-what-is-verified-and-what-needs-a-spike).
+Row 1 holds the machine keys; n8n and Apps Script read them. Row 2 holds the
+labels a person reads. Row 1 is hidden, and both rows are frozen. n8n 2.38.5
+supports this for reads and updates (verified in its source, section 6). Appends
+go through the API and are unaffected.
 
-The physical order below becomes the CSV order. Appends are positional
-(`appendViaApi` writes a row array in CSV order), so CSV order and sheet order
-must always match. Updates are by name and do not care about order.
+The physical order below becomes the CSV order. Appends are positional once
+V2-01 is done, so CSV order and sheet order must always match. Reordering an
+existing sheet happens only in the migration, with workflows stopped.
 
 **Visible block** (what an agent works in):
 
-| Key | Arabic label | Owner | New in V2 |
+| Key | Arabic label | Owner | New |
 |---|---|---|---|
 | `case_code` | رقم الحالة | n8n | yes |
 | `customer_name` | اسم الزبون | n8n, human may correct | |
-| `customer_phone` | الهاتف | n8n | |
-| `window_state` | النافذة | formula | yes (derived) |
-| `waiting_hours` | ساعات الانتظار | formula | yes (derived) |
+| `customer_phone` | الهاتف | n8n; human only on a new outreach row | |
+| `window_state` | النافذة | formula | yes |
+| `waiting_hours` | ساعات الانتظار | formula | yes |
 | `last_message` | آخر رسالة | n8n | |
+| `last_message_direction` | آخر متحدث | n8n (shown as a label) | moved |
 | `assigned_agent_name` | الموظف | n8n, human may reassign | |
-| `status` | الحالة | n8n + human (close / reopen) | |
+| `status` | الحالة | n8n + human (close, park, reopen) | |
 | `stage` | المرحلة | human | yes |
 | `reply_text` | اكتب ردك هنا | human | |
 | `reply_status` | حالة الرد | n8n | |
+| `reply_error` | سبب الفشل | n8n | moved |
 | `notes` | ملاحظات | human | yes |
 | `follow_up_at` | موعد المتابعة | human (date picker) | yes |
 | `deal_value` | القيمة | human | yes |
+| `product` | المنتج | human | |
+| `quantity` | الكمية | human | |
 | `order_ref` | رقم الطلب | human | yes |
-| `outcome` | النتيجة | human, on close | yes |
+| `outcome` | النتيجة | human override; else derived at archive | yes |
 | `last_reply_via` | طريقة الرد | n8n | yes |
 | `wa_link` | فتح | n8n | |
 
-**System block** (grouped and collapsed, warning-only protection): every other
-existing column (`conversation_id`, `assigned_agent_id`,
-`business_phone_number_id`, `unanswered_count`, `unanswered_messages`,
-`last_message_type`, `last_message_direction`, `last_message_id`,
+**System block** (grouped and collapsed, protected per S8): `conversation_id`,
+`assigned_agent_id`, `business_phone_number_id`, `unanswered_count`,
+`unanswered_messages`, `last_message_type`, `last_message_id`,
 `first_message_at`, `last_activity_at`, `last_customer_message_at`,
 `last_agent_message_at`, `created_at`, `updated_at`, `closed_at`,
-`unassigned_reason`, `reply_error`, `reply_sent_at`, `unread`, `product`,
-`quantity`), plus new system columns:
+`unassigned_reason`, `reply_sent_at`, `unread`, plus these new columns:
 
-| Key | Purpose |
-|---|---|
-| `previous_case_code` | Set when a returning customer opens a new case |
-| `reply_blocked_hash` | Stops a blocked reply from being re-processed every minute (V2-20) |
-| `last_customer_dt`, `first_message_dt`, `last_activity_dt` | Derived real date values for formulas (formula columns) |
+| Key | Purpose | Written by |
+|---|---|---|
+| `first_reply_at` | First outbound message of the case; drives first-response time and "lost because late" | n8n, once |
+| `previous_case_code` | Set when a returning customer opens a new case | n8n |
+| `reply_blocked_hash` | Stops a blocked reply from being re-processed every minute | n8n |
+| `last_customer_dt`, `first_message_dt`, `last_activity_dt`, `closed_dt` | Real date values for formulas, converted from the stored offset to the sheet's zone | formula |
 
-Derived (formula) columns are declared in a `DERIVED_COLUMNS` list. n8n never
-writes them: appends send `null` in their positions (spike S2), and the schema
-checker fails the build if any workflow maps a derived column.
+Derived columns are declared in `DERIVED_COLUMNS`. Each is one `ARRAYFORMULA`
+in its key cell, **bounded to the data rows** (for example
+`A3:INDEX(A:A, COUNTA(customer_phone column))`) so it never spills below the
+table. n8n never writes them: API appends send `null` in their positions. The
+schema checker fails the build if any workflow maps one.
 
 ### 4.3 Value labels
 
-Stored values are labels in the chosen language. Code converts them with
-`labels.js`. Reads accept the code, the English label or the Arabic label.
+Stored values are labels in the chosen language. Reads accept the code, the
+English label or the Arabic label.
 
 ```
-status   WAITING_FOR_AGENT     -> بانتظار موظف
-         UNANSWERED            -> بانتظار الرد
-         REPLIED               -> تم الرد
-         WAITING_FOR_CUSTOMER  -> بانتظار الزبون
-         CLOSED                -> مغلقة
-outcome  BOUGHT -> اشترى      LOST -> ضايع      NO_REPLY -> بدون رد
-via      APP -> تطبيق (مجاني)   SHEET -> شيت (API)   TEMPLATE -> قالب (مدفوع)   API -> API
-window   OPEN -> مفتوحة       CLOSED -> مسكّرة — بدك قالب
-stage    NEW -> جديد   INQUIRY -> استفسار   QUOTED -> عرض سعر   ORDERED -> طلب مؤكد   DELIVERED -> تم التوصيل
+status        WAITING_FOR_AGENT    -> بانتظار موظف
+              UNANSWERED           -> بانتظار الرد
+              REPLIED              -> تم الرد
+              WAITING_FOR_CUSTOMER -> معلّقة
+              CLOSED               -> مغلقة
+              (read alias) ARCHIVED -> CLOSED
+stage         NEW -> جديد   INTERESTED -> مهتم   QUOTED -> عرض مرسل   WON -> اشترى   LOST -> ضايع
+outcome       BOUGHT -> اشترى   LOST -> ضايع   NO_REPLY -> بدون رد   DUPLICATE -> مكرر   NOT_RECORDED -> غير مسجّل
+reply_status  SENT -> تم الإرسال   FAILED -> فشل   WINDOW_CLOSED -> النافذة مسكّرة — استعمل قالب
+direction     inbound -> الزبون   outbound -> نحن
+via           APP -> تطبيق (مجاني)   SHEET -> شيت (API)   TEMPLATE -> قالب (مدفوع)   API -> API
+window        OPEN -> مفتوحة   CLOSED -> مسكّرة — بدك قالب
 ```
 
-The stage list is a proposal; the owner edits it in `labels.js` (decision D4).
-`ARCHIVED` is **not** a status. Being archived is a location, not a state (C-10).
+`WAITING_FOR_CUSTOMER` is shown as "on hold". That is what it already does:
+a human parks the case, and the next customer message moves it back to
+`UNANSWERED` (`nextStatus` in `conversation.js`). "New" is not a stored status,
+because the system cannot observe that nobody has opened a row. The dashboard
+counts "never answered" cases from an empty `first_reply_at`.
 
 ### 4.4 Case lifecycle
 
 ```
-customer message ──> row appended (bottom) ──> assigned ──> replies ...
-                                                           │
-                         human sets status = CLOSED (+ outcome)
-                                                           │
-            closed_at stamped (onEdit on desktop; n8n within 1 min on mobile)
-                                                           │
-                row hidden from the main view immediately (filter re-applied)
-                                                           │
-     nightly run: fold duplicates -> copy to Archive -> upsert Customers
-                  -> delete the rows (fresh indexes, verified)
+customer message ──> row appended at the bottom ──> assigned ──> replies ...
+                                                                  │
+                human sets status = CLOSED (optionally stage / outcome)
+                                                                  │
+      row hidden from the main view (filter re-applied: onEdit on desktop,
+      n8n within a minute everywhere); n8n stamps closed_at
+                                                                  │
+   nightly run (ARCHIVE_HOUR): fold duplicates -> derive outcome -> copy to Archive
+                               -> upsert Customers -> verified delete of those rows
 ```
 
-- **Customer returns before the nightly run**: the closed row is still in the
-  tab, so the existing reopen logic applies (`REOPEN_CLOSED_CONVERSATIONS`,
-  default `true`). The same case reopens and becomes visible again.
-- **Customer returns after the nightly run**: a new case is created. Its
-  `previous_case_code` is filled from the `Customers` tab, and a note
-  (returned after case X) is added. That is the prototype's behaviour, without
-  reading the whole Archive on every new conversation.
-- **Restore from Archive**: a human ticks `restore_requested` on the archive
-  row. Within a minute, n8n appends the row back to Conversations and stamps
-  `restored_at`. The archive row is **kept**: the Archive is append-only.
+- **Customer writes again before the nightly run**: the closed row is still in
+  the tab, so the existing reopen logic applies (`REOPEN_CLOSED_CONVERSATIONS`,
+  default `true`). workflow 3 **re-applies the filter**, so the reopened row
+  becomes visible again (C-32).
+- **Customer writes again after the nightly run**: a new case. Name,
+  `previous_case_code` and a note (returned after case X) come from the
+  `Customers` tab, without reading the Archive.
+- **Restore from the Archive**: tick `restore_requested` (or use the menu on
+  desktop). Within a minute, n8n appends the row back to Conversations and
+  stamps `restored_at`. The archive row is kept.
 - **Duplicates** (two simultaneous first messages from one customer): still
-  possible, because Sheets has no compare-and-set. They are shown on the
-  dashboard during the day and folded at night, as today.
+  possible, because Sheets has no compare-and-set. They are counted on the
+  dashboard during the day and folded at night. The losing row is archived with
+  outcome `DUPLICATE`.
+- **Outcome**: a human may set it. If it is empty at archive time, it is
+  derived from the stage (`WON` → bought, `LOST` → lost, otherwise no reply).
 
 ### 4.5 The 24-hour window
 
-- Input: `last_customer_message_at` only. An agent's message never extends the
-  window.
+- Input: `last_customer_message_at` only. An agent's message never extends it.
 - `window.js` → `windowState({ last_customer_message_at, now })` returns
-  `{ open, hours_left, closes_at }`. A missing or unparseable timestamp counts
-  as **closed**, so an unknown state fails safe.
+  `{ open, hours_left, closes_at }`. A missing or unreadable timestamp counts as
+  **closed**, so an unknown state fails safe.
 - The sheet shows it through a derived formula that mirrors the same rule. A
-  test fixture pins the two to the same answer at the boundaries.
-- The spreadsheet recalculates every minute (`autoRecalc: MINUTE`), and its time
+  fixture test pins both to the same answer at the boundaries.
+- The spreadsheet recalculates every minute (`autoRecalc: MINUTE`). Its time
   zone must equal `GENERIC_TIMEZONE` (Asia/Amman). The layout tool asserts both.
+  Derived dates read the offset stored in each value, so a stray UTC value
+  cannot shift the window by three hours.
 - The 72-hour Click-to-WhatsApp window affects **pricing**, not the right to
-  send free-form text. The send guard stays at 24 hours unless spike S6 proves
-  otherwise.
+  send free-form text. The guard stays at 24 hours unless S6 proves otherwise.
+- A row typed by hand for a number that never wrote to us has no window. Only a
+  template can be sent to it (C-27).
 
 ### 4.6 Reply paths and what each costs
 
 | Path | How | Guard | Recorded as |
 |---|---|---|---|
-| Business app (default) | "Open" link, reply in the app | Meta's own | `last_reply_via=APP` (echo webhook) |
-| Sheet | Type in the reply column | n8n refuses when the window is closed, and keeps the text | `SHEET` |
-| Template | `[TEMPLATE] followup_general` in the reply column, or the menu item | Name must be in the allow-list. Allowed with the window closed | `TEMPLATE` |
+| Business app (default) | "Open" link, reply in the app | Meta's own | `APP`, from the echo webhook |
+| Sheet | Type in the reply column | n8n refuses when the window is closed and keeps the text | `SHEET` |
+| Template | `[TEMPLATE] followup_general` in the reply column, or the menu item | Name must be in the allow-list. Allowed when the window is closed | `TEMPLATE` |
 | API (workflow 4) | Programmatic | Same window guard | `API` |
 
 The marker also accepts the Arabic alias `[قالب] name`, so a person on a phone
@@ -317,106 +369,149 @@ can type it without the menu.
 
 ### 4.7 Dashboard
 
+The filter panel (cells at the top) matches the prototype: reference time,
+quick period (today, last 7 days, this month, all, custom), from and to dates,
+agent, stage, status, minimum value, and a text search over name, phone and
+order number. The filter mask is computed in hidden helper columns **on the
+Dashboard tab**, never in the data tabs (P5).
+
 | Section | Contents | Source |
 |---|---|---|
-| Filters | Agent, from-date, to-date | cells at the top |
-| Now | Waiting for us, longest wait (fixed), unassigned, possible duplicates | Conversations derived columns |
-| Team | Per agent: open, waiting, replied today, closed today | Conversations + Archive |
-| 24h window | Waiting with a closed window (needs a template), closing within 4 hours, follow-ups due after the window closes | derived `window_state`, `follow_up_at` |
-| Billing (month to date) | Service messages sent, free messages left (1,000 minus used), templates by category, estimated cost at the Lists rates, share by reply path | Messages (`pricing_category`, `billable`, `sent_via`) |
-| Follow-ups | Due today, overdue | `follow_up_at` |
-| Sales | Closed by outcome, sum of `deal_value`, conversion rate | Archive + Conversations |
+| Now | Waiting for us, longest wait (fixed), never answered, unassigned, possible duplicates, follow-ups due | Conversations + derived dates |
+| Money | Pending value, confirmed sales, lost cases, **value lost because we were late** (lost cases whose first reply took longer than the SLA hours in Lists) | `deal_value`, `stage`, `outcome`, `first_reply_at` |
+| By stage | Count and value per stage | `stage` |
+| Team | Per agent: open, waiting, first-response time, sales, lost | Conversations + Archive |
+| 24h window | Waiting with a closed window (needs a template), closing within 4 hours, follow-ups due after the window closes | derived columns, `follow_up_at` |
+| Billing (month to date) | Billable messages by category, free service messages left, estimated cost at Lists rates, share by reply path | Messages `pricing_category`, `billable`, `sent_via` |
+| By month | Trend of new and closed cases; ignores the date filter on purpose | Conversations + Archive |
 
-The "longest wait = 0" bug comes from `MINIFS` over ISO text. It is fixed by
-pointing every date formula at the derived date columns. Month filters on the
+Every date formula uses the derived date columns. That fixes the "longest wait
+= 0" bug, which comes from `MINIFS` over ISO text. Month filters on the
 Messages tab can stay on text (`TEXT(TODAY(),"yyyy-mm")&"*"`), because the ISO
-prefix sorts and matches correctly.
+prefix matches correctly.
 
 ### 4.8 Follow-ups
 
-`follow_up_at` is a date picker. The FollowUps tab is a read-only `FILTER` with
-a `HYPERLINK` to each row, found by `MATCH` on `conversation_id`, so it never
-depends on row numbers. A follow-up that falls after the window closes is
-flagged: it will need a template. Setting a follow-up does not change the
-status. A daily digest is deferred ([section 10](#10-out-of-scope-for-v2)).
+`follow_up_at` is a date picker. The FollowUps tab is a read-only `FILTER`,
+with a `HYPERLINK` to each row found by `MATCH` on `conversation_id`, so it
+never depends on row numbers. A follow-up after the window closes is flagged:
+it will need a template. Setting a follow-up does not change the status. The
+optional morning list per agent is V2-47.
 
-### 4.9 Apps Script: one project, clear limits
+### 4.9 Apps Script: one project, runtime only
 
-The two current files are merged into one project with unique function names.
-Tab and column lookups go through row-1 keys and a generated label block.
+The layout belongs to `apply-sheet-layout.js` and the dashboard to
+`build-dashboard.js`. Apps Script keeps only what must run inside the sheet.
 
 | Function | Trigger | May write |
 |---|---|---|
 | `onOpen` | simple | menu only |
-| `onEdit` | simple | the edited row only: `closed_at` stamp; re-applies the main filter; shows toasts |
-| Close with outcome… | menu | status, outcome, `closed_at` on the selected rows |
-| Insert follow-up template… | menu | the marker in the reply column, after a cost confirmation |
+| `onEdit` | simple | nothing in data; shows toasts; re-applies the main filter after a close |
+| Close… | menu | `status`, `stage`, `outcome` on the selected rows |
+| Park (on hold) | menu | `status` |
+| Insert follow-up template… | menu | the marker in `reply_text`, after a cost confirmation |
+| Restore selected | menu, Archive tab | `restore_requested` |
 | Open WhatsApp chat | menu | nothing |
-| Rebuild views | menu | filter views (no data) |
-| Recalculate agent workload | menu | Agents load column |
+| Rebuild my views | menu | filter views only |
+| `removeLegacyTriggers` | run once in migration | deletes the V1 installable trigger |
 
 Every `getUi()` call is wrapped in `try/catch`, because it is unavailable
-outside a browser session. Nothing in Apps Script inserts, deletes, moves or
-sorts rows. The installable `onEdit` that deleted rows on `ARCHIVED` is removed.
+outside a browser session. `closed_at` is stamped by n8n only, so the system
+block can stay protected. The script carries a `VERSION` constant that the
+System tab displays, so a stale paste is visible.
+
+### 4.10 The rules on the Start tab
+
+| # | Rule | Enforced by |
+|---|---|---|
+| 1 | رقم الزبون ما بينكتب ولا بيتغيّر بصف موجود | protection on existing rows is not possible; n8n owns the column |
+| 2 | محادثة مفتوحة وحدة لكل زبون | nightly fold; dashboard count |
+| 3 | «مغلقة» = أرشفة (تختفي فوراً وتنتقل بالليل) | filter + workflow 8 |
+| 4 | الأرشيف للإضافة فقط — الاسترجاع بعلامة، مش بالحذف | workflow 8 never deletes from Archive |
+| 5 | لا تكتب بالأعمدة الرمادية | protection (S8) |
+| 6 | لا ترتّب التبويب ولا تحذف صفوف — استعمل عرضك | protection (S8), views |
+| 7 | كل حقل متكرر من قائمة | data validation |
+| 8 | لا تغيّر أسماء التبويبات | System tab health line |
 
 ---
 
 ## 5. Conflict and risk register
 
-Each item names where the conflict lives, what goes wrong, and the task that
-resolves it. "Live on main" means the defect exists today, before V2.
+"Live on main" means the defect exists today, before V2.
 
 | ID | Conflict | Where | What goes wrong | Resolution | Task |
 |---|---|---|---|---|---|
-| C-01 | Full-tab sort after each new conversation | wf3 "Sort Newest First" | Every in-flight write resolved to a row index before the sort lands on the wrong row. **Live on main** | Remove the sort (P2). Newest-first becomes a sorted filter view | V2-02 |
-| C-02 | Writes keyed on `row_number` | wf7 "Clear Cell And Record Outcome", "Mark Invalid Reply" | Combined with C-01: another conversation's status, last message and reply cell get overwritten. **Live on main** | Key on `conversation_id`. Hand-typed rows are claimed first | V2-03 |
-| C-03 | Deleting rows while other writes are in flight | wf8 delete; the prototype's instant archive | Every row below a deleted one shifts up. A write resolved before the delete lands on the neighbour. At 50 closes and 500 updates a day, instant deletes would corrupt a row on most days | Hide on close; physical delete only at night; indexes re-read right before the delete; verify afterwards | V2-04, V2-42, V2-43 |
-| C-04 | All agents at capacity | wf3 "Increment Agent Load" | Empty match key → error → workflow stops → the customer's message is written nowhere. **Live on main** (fixed only on the WAHA branch, `e5fdaec`) | Port the "Agent Assigned?" guard and `executeOnce` | V2-01 |
-| C-05 | Prototype ingests messages in Apps Script | `Sheet.v2.gs` `ingestMessage`, `pickAgent`, `doPost` | A second assignment algorithm and a second writer. Its lock does not cover n8n, so both race | Not adopted. Workflows 2 and 3 stay the only ingest path | — |
-| C-06 | Prototype uses positional columns | `Sheet.v2.gs` column map | Any column move breaks one side silently | Look columns up by the row-1 key | V2-37 |
-| C-07 | Prototype moves rows to the top | `moveRowToTop` | Same as C-01 | Sorted filter views | V2-35 |
-| C-08 | Arabic values vs English comparisons | every Code node comparing `'CLOSED'` etc. | An Arabic status never matches, so closed rows count as open and the load is wrong | `labels.js` + `normalizeConversationRow` at every read; a validator rule enforces it | V2-11, V2-12 |
-| C-09 | Duplicate global functions | `SetupSheet.gs` and `SheetTools.gs` both define `onOpen`, `replyToSelected`, `openWhatsAppChat`, `recalculateAgentLoad`, `columnLetter_` | Apps Script has one global namespace. Which one runs depends on file order | Merge into one project | V2-37 |
-| C-10 | `ARCHIVED` status | `SheetTools.gs` only | Not a state-machine status. The dropdown offers a value the workflows do not know | Remove. Archive is a location | V2-37 |
-| C-11 | Dates stored as ISO text | `time.js` output, dashboard `MINIFS` / `COUNTIFS` | Text comparisons give wrong counts, and the longest wait shows 0 | Derived date columns; formulas use them | V2-13, V2-36 |
-| C-12 | Sequential case numbers | prototype `nextCaseId` | No atomic counter in Sheets or n8n. Two executions mint the same number | Display-only code from the id's timestamp; never a key | V2-40 |
-| C-13 | Reopen same case vs new case on return | `REOPEN_CLOSED_CONVERSATIONS` vs prototype note | Two contradictory rules | Before the nightly archive: reopen. After: new case with `previous_case_code` | V2-45 |
-| C-14 | Reply guard in `onEdit` only | prototype | Mobile never runs `onEdit`, and a closed-window text reaches Meta and fails | n8n guard is authoritative (P6) | V2-20 |
-| C-15 | Failed send clears the typed text | wf7 success/failure writeback | Meta error 131047 (window closed) loses what the agent wrote | Guard before sending; keep the text on block; map 131047 to the same state | V2-20 |
-| C-16 | Blocked rows are re-processed every minute | wf7 "Mark Invalid Reply" keeps the text | One wasted write per blocked row per minute, against a 60-per-minute quota | `reply_blocked_hash`: skip while the text is unchanged | V2-20 |
-| C-17 | Formula columns vs positional appends | `appendViaApi` writes every CSV column | An empty string in a derived column breaks the `ARRAYFORMULA` above it | Send `null` for derived positions (S2), and the checker forbids mapping them | V2-13 |
-| C-18 | `USER_ENTERED` to get real dates | any write path | A customer message starting with `=` becomes a formula (injection), and `+962…` loses its plus | All writes stay `RAW` (P5). A validator rule forbids `USER_ENTERED` on customer data | V2-13 |
-| C-19 | Changing a shared filter | basic filter on Conversations | An agent filtering by their own name changes the view for everyone | Personal filter views per agent. The main filter is re-applied by the system | V2-35 |
-| C-20 | Localised tab names vs name-based references | every Sheets node, `appendViaApi` URLs, dashboard formulas | A renamed tab breaks every reference | Tab names come only from `tabName(key)`. The validator checks every reference. Rule: never rename tabs | V2-30 |
-| C-21 | Archive lookup on every new conversation | returning-customer detection | Reading an ever-growing Archive per inbound message burns quota | Small `Customers` tab, upserted nightly | V2-45 |
-| C-22 | Checker rule "Archive = Conversations + `archived_at`" | `check-docs.js`, `check-schema-consistency.js` | V2 adds `archive_id`, `restore_requested`, `restored_at` | Update both checkers in the same commit | V2-43 |
-| C-23 | Arabic prose in docs | `check-docs.js` language rule | Build fails | Arabic appears only in tables and code blocks; the Arabic guide lives in the Start tab | all docs tasks |
-| C-24 | Extra Sheets reads per minute | restore scan, reconciliation | Quota (60 reads/min per service account) | One narrow column read per minute; filter re-applied only on events | V2-42, V2-44 |
-| C-25 | Cherry-picking `e5fdaec` brings a tool attribution trailer | commit message | Violates the no-branding rule | `git cherry-pick -n`, then commit with our own message | V2-01 |
+| C-01 | Full-tab sort after each new conversation | wf3 "Sort Newest First" | In-flight writes land on the wrong row. **Live on main** | Remove the sort; sorted filter views | V2-03 |
+| C-02 | Writes keyed on `row_number` | wf7 "Clear Cell And Record Outcome", "Mark Invalid Reply" | With C-01 or C-03: another conversation's status, message and reply cell get overwritten. **Live on main** | Key on `conversation_id`; claim hand-typed rows first | V2-04 |
+| C-03 | Deleting rows during working hours | wf8 runs every minute: `ARCHIVED` rows and duplicate folds are deleted at once | Rows below a delete shift up; a write resolved before it lands on the neighbour. **Live on main** | Phase 0: one verified batch delete. Phase 1: deletes only at night; hide on close | V2-05, V2-15 |
+| C-04 | All agents at capacity | wf3 "Increment Agent Load" | Empty match key stops the workflow; the message is written nowhere. **Live on main** (fixed only on the WAHA branch, `e5fdaec`) | Port the guard and `executeOnce` | V2-02 |
+| C-05 | Prototype ingests messages in Apps Script | `Sheet.v2.gs` | Second assignment algorithm and second writer; its lock does not cover n8n | Not adopted | — |
+| C-06 | Prototype uses positional columns | `Sheet.v2.gs` | A column move breaks one side silently | Header-key lookup | V2-37 |
+| C-07 | Prototype moves rows to the top | `insertRowBefore(2)`, `moveRowToTop` | Same as C-01 | Sorted filter views | V2-35 |
+| C-08 | Arabic values vs English comparisons | every Code node; `countOpenConversationsByAgent` checks `isOpenStatus` on the raw cell | Every Arabic status is "not open", so every agent's load becomes 0 and capacity is ignored | `labels.js` + normaliser at every read; validator rule | V2-11, V2-12 |
+| C-09 | Two Apps Script files, two setup paths | `SetupSheet.gs` and `SheetTools.gs` both define `onOpen`, `replyToSelected`, `openWhatsAppChat`, `recalculateAgentLoad`, `columnLetter_`; `setupEverything` and `buildDashboard_` duplicate the Node tools | One global namespace, so file order decides which runs; two layouts drift | One runtime-only project; the Node tools own setup | V2-37 |
+| C-10 | `ARCHIVED` has two deleters | wf8 (every minute) and the optional installable `onEditInstallable` | Both delete the same rows; one delete shifts the other's target. **Live on main** where the trigger is installed | `ARCHIVED` read as `CLOSED`; workflow 8 is the only deleter; the trigger is disarmed in V2-05 and removed in migration | V2-05, V2-50 |
+| C-11 | Dates stored as ISO text | dashboard `MINIFS`/`COUNTIFS` | Wrong counts; longest wait 0 | Offset-aware derived date columns | V2-13, V2-36 |
+| C-12 | Sequential case numbers | prototype `nextCaseId` | Two executions mint the same number | Display-only code; never a key | V2-40 |
+| C-13 | Reopen the same case vs a new case | `REOPEN_CLOSED_CONVERSATIONS` vs prototype F8 | Contradictory rules | Before the nightly run: reopen. After: new linked case | V2-43 |
+| C-14 | Reply guard in `onEdit` only | prototype | Mobile skips it; the send fails at Meta | n8n guard (P6) | V2-20 |
+| C-15 | Failed send clears the typed text | wf7 routes failures into "Clear Cell" | Meta error 131047 (window closed) loses what the agent wrote | Guard before sending; keep the text; map 131047 to the same state | V2-20 |
+| C-16 | Blocked rows re-processed every minute | wf7 "Mark Invalid Reply" keeps the text | A wasted write per row per minute | `reply_blocked_hash` | V2-20 |
+| C-17 | Formula columns vs appends | n8n's append writes `''` into unmapped columns; unbounded spills extend the table | A broken `ARRAYFORMULA`, or appends landing far below the data | Every append through the API with `null` for derived positions; bounded arrays; S2 | V2-01, V2-13 |
+| C-18 | `USER_ENTERED` to get real dates | any write path | A message starting with `=` becomes a formula; `+962…` loses its plus | All data writes stay `RAW`; validator rule. Only the dashboard builder writes formulas | V2-13 |
+| C-19 | A shared filter | basic filter on Conversations | An agent filtering by their name changes everyone's view | Personal filter views; the main filter is re-applied by the system | V2-35 |
+| C-20 | Localised tab names vs name-based references | Sheets nodes, API URLs, dashboard formulas | A renamed tab breaks every reference | `tabName(key)` everywhere; validator rule; System health line | V2-30 |
+| C-21 | Archive lookup per new conversation | returning customer | Reading a growing Archive burns quota | `Customers` tab | V2-43 |
+| C-22 | Checker rule "Archive = Conversations + `archived_at`" | `check-docs.js`, `check-schema-consistency.js` | V2 adds restore columns | Update both checkers in the same commit | V2-42 |
+| C-23 | Arabic prose in docs | `check-docs.js` | Build fails | Arabic only in tables and code; the Arabic guide lives in the Start tab | all docs tasks |
+| C-24 | Extra Sheets reads per minute | wf7 reads Archive restore columns and Agents | 60 reads per minute per service account | Narrow reads; wf8's per-minute read moves to the night (net +2 reads per minute) | V2-15, V2-42, V2-46 |
+| C-25 | Cherry-picking brings a tool trailer | commit message | Branding rule | `git cherry-pick -n`, own message | V2-02 |
+| C-26 | Simultaneous appends overwrite each other | every Sheets-node append (n8n computes the row, then writes) | A customer's message or conversation row vanishes with every execution green. **Live on main**, documented as a known limitation | Wire `appendViaApi()` (`INSERT_ROWS`) for every append; validator forbids Sheets-node appends | V2-01 |
+| C-27 | Outreach rows vs the window guard | wf7 hand-typed rows | Plain text to a new number is blocked | Outreach is template-only; documented; E19 | V2-20 |
+| C-28 | Reassigning by editing the name | `assigned_agent_name` vs `assigned_agent_id` | Load and "My queue" disagree | n8n reconciles the id from the name every minute | V2-46 |
+| C-29 | Prototype statuses (new, on hold) | prototype vs `CONVERSATION_STATUSES` | Unknown values | On hold = `WAITING_FOR_CUSTOMER`; "new" is derived | V2-11 |
+| C-30 | Archive settings meaning | `ARCHIVE_AFTER_DAYS=0` disables archiving in V1 | Reading it as "archive after 0 hours" would archive everything | Keep the legacy meaning; add `ARCHIVE_HOUR` and `ARCHIVE_CLOSED_AFTER_HOURS` without inversion | V2-15 |
+| C-31 | New settings never reach n8n | both compose files pass variables one by one; the server's compose is hand-maintained | `$env.X` is undefined in production | Definition of done includes both compose files, the examples, `check-env.js`, `ENVIRONMENT.md` and the server | every task that adds a variable |
+| C-32 | A reopened closed row stays hidden | filter hides closed rows | A returning customer waits unseen | Workflow 3 re-applies the filter on reopen | V2-15 |
+| C-33 | `onEdit` stamping vs protection | protected system block | The stamp fails for the agent | n8n stamps `closed_at` | V2-15 |
+| C-34 | Prototype contradiction | F9 deletes from the archive; rule 4 forbids it | — | Keep archive rows; mark `restored_at` | V2-42 |
+| C-35 | Failed sends write Messages rows with an empty id | wf7 "Record Sent Reply" (`dedupe_key` = `message:`) | Colliding dedupe keys | No Messages row for a blocked send; a failed send gets `failed:<conversation_id>:<time>` | V2-20 |
 
 ---
 
 ## 6. What is verified and what needs a spike
 
-The facts below were read from the code on `main` and are not assumptions:
-appends are positional and `RAW` with `INSERT_ROWS`; updates are by name; wf7
-writes by `row_number`; wf3 sorts the whole tab; the capacity bug exists on
-`main`; the parser already extracts pricing; load is counted live from rows.
+### 6.1 Verified (read in the code or run on 21 September 2026)
 
-These behaviours are **not** verified. Spike task V2-10 settles each one on a
-throwaway spreadsheet before any dependent task starts.
+| Fact | Evidence |
+|---|---|
+| n8n update reads the key column, then writes only the mapped cells at the index it found | n8n 2.38.5 `GoogleSheet.ts` (`prepareDataForUpdateOrUpsert`, `batchUpdate`) |
+| n8n append computes the next row and writes there; the "Minimise API calls" option uses `values.append` without `INSERT_ROWS`; unmapped columns are filled with `''` | n8n 2.38.5 `append.operation.ts`, `GoogleSheet.ts` (`appendData`, `updateRows`) |
+| n8n read and update accept a header row and a first data row | `dataLocationOnSheet` (read), `locationDefine` (update) in the same source |
+| `appendViaApi()` is never called | search of `build-workflows.js` |
+| Workflow 8 runs every minute and deletes by `row_number` | its schedule rule and "Remove From Conversations" |
+| The token pair in workflow 3 only feeds the sort | its connections |
+| Timestamps carry the Asia/Amman offset | `time.js`, `metaTimestampToIso`, `TZ` in both compose files |
+| `crypto` is allowed in Code nodes | `NODE_FUNCTION_ALLOW_BUILTIN=crypto` |
+| Settings reach n8n only if listed in compose | both compose files |
+| `e5fdaec` cherry-picks cleanly; every gate passes after it except one stale check count in `TESTING.md` | trial on a detached copy of `main`, then discarded |
+| Tests are discovered as `*.test.js` under `tests/` | `tests/run-tests.js` |
+
+### 6.2 Spikes (V2-10, on a throwaway spreadsheet)
 
 | Spike | Question | If yes | Fallback if no |
 |---|---|---|---|
-| S1 | Can n8n's Google Sheets node (v4) read, update and append with header row 1 and first data row 3, and accept an expression as the tab name? | Two-row header (keys hidden, labels visible) and localised tab names | Keep one English header row, with Arabic labels as cell notes, and English tab titles |
-| S2 | Does `values.append` with `null` in a position leave that cell empty, so an `ARRAYFORMULA` in the header can spill into the new row? | Derived columns sit next to the data they describe | Derived columns move to the far right of the table |
-| S3 | Does a basic filter re-hide a row automatically when an edit makes it fail the criteria? And do filter views re-sort newly appended rows? | No reconciliation needed | Re-apply the filter on close (onEdit and n8n). The view is re-opened to re-sort |
-| S4 | Does `SpreadsheetApp.getUi().alert` work inside a simple `onEdit` on desktop, and does `toast` work in all browsers? | Alert on a closed-window reply | Toast only, plus the status the n8n guard writes |
-| S5 | Does the Sheets mobile app show filter views and respect the basic filter? | Same views on mobile | Mobile users rely on the main filter only; this is documented |
-| S6 | Inside a Click-to-WhatsApp 72-hour window, does Meta accept free-form text after 24 hours? | Guard uses 72 hours when the case started from an ad | Guard stays at 24 hours (the safe default) |
+| S1 | Does a Sheets node accept an expression as the tab name, and do reads and updates behave with keys in row 1 and labels in row 2 (hidden row 1)? | Two header rows, localised tab names | One English header row with Arabic notes; English tab titles |
+| S2 | With derived columns bounded to the data rows, does an API append with `null` in their positions land directly below the last row and let the formula extend? | Derived columns next to the data they describe | Derived columns at the far right, or computed on a hidden tab |
+| S3 | Does a basic filter re-hide a row when an edit makes it fail? Does a sort inside a filter view leave the underlying order, as the API sees it, unchanged? | No re-apply needed; views are safe | Re-apply the filter on close and reopen (planned anyway); document "re-open the view to re-sort" |
+| S4 | Does `getUi().alert` work inside a simple `onEdit` on desktop? | Alert on a closed-window reply | Toast only |
+| S5 | Does the Sheets mobile app show filter views and respect the basic filter? | Same views on mobile | Mobile relies on the main filter; documented |
+| S6 | Inside a Click-to-WhatsApp 72-hour window, does Meta accept free-form text after 24 hours? | Guard uses 72 hours for ad-started cases | Guard stays at 24 hours |
+| S7 | Does enforced protection of the system and derived columns (editors: owner and service account) stop agents from sorting the tab and deleting rows, while they can still edit the visible block and use filter views? | Rules 5 and 6 are enforced, not just asked for | Warning-only protection; the residual risk is documented |
+| S8 | After 1 October: do status webhooks mark free-tier service messages with `billable: false`? | Billing counts use `billable` directly | Count service messages and subtract the free tier in the formula |
 
-The results are written back into this table (verified: yes/no, date,
-evidence) as part of V2-10.
+S1 to S7 are answered before Phase 3 starts. S8 is an observation task (O6).
+The results are written back into this table with the date and the evidence.
 
 ---
 
@@ -424,306 +519,367 @@ evidence) as part of V2-10.
 
 ### 7.1 Conventions
 
-- Branch `v2`, created from `main` with `git worktree add`, never by switching
-  branches in the shared checkout. The WAHA branch is not touched.
-- **One commit per task**, with a plain message and no tool attribution
-  trailer. No pull request, per the owner's instruction. `main` receives V2
-  only when the owner decides.
-- Workflow JSON is only ever produced by `build-workflows.js`. Hand edits are
+- **Branch: `plan-v2`**, the new branch that holds this plan. Work happens in
+  a `git worktree`, never by switching branches in the shared checkout. `main`
+  and the WAHA branch are not touched. No pull request. `main` receives V2 only
+  when the owner decides.
+- **One commit per task**, with a plain message and no tool attribution.
+- Workflow JSON is produced only by `build-workflows.js`. Hand edits are
   overwritten, which has already happened once on this project.
-- Every task ends with the five gates in [section 8.1](#81-gates-for-every-task).
-  A task that changes workflow behaviour also runs its live scenario from
-  [section 8.2](#82-end-to-end-acceptance-scenarios) against a test spreadsheet,
-  never the client's.
-- Sizes: **S** is under half a day, **M** is one to two days, **L** is three days or more.
+- **Definition of done for every task:**
+  1. The five gates in [8.1](#81-gates-for-every-task) pass.
+  2. A task that changes behaviour runs its live scenario from
+     [8.2](#82-end-to-end-acceptance-scenarios) against the **test**
+     spreadsheet, never a client's.
+  3. A new setting is added to `.env.example`, `.env.prod.example`, both
+     compose files, `check-env.js` and `ENVIRONMENT.md`, and is noted for the
+     server's hand-maintained compose file.
+  4. A new script is mentioned in the docs (the docs checker requires it). A new
+     tab is added to the docs checker's tab list and to the schema document.
+- Sizes: **S** under half a day, **M** one to two days, **L** three days or more.
 
-### 7.2 Phase 0 — make the base safe (live defects on `main`)
+### 7.2 Before the first task
+
+- Docker Desktop running and the local stack up (`docker compose up -d`). It
+  was not running when this plan was reviewed.
+- A dedicated **test** spreadsheet in `.env` (`GOOGLE_SHEET_ID`), shared with
+  the service account as editor.
+- Meta test number and token in `.env`, and a tunnel for webhooks
+  (`docs/SETUP.md`).
+- For O1: the Coexistence-linked number and the Business app on a phone.
+
+### 7.3 Phase 0 — live defects on `main`
 
 These ship first, because every later phase builds on the paths they fix.
 
-**V2-01 · Port the capacity fix** · S · risk low · depends on nothing
-- Files: `scripts/setup/build-workflows.js`, workflows 03 and 05 (regenerated), `docs/N8N_WORKFLOWS.md`.
-- Do: `git cherry-pick -n e5fdaec`, resolve against `main`, regenerate, commit
-  with our own message (C-25). This adds the "Agent Assigned?" IF in front of
-  "Increment Agent Load", and `executeOnce` on Read Agents in workflows 3 and 5.
+**V2-01 · Concurrency-safe appends everywhere** · M · risk medium
+- Files: `build-workflows.js` (every Sheets-node append becomes
+  `appendViaApi`; the Sign/Get token pair runs before the first append in each
+  workflow that appends), `validate-workflows.js`, `docs/ARCHITECTURE.md`
+  (known limitation closed), `CHANGELOG.md`.
+- Rows are built in CSV column order from the existing column maps, with
+  `null` for anything the node did not mean to write.
+- Test: a validator rule that no Google Sheets node uses `operation: 'append'`,
+  and a unit test that every generated row array has the CSV's length.
+  **Live: `verify-burst.js` passes** (E3), and `verify-live.js` still passes.
+
+**V2-02 · Port the capacity fix** · S · risk low · after V2-01
+- Do: `git cherry-pick -n e5fdaec` (verified clean), regenerate, update the
+  workflow check count in `docs/TESTING.md` (504 → 508, or whatever
+  `validate-workflows.js` reports after V2-01), commit with our own message
+  (C-25). This adds "Agent Assigned?" in front of "Increment Agent Load", and
+  `executeOnce` on Read Agents in workflows 3 and 5.
 - Test: a validator rule that "Increment Agent Load" is reachable only through
-  the true branch of "Agent Assigned?". Live: `scenario-multi-agent.js` with
-  every agent at capacity gives a `WAITING_FOR_AGENT` row and no failed execution.
+  the true branch. Live: `scenario-multi-agent.js` with every agent at capacity
+  (E2).
 
-**V2-02 · Remove the full-tab sort** · S · risk low · depends on V2-01
-- Files: `build-workflows.js` (wf3: remove "Sort Newest First", and "Read Tab
-  Ids" if nothing else uses it; keep "Get Sheets Token", which appends need),
-  `apply-sheet-layout.js` (add a "Newest first" filter view now, so people
-  do not lose the ordering), `docs/OPERATING_GUIDE.md`.
-- Test: a validator rule that no workflow sends `sortRange` or `moveDimension`
-  to Conversations. Live: two new conversations are appended at the bottom, and
-  the view shows them first.
+**V2-03 · Remove the full-tab sort** · S · risk low · after V2-01
+- Files: `build-workflows.js` (wf3: remove "Build Sort Request", "Read Tab Ids",
+  "Build Sort Range", "Sort Newest First"; keep the token pair, which the
+  appends now use), `apply-sheet-layout.js` (a "Newest first" filter view now,
+  so people keep the ordering), `docs/OPERATING_GUIDE.md`.
+- Test: a validator rule that no workflow sends `sortRange` or `moveDimension`.
+  Live: new rows land at the bottom; the view shows them first.
 
-**V2-03 · Key reply writes on `conversation_id`** · M · risk medium · depends on V2-02
+**V2-04 · Key reply writes on `conversation_id`** · M · risk medium · after V2-03
 - Files: `build-workflows.js` (wf7), `docs/GOOGLE_SHEETS_SCHEMA.md`.
-- Do: "Find Pending Replies" emits a claim item for each hand-typed row (a
-  phone, no id). A new "Claim Manual Row" node writes the minted
-  `conversation_id` by `row_number`. It is the only `row_number` write left,
-  and it is safe because, after V2-02, rows do not move during the day.
-  "Clear Cell And Record Outcome" and "Mark Invalid Reply" then match on
-  `conversation_id`. Invalid hand-typed rows are claimed too, so the error can
-  be recorded.
-- Test: a validator rule that no Conversations update matches on `row_number`
-  except "Claim Manual Row". Unit tests for the claim and send split. Live
-  scenario E19.
+- Do: "Find Pending Replies" emits a claim for each hand-typed row (a phone, no
+  id). "Claim Manual Row" writes the minted id by `row_number`, the only
+  `row_number` write left. Every other write matches `conversation_id`.
+  Invalid hand-typed rows are claimed too, so their error can be recorded.
+- Residual risk: until V2-15, workflow 8 still deletes during the day, so a
+  claim can in rare cases race a delete. This is documented and closed by V2-15.
+- Test: a validator rule that no Conversations update matches `row_number`
+  except "Claim Manual Row". Unit tests for the claim/send split.
 
-**V2-04 · Safe nightly delete** · M · risk medium · depends on V2-02
-- Files: new `scripts/lib/rows.js`, `build-workflows.js` (wf8), `scripts/testing/verify-archive.js`, `tests/`.
-- Do: `planDeletes(idColumnValues, idsToDelete)` returns `deleteDimension`
-  requests sorted from the bottom up. wf8 re-reads only the `conversation_id`
-  column right before deleting, sends one `batchUpdate`, then re-reads the ids.
-  An archived id still present is logged. A non-archived id that is missing is
-  re-appended from the snapshot and logged at `ERROR`.
-- Test: unit tests (bottom-up order, unknown ids, duplicate ids, a gap in the
-  column). `verify-archive.js` compares the full before and after snapshots:
-  only the archived ids differ.
+**V2-05 · One deleter, verified deletes** · M · risk medium · after V2-01
+- Files: new `scripts/lib/rows.js`, `build-workflows.js` (wf8),
+  `sheets-templates/SheetTools.gs` (the installable trigger no longer deletes;
+  it only shows a toast), `scripts/testing/verify-archive.js`, tests.
+- Do: `planDeletes(idColumn, idsToDelete)` returns `deleteDimension` requests
+  from the bottom up. Workflow 8 re-reads only the `conversation_id` column
+  right before deleting, reads the tab id (the node moved from workflow 3),
+  sends **one** `batchUpdate`, then re-reads the ids. An archived id still
+  present is logged. A non-archived id that went missing is re-appended from
+  the snapshot and logged at `ERROR`.
+- Test: unit tests (order, unknown ids, duplicate ids, gaps).
+  `verify-archive.js` compares full snapshots before and after: only the
+  archived ids differ.
 
-### 7.3 Phase 1 — foundations (no visible change)
+### 7.4 Phase 1 — foundations
 
-**V2-10 · Spikes S1–S6** · M · risk none (throwaway sheet) · depends on nothing
-- Files: new `scripts/testing/spike-v2.js`, a temporary n8n test workflow (not
-  committed), updates to [section 6](#6-what-is-verified-and-what-needs-a-spike).
-- Gate: Phase 3 does not start until S1–S3 are answered. Each "no" switches the
-  affected tasks to their fallback before work begins.
+**V2-10 · Spikes S1–S7** · M · risk none
+- Files: new `scripts/testing/spike-v2.js` (documented in `TESTING.md`), a
+  temporary n8n workflow (not committed), and results written into
+  [6.2](#62-spikes-v2-10-on-a-throwaway-spreadsheet).
+- Gate: Phase 3 waits for S1, S2, S3 and S7. Each "no" switches the affected
+  tasks to their fallback first.
 
-**V2-11 · Label layer** · S · risk low · depends on nothing
-- Files: new `scripts/lib/labels.js`, `tests/labels/`, `check-env.js` (`SHEET_LANGUAGE`).
-- Do: packs `en` and `ar` for status, outcome, stage, via, window and tab names.
-  `toCode(value)` accepts a code or any label (trimmed; case-insensitive for
-  English). `toLabel(code, lang)`. `tabName(key, lang)`.
+**V2-11 · Label layer** · S · risk low
+- Files: new `scripts/lib/labels.js`, `tests/labels/*.test.js`, `check-env.js`
+  (`SHEET_LANGUAGE`).
+- Do: `en` and `ar` packs for everything in 4.3 and every tab name.
+  `toCode(field, value)` accepts a code, any label, or a read alias
+  (`ARCHIVED`). `toLabel(field, code, lang)`. `tabName(key, lang)`.
 - Test: round trip for every code in every pack; every status in
-  `CONVERSATION_STATUSES` has a label in every pack; unknown values return
-  `null` with a reason; no two codes share a label.
+  `CONVERSATION_STATUSES` has labels; no two codes share a label; unknown values
+  return `null` with a reason.
 
-**V2-12 · Normalise on read, label on write** · M · risk medium · depends on V2-11
-- Files: `scripts/lib/conversation.js`, `build-workflows.js` (wf3, wf5, wf7, wf8
-  Code nodes; the column maps), `validate-workflows.js`, tests.
+**V2-12 · Normalise on read, label on write** · M · risk medium · after V2-11
+- Files: `conversation.js`, `build-workflows.js`, `validate-workflows.js`, tests.
 - Do: `normalizeConversationRow(row)` runs right after every Conversations read
-  (status and outcome to codes, booleans, trimmed ids). The column maps convert
-  codes to labels for the chosen language on write.
-- Test: re-run the existing conversation and assignment suites with Arabic
-  fixtures and English fixtures; the decisions must be identical. A validator
-  rule: every Code node that consumes a Conversations read calls the normaliser.
+  in workflows 3, 5, 7 and 8. The Code nodes that build `write_row` or result
+  fields convert codes to labels at the end. Literal values inside Sheets nodes
+  (such as `reply_status: 'FAILED'`) come from a generator helper that emits a
+  language-aware expression, never a raw string.
+- Test: the conversation and assignment suites run with English and Arabic
+  fixtures and must decide identically (E20). Validator rules: every Code node
+  consuming a Conversations read calls the normaliser; no raw status literal in
+  a Sheets node.
 
-**V2-13 · Derived columns and write safety** · M · risk medium · depends on V2-10 (S2)
-- Files: `sheets-templates/SetupSheet.gs` (`DERIVED_COLUMNS`), the CSV
-  templates, `build-workflows.js` (`null` for derived positions in
-  `appendViaApi` rows), `check-schema-consistency.js`, `apply-sheet-layout.js`.
-- Do: `last_customer_dt`, `first_message_dt`, `last_activity_dt` parse the
-  local part of the ISO text into real dates. `window_state` and
-  `waiting_hours` build on them. Each is an `ARRAYFORMULA` in its header cell.
-- Test: the schema checker fails if any workflow maps a derived column, or if
-  any write path uses `USER_ENTERED` on customer data (C-18). A formula fixture
-  test: known timestamps give the expected window and hours.
+**V2-13 · Derived columns and write safety** · M · risk medium · after V2-10 (S2)
+- Files: CSV templates, `SetupSheet.gs` schema (`DERIVED_COLUMNS`),
+  `build-workflows.js` (`null` in derived positions),
+  `check-schema-consistency.js`, `apply-sheet-layout.js`.
+- Do: bounded `ARRAYFORMULA`s for the derived columns in 4.2. The dates are
+  converted from each value's stored offset to the sheet's zone, using the
+  System tab's offset cell.
+- Test: the checker fails if a workflow maps a derived column, or if a data
+  write uses `USER_ENTERED`. A formula fixture: known timestamps give the
+  expected window, hours and dates.
 
-**V2-14 · Window rule** · S · risk low · depends on nothing
+**V2-14 · Window rule** · S · risk low
 - Files: new `scripts/lib/window.js`, tests.
-- Test: boundaries at 23h59m (open) and 24h00m (closed); a missing timestamp is
-  closed; the `+03:00` offset parses; hours left rounds down.
+- Test: 23h59m open, 24h00m closed, missing timestamp closed, `+03:00` and `Z`
+  both parse, hours left rounds down.
 
-### 7.4 Phase 2 — the 24-hour window and cost (time-critical, 1 October)
+**V2-15 · Hide on close; delete only at night** · M · risk medium · after V2-05, V2-12, V2-10 (S3)
+- Files: `build-workflows.js` (wf7, wf3, wf8), `apply-sheet-layout.js` (main
+  filter), `SheetTools.gs` (`onEdit` re-applies the filter), env files.
+- Do:
+  - The main filter hides closed rows.
+  - Workflow 7's minute poll stamps `closed_at` on closed rows that lack it
+    (keyed by id) and re-applies the filter when it stamped something.
+  - Workflow 3 re-applies the filter when it reopens a closed row (C-32).
+  - Workflow 8 keeps an hourly trigger but acts only in `ARCHIVE_HOUR`
+    (default 3, Asia/Amman). It archives closed rows older than
+    `ARCHIVE_CLOSED_AFTER_HOURS` (default 0: all of them). `ARCHIVE_AFTER_DAYS=0`
+    still disables archiving. An upgraded install with only
+    `ARCHIVE_AFTER_DAYS=N` keeps N days until the owner opts in (C-30).
+  - `ARCHIVED` in old rows is read as `CLOSED`.
+- Test: E10, E11, E12, E13, E24, E25.
 
-**V2-20 · Server-side window guard** · M · risk medium · depends on V2-03, V2-14
-- Files: `build-workflows.js` (wf7, wf4), `labels.js` (a `WINDOW_CLOSED` reply status), tests.
-- Do: before a free-form send, call `windowState`. When the window is closed,
-  make no API call, set the reply status to window-closed with a hint to use a
-  template, **keep the text**, and write `reply_blocked_hash`. Rows whose text
-  hash still matches are skipped (C-16). Meta error 131047 maps to the same
-  state (C-15).
-- Test: unit tests for the decision; live scenario E6 (the execution shows no
-  HTTP call); E5 still sends.
+### 7.5 Phase 2 — the 24-hour window and cost (time-critical, 1 October)
 
-**V2-21 · Templates on explicit request** · M · risk medium · depends on V2-20, O2
-- Files: `build-workflows.js` (wf7 template body), a new marker parser in
-  `scripts/lib/`, `check-env.js` (`WHATSAPP_TEMPLATES`, JSON with name,
-  language, category and parameters), `docs/ENVIRONMENT.md`.
+**V2-20 · Server-side window guard** · M · risk medium · after V2-04, V2-11, V2-14
+- Files: `build-workflows.js` (wf7, wf4), tests.
+- Do: before a free-form send, call `windowState`. When it is closed:
+  - make no API call;
+  - set `reply_status` to window-closed with a hint to use a template;
+  - keep the text;
+  - write `reply_blocked_hash` (a `crypto` hash of the text and the reason);
+  - write no Messages row.
+
+  Rows whose hash still matches are skipped. Meta error 131047 maps to the
+  same state. A failed API send keeps its Messages row, with the dedupe key
+  `failed:<conversation_id>:<time>` (C-35).
+- Test: unit tests for the decision; E5, E6, E19.
+
+**V2-21 · Templates on explicit request** · M · risk medium · after V2-20; live test needs O2
+- Files: `build-workflows.js` (template body; WAHA path refuses with a clear
+  error), a marker parser in `scripts/lib/`, `check-env.js`
+  (`WHATSAPP_TEMPLATES`: JSON with name, language, category and parameters).
 - Do: `[TEMPLATE] name` or `[قالب] name` is looked up in the allow-list and
-  sent as a Cloud API template, with the body parameters filled from the row
-  (for example the customer name). An unknown name fails as invalid with no API
-  call. The WAHA path refuses templates with a clear error.
+  sent as a Cloud API template, with body parameters filled from the row. An
+  unknown name fails as invalid with no API call.
 - Test: parser (spacing, case, the Arabic alias, extra text), body builder,
-  allow-list; live scenarios E7 and E8.
+  allow-list; E7, E8.
 
-**V2-22 · Reply method** · S · risk low · depends on V2-12
-- Files: `build-workflows.js` (wf2 echo path → APP, wf7 → SHEET or TEMPLATE,
-  wf4 → API), CSV templates, schema documentation.
-- Test: fixture echo → APP; each send path writes its own value.
+**V2-22 · Reply method and first reply** · S · risk low · after V2-12
+- Files: `build-workflows.js` (wf2 echo → `APP`, wf7 → `SHEET` or `TEMPLATE`,
+  wf4 → `API`), CSV templates, schema docs.
+- Do: every outbound path sets `last_reply_via`, and sets `first_reply_at` if
+  it is empty.
+- Test: fixtures for each path; `first_reply_at` is never overwritten.
 
-**V2-23 · Pricing capture** · S · risk low · depends on nothing
-- Files: `sheets-templates/Messages.csv` (`pricing_category`, `billable`), wf2
-  "Update Message Status", fixtures with a `pricing` block, schema docs.
-- Test: a status fixture with pricing updates both fields; one without leaves them empty.
+**V2-23 · Pricing capture** · S · risk low · after V2-01
+- Files: `Messages.csv` (`pricing_category`, `billable`), wf2 "Update Message
+  Status", fixtures with a `pricing` block, schema docs.
+- Test: a status with pricing fills both fields; one without leaves them empty.
 
-**V2-24 · Dashboard: window and billing** · M · risk low · depends on V2-13, V2-22, V2-23
-- Files: `scripts/setup/build-dashboard.js`, Lists rate cells (a minimal Lists
-  tab if V2-32 is not done yet).
-- Test: a new unit test parses every generated formula and checks that each
-  referenced column exists in the templates; a live check on a fixture sheet
-  compares the counts with hand-computed values (E18).
+**V2-24 · Dashboard: window and billing** · M · risk low · after V2-13, V2-22, V2-23
+- Files: `build-dashboard.js`, minimal Lists rate cells (complete in V2-32).
+- Test: a unit test parses every generated formula and checks that each
+  referenced column exists; E18 against a fixture sheet.
 
-**V2-25 · Correct the pricing documents** · S · risk none · depends on nothing
+**V2-25 · Correct the pricing documents** · S · risk none
 - Files: `docs/COSTS.md`, `README.md`, `docs/CLIENT_ONBOARDING.md`.
-- Do: replace the flat $10.32 figure with the per-message model (section 1.2)
-  and add the client-pays rule and the service price.
+- Do: replace the flat $10.32 figure with the per-message model and its
+  caveat (1.2), and add the client-pays rule and the service price.
 
-### 7.5 Phase 3 — the Arabic working surface
+**Milestone M1 — target before 1 October:** V2-01 to V2-05, V2-11, V2-14,
+V2-20, V2-23, V2-25, and V2-21 if the template is approved in time. The
+must-have is V2-20: from 1 October a reply that silently fails costs a customer.
 
-Starts after V2-10 has answered S1–S3.
+### 7.6 Phase 3 — the Arabic working surface
 
-**V2-30 · Header rows and tab names** · L · risk high · depends on V2-10, V2-11, V2-12
+Starts after S1, S2, S3 and S7 are answered.
+
+**V2-30 · Header rows and tab names** · L · risk high · after V2-10, V2-12
 - Files: `apply-sheet-layout.js`, `build-workflows.js` (header options on every
-  Conversations, Agents and Archive node; `tabName()` everywhere, including the
-  `appendViaApi` URLs), `validate-workflows.js`.
-- Test: a validator rule that every sheet reference goes through `tabName()`,
-  and that every node on those tabs carries the header options. Full live
-  regression (E1–E5, E9, E19) in both `en` and `ar`.
+  Conversations, Agents and Archive read and update; `tabName()` in every tab
+  reference, API URLs included), `validate-workflows.js`.
+- Test: validator rules for both; full live regression (E1–E6, E9, E19) in `en`
+  and `ar`.
 
-**V2-31 · Column order and grouping** · M · risk medium · depends on V2-30
-- Files: CSV templates (new order), `SetupSheet.gs`, `apply-sheet-layout.js`
-  (column groups, widths, freeze).
-- Note: appends are positional, so CSV order equals sheet order. Reordering an
-  existing sheet happens only in the migration (V2-50), with workflows stopped.
+**V2-31 · Column order, grouping, Agents load** · M · risk medium · after V2-30
+- CSV order as in 4.2. Column groups, widths, freeze. On Agents,
+  `open_conversations` becomes a derived count, so nothing writes it any more.
+  "Increment Agent Load" writes only `last_assigned_at`, which the tie-breaker
+  uses.
 
-**V2-32 · Lists tab** · S · risk low · depends on V2-11
+**V2-32 · Lists tab** · S · risk low · after V2-11
 - Named ranges for status, stage, outcome, agents and template names; the rate
-  card; the free-tier size. Dropdown validation points at the named ranges.
+  card; the free-tier size; the first-reply SLA hours. Dropdowns point at them.
 
-**V2-33 · Start and System tabs** · S · risk low · depends on V2-11
-- The Start tab: how to work, the three reply paths, the seven rules, and what
-  each colour means, in the chosen language. The System tab: version, last
-  nightly run, last minute poll (a heartbeat written by n8n), protected.
+**V2-33 · Start and System tabs** · S · risk low · after V2-11
+- Start: how to work, the three reply paths, colours, the rules in 4.10. System:
+  version, script version, last nightly run, last poll (heartbeat written by
+  n8n), time-zone offset, tab health.
 
-**V2-34 · Formatting and protection** · S · risk low · depends on V2-31
-- Conditional colours for window, waiting hours and status; warning-only
-  protection on the system block; full protection on derived columns.
+**V2-34 · Formatting and protection** · S · risk low · after V2-31, S7
+- Colours for window, waiting hours and status. Protection for the system block
+  and derived columns as S7 decides.
 
-**V2-35 · Filter views** · M · risk low · depends on V2-31, V2-10 (S3, S5)
-- Per agent "My queue" (not closed, newest first); Newest first; Waiting over
-  an hour; Window closing within 4 hours; Closed today (for undo); Follow-ups
-  today. Built from the Agents tab and rebuilt from the menu. The main filter
-  hides closed rows.
+**V2-35 · Filter views** · M · risk low · after V2-31, S3, S5
+- Per agent "My queue" (not closed, newest first), Newest first, Waiting over an
+  hour, Window closing within 4 hours, Closed today (for undo), Follow-ups
+  today. Built from the Agents tab; rebuilt from the menu.
 
-**V2-36 · Dashboard layout and date fix** · M · risk low · depends on V2-13, V2-24
-- The full layout from section 4.7, filter cells, and every date formula moved
-  onto derived columns (fixes C-11).
+**V2-36 · Dashboard, full** · M · risk low · after V2-13, V2-24
+- The filter panel and every section in 4.7. Replaces `buildDashboard_` in Apps
+  Script as the only dashboard.
 
-**V2-37 · One Apps Script project** · M · risk medium · depends on V2-11, V2-30
+**V2-37 · One Apps Script project** · M · risk medium · after V2-11, V2-30
 - Files: `sheets-templates/Sheet.gs` (replaces `SetupSheet.gs` and
-  `SheetTools.gs`), a generated `sheets-templates/Labels.gs` (from `labels.js`;
-  `build-workflows.js --check` reports drift), a new test harness
+  `SheetTools.gs`); a generated `sheets-templates/Labels.gs` (from `labels.js`;
+  `build-workflows.js --check` reports drift); a new harness
   `tests/apps-script/` that runs the `.gs` files in Node's `vm` with a fake
   `SpreadsheetApp`.
-- Test: no duplicate top-level names across `.gs` files; `onEdit` on close
-  stamps `closed_at` and nothing else; `onEdit` never calls `deleteRow`,
-  `insertRow`, `moveRows` or `sort` (a static check); `getUi` failures are caught.
+- Test: no duplicate top-level names; no call to `deleteRow`, `insertRow`,
+  `moveRows`, `sort` or writes to system columns (static check); `getUi`
+  failures are caught; menu actions write only the columns in 4.9.
 
-### 7.6 Phase 4 — the case lifecycle
+### 7.7 Phase 4 — the case lifecycle
 
-**V2-40 · Case code** · S · risk low · depends on V2-12
+**V2-40 · Case code** · S · risk low · after V2-12
 - `C-` plus the last six base-36 digits of the creation time in milliseconds,
-  minted in `buildNewConversationRow`. Documented as display-only, not unique by
-  contract.
+  minted in `buildNewConversationRow`. Display-only, not unique by contract.
 
-**V2-41 · Stage, outcome, value** · S · risk low · depends on V2-32
-- Human-owned columns and dropdowns. Closing without an outcome is allowed but
-  warned about, and is archived as "not recorded" (decision D3).
+**V2-41 · Stage and outcome** · S · risk low · after V2-32
+- Stage dropdown. Outcome: a human override, or derived at archive time (4.4).
+  The nightly fold archives losers with `DUPLICATE`.
 
-**V2-42 · Hide on close, stamp from mobile** · M · risk medium · depends on V2-37, V2-10 (S3)
-- `onEdit` stamps `closed_at` and re-applies the main filter. wf7's minute poll
-  stamps `closed_at` on closed rows that lack it (the mobile case), keyed by
-  `conversation_id`, and re-applies the filter only when it stamped something.
-- Test: live scenarios E10 and E11.
+**V2-42 · Restore from the Archive** · M · risk medium · after V2-15
+- Archive columns `restore_requested`, `restored_at` and `archive_id` sit first
+  (A to C), so the minute poll reads just `A3:C` through the API. A ticked row
+  that is not yet restored is appended to Conversations with the reopen
+  transition, and `restored_at` is written by `archive_id`. Both checkers are
+  updated (C-22).
+- Test: E15; ticking twice restores once.
 
-**V2-43 · Nightly archive of every closed row** · M · risk medium · depends on V2-04
-- `ARCHIVE_CLOSED_AFTER_HOURS` (default 0) replaces `ARCHIVE_AFTER_DAYS`, which
-  is still read as a fallback so existing `.env` files keep working. Order:
-  fold duplicates, copy to Archive with a minted `archive_id`, upsert
-  `Customers`, delete (V2-04). The Archive gains `archive_id`,
-  `restore_requested` and `restored_at`; both checkers are updated in the same
-  commit (C-22).
+**V2-43 · Customers tab and returning customers** · M · risk low · after V2-15, V2-40
+- Workflow 8 upserts `Customers` (phone, name, last case, last conversation id,
+  last closed time, last outcome, case count) during the nightly run. Workflow
+  3's create path looks the phone up and fills the name if WhatsApp gave none,
+  plus `previous_case_code` and a note.
+- Test: unit tests; E13, E14.
 
-**V2-44 · Restore from Archive** · M · risk medium · depends on V2-43
-- wf7 reads just the Archive columns `archive_id`, `restore_requested` and
-  `restored_at` each minute. A ticked row that is not yet restored is appended
-  to Conversations (the reopen transition) and gets `restored_at`, keyed by
-  `archive_id`. The Archive row stays.
-- Test: live scenario E15. Restoring twice in a row appends once.
+**V2-44 · Follow-ups tab** · S · risk low · after V2-13, V2-35
+- The read-only list with links, "after the window closes" flags, and the
+  dashboard counts.
 
-**V2-45 · Returning customer** · M · risk low · depends on V2-43, V2-40
-- wf3's create path looks up `Customers` by phone and fills
-  `previous_case_code` plus a note. The reopen path is unchanged.
-- Test: unit tests in the conversation suite; live scenarios E13 and E14.
+**V2-45 · Duplicates visible during the day** · S · risk low · after V2-36
+- A dashboard count of open rows sharing a phone and business number.
 
-**V2-46 · Follow-ups** · S · risk low · depends on V2-13, V2-35
-- The FollowUps tab (read-only formula with links), flags for "after the window
-  closes", and dashboard counts.
+**V2-46 · Reassignment by name** · S · risk low · after V2-12
+- The minute poll reads Agents. Where `assigned_agent_name` names a different
+  agent than `assigned_agent_id`, it rewrites the id (keyed by
+  `conversation_id`). A human choice overrides capacity.
+- Test: E22.
 
-**V2-47 · Duplicates visible during the day** · S · risk low · depends on V2-36
-- A dashboard count of open rows sharing a phone and business number. The fold
-  itself stays nightly (V2-43).
+**V2-47 · Morning follow-up list (optional)** · S · risk low · after V2-44
+- An n8n schedule at `FOLLOWUP_DIGEST_HOUR` sends each agent their due list
+  through the Telegram Bot API (`TELEGRAM_BOT_TOKEN` in `.env`, an HTTP call
+  like the rest of the project) or by email. Agents get a `notify_chat_id`
+  column. It is off unless configured. It does not use WhatsApp, because a
+  message to an agent from the business number is business-initiated and paid.
+- Test: E23.
 
-### 7.7 Phase 5 — packaging, migration and docs
+### 7.8 Phase 5 — packaging, migration and docs
 
-**V2-50 · Migration tool** · L · risk high · depends on every earlier task
-- File: new `scripts/setup/migrate-v2.js`, with `--dry-run` as the default and
-  `--apply` to act. Steps: check that a manual copy of the spreadsheet exists
-  (the owner makes it with File → Make a copy; the service account has no Drive
-  scope), deactivate the workflows, add the new columns, move columns into the
-  V2 order, add derived formulas, translate stored codes to labels, create
-  Lists, Start, System and Customers, build the views and the dashboard,
-  re-import and activate the workflows, run the smoke test. Idempotent: a second
-  run changes nothing.
-- Test: run it on a copy of a V1 fixture sheet, then E21.
+**V2-50 · Migration tool** · L · risk high · after every earlier task
+- File: new `scripts/setup/migrate-v2.js`, dry run by default, `--apply` to act.
+- Steps:
+  1. Confirm the owner made a copy of the spreadsheet (File → Make a copy; the
+     service account has no Drive scope).
+  2. Deactivate the workflows.
+  3. Add the new columns, move columns into the V2 order, add the derived
+     formulas.
+  4. Translate stored codes to labels, and `ARCHIVED` to closed.
+  5. Create Lists, Start, System and Customers; build the views and the
+     dashboard.
+  6. Print the Apps Script steps (paste `Sheet.gs` and `Labels.gs`, run
+     `removeLegacyTriggers`).
+  7. Re-import and activate the workflows; run the smoke test.
 
-**V2-51 · Demo spreadsheet** · S · risk low · depends on V2-36
-- New `scripts/setup/seed-demo.js`: fills a separate spreadsheet with realistic
-  Arabic demo data (including closed-window cases waiting for a reply) for the
-  sales demo. It refuses to run on a sheet that already holds data unless
-  `--force` is given.
+  It is idempotent: a second run changes nothing.
+- Test: on a copy of a V1 fixture sheet, then E21.
 
-**V2-52 · Documentation** · M · risk none · depends on the features it describes
-- `GOOGLE_SHEETS_SCHEMA.md` (all tabs, all columns, derived columns, labels),
-  `OPERATING_GUIDE.md`, `ARCHITECTURE.md` (the lifecycle in section 4.4),
-  `N8N_WORKFLOWS.md`, `ENVIRONMENT.md` (`SHEET_LANGUAGE`, `WHATSAPP_TEMPLATES`,
-  `ARCHIVE_CLOSED_AFTER_HOURS`), `CLIENT_ONBOARDING.md`, `TROUBLESHOOTING.md`,
-  `CHANGELOG.md`, `README.md`.
+**V2-51 · Demo spreadsheet** · S · risk low · after V2-36
+- New `scripts/setup/seed-demo.js` fills a separate spreadsheet with realistic
+  Arabic demo data, closed-window cases included, for the sales demo. It
+  refuses a sheet that already holds data unless `--force` is given.
 
-**V2-53 · Release** · S · depends on V2-50 to V2-52
-- The full scenario table in section 8.2 on a fresh install and on a migrated
-  copy, then the tag `v2.0.0` on branch `v2`. Merging into `main` is the
-  owner's decision.
+**V2-52 · Documentation** · M · risk none
+- `GOOGLE_SHEETS_SCHEMA.md` (every tab, column, derived column and label),
+  `OPERATING_GUIDE.md`, `ARCHITECTURE.md` (lifecycle in 4.4; the append
+  limitation closed), `N8N_WORKFLOWS.md`, `ENVIRONMENT.md` (`SHEET_LANGUAGE`,
+  `WHATSAPP_TEMPLATES`, `ARCHIVE_HOUR`, `ARCHIVE_CLOSED_AFTER_HOURS`,
+  `FOLLOWUP_DIGEST_HOUR`, `TELEGRAM_BOT_TOKEN`), `TESTING.md`,
+  `CLIENT_ONBOARDING.md`, `TROUBLESHOOTING.md`, `CHANGELOG.md`, `README.md`.
 
-### 7.8 Track B — operations before 1 October 2026 (owner, no code)
+**V2-53 · Release** · S · after V2-50 to V2-52
+- The full scenario table on a fresh install and on a migrated copy, then the
+  tag `v2.0.0` on `plan-v2`. Merging into `main` is the owner's decision.
 
-| # | Task | Why now | Unblocks |
+### 7.9 Track B — operations (owner, no code)
+
+| # | Task | When | Unblocks |
 |---|---|---|---|
-| O1 | Send a reply from the Business app and check whether the echo or status webhooks carry `pricing_category` | Decides whether the app path is really free, which is the most important number in the pitch | V2-24 assumptions |
-| O2 | Submit the `followup_general` template for approval (Arabic, utility if Meta accepts it) | Approval takes hours to days | V2-21 live test |
-| O3 | Correct the published pricing (same as V2-25) | A wrong price in front of a client is a trust problem | — |
-| O4 | Add a payment method to the Meta test account | Service messages may stop without one after 1 October | Live tests |
-| O5 | Start business verification for the test account | Takes weeks, and is the only real launch blocker | Selling |
+| O1 | Send a reply from the Business app and check whether the echo or status webhooks carry `pricing_category` | before 1 Oct | Whether the app path is free, the key number in the pitch |
+| O2 | Submit `followup_general` for approval (Arabic; utility if Meta accepts it) | now; approval takes hours to days | V2-21 live test |
+| O3 | Correct published pricing (same as V2-25) | before 1 Oct | — |
+| O4 | Add a payment method to the Meta test account | before 1 Oct | Live tests after 1 Oct |
+| O5 | Start business verification for the test account | now; takes weeks | Selling |
+| O6 | Observe the first real status webhooks after 1 Oct (S8) | first week of Oct | Exact billing counts |
 
-### 7.9 Order and dependencies
+### 7.10 Order and dependencies
 
 ```
-Phase 0:  V2-01 -> V2-02 -> V2-03
-                        \-> V2-04
-Phase 1:  V2-10 (spikes)   V2-11 -> V2-12   V2-14   V2-13 (needs S2)
-Phase 2:  V2-20 (V2-03, V2-14) -> V2-21 (O2)   V2-22   V2-23   V2-24   V2-25
-Phase 3:  V2-30 (S1) -> V2-31 -> V2-34, V2-35 ; V2-32, V2-33 ; V2-36 ; V2-37
-Phase 4:  V2-40, V2-41 ; V2-42 (V2-37) ; V2-43 (V2-04) -> V2-44, V2-45 ; V2-46 ; V2-47
-Phase 5:  V2-50 -> V2-51, V2-52 -> V2-53
-Track B:  O1..O5 in parallel, starting now
+Phase 0:  V2-01 ─┬─> V2-02
+                 ├─> V2-03 ─> V2-04
+                 └─> V2-05
+Phase 1:  V2-10 (spikes)   V2-11 ─> V2-12   V2-14   V2-13 (S2)
+          V2-15 (V2-05, V2-12, S3)
+Phase 2:  V2-20 (V2-04, V2-11, V2-14) ─> V2-21 (O2)
+          V2-22 (V2-12)   V2-23 (V2-01)   V2-24 (V2-13, V2-22, V2-23)   V2-25
+Phase 3:  V2-30 (S1, V2-12) ─> V2-31 ─> V2-34 (S7), V2-35 (S3, S5)
+          V2-32, V2-33 (V2-11)   V2-36 (V2-13, V2-24)   V2-37 (V2-30)
+Phase 4:  V2-40, V2-41, V2-42 (V2-15), V2-43 (V2-15, V2-40), V2-44, V2-45, V2-46, V2-47
+Phase 5:  V2-50 ─> V2-51, V2-52 ─> V2-53
+Track B:  O1..O5 now; O6 after 1 October
 ```
-
-Phase 0 and Phase 2 can reach a client before the Arabic surface is finished.
-They fix live defects and the 1 October exposure without changing the sheet
-layout.
 
 ---
 
@@ -737,67 +893,75 @@ node scripts/setup/build-workflows.js --check
 node scripts/validation/validate-workflows.js
 node scripts/validation/check-schema-consistency.js
 node scripts/validation/check-docs.js
-node scripts/validation/check-env.js          # when .env keys change
+node scripts/validation/check-env.js          # when settings change
 ```
 
-New validator rules added by this plan (each in the task that needs it):
+New validator rules, each added by the task that needs it:
 
-| Rule | Added in |
+| Rule | Task |
 |---|---|
-| "Increment Agent Load" only behind "Agent Assigned?" = true | V2-01 |
-| No `sortRange` / `moveDimension` on Conversations | V2-02 |
-| No Conversations update matched on `row_number` except "Claim Manual Row" | V2-03 |
-| Every Conversations read is normalised before use | V2-12 |
-| No workflow maps a derived column; no `USER_ENTERED` on customer data | V2-13 |
-| Every tab reference goes through `tabName()` | V2-30 |
-| No duplicate top-level names in `.gs` files; `onEdit` never moves rows | V2-37 |
+| No Google Sheets node uses `append`; every generated row has the CSV's length | V2-01 |
+| "Increment Agent Load" only behind "Agent Assigned?" = true | V2-02 |
+| No `sortRange` / `moveDimension` anywhere | V2-03 |
+| No Conversations update matched on `row_number` except "Claim Manual Row" | V2-04 |
+| Workflow 8 deletes only through one `batchUpdate` built by `planDeletes` | V2-05 |
+| Every Conversations read is normalised; no raw status literal in a Sheets node | V2-12 |
+| No workflow maps a derived column; no `USER_ENTERED` on data | V2-13 |
+| Every tab reference goes through `tabName()`; header options on every read and update | V2-30 |
 | Every dashboard formula references existing columns | V2-24 |
+| No duplicate top-level names in `.gs`; Apps Script never moves rows or writes system columns | V2-37 |
 
 ### 8.2 End-to-end acceptance scenarios
 
-Run against a test spreadsheet with `scripts/testing/send-fixture.js` and the
-existing verify scripts. Each needs an observed result, not an assumed one.
+Run against the test spreadsheet with `send-fixture.js` and the verify
+scripts. Each needs an observed result, not an assumed one.
 
 | # | Scenario | Expected |
 |---|---|---|
-| E1 | New customer message | Row appended at the bottom, assigned, labels in the sheet language, case code set, window open |
+| E1 | New customer message | Row at the bottom, assigned, labels in the sheet language, case code, window open |
 | E2 | Every agent at capacity | `WAITING_FOR_AGENT` row, no failed execution; workflow 5 assigns later |
-| E3 | Burst of simultaneous first messages from different customers | One row each (existing `verify-burst.js`) |
-| E4 | Two simultaneous messages from one new customer | At most two rows; the dashboard shows a duplicate; the nightly run folds them |
-| E5 | Sheet reply inside the window | Sent, text cleared, reply method SHEET |
-| E6 | Sheet reply after 24 hours | No HTTP call, text kept, window-closed status, no repeat processing next minute |
-| E7 | Template marker with an approved name | Template sent; counted under its category |
+| E3 | Burst of simultaneous first messages from different customers | One row each; **`verify-burst.js` passes** |
+| E4 | Two simultaneous messages from one new customer | At most two rows; dashboard shows a duplicate; the nightly run folds them with outcome duplicate |
+| E5 | Sheet reply inside the window | Sent, text cleared, reply method SHEET, `first_reply_at` set once |
+| E6 | Sheet reply after 24 hours | No HTTP call, text kept, window-closed status, no Messages row, skipped on the next poll |
+| E7 | Template marker with an approved name | Template sent, counted under its category |
 | E8 | Template marker with an unknown name | Invalid, no HTTP call |
 | E9 | Reply from the Business app (Coexistence) | Echo recorded, reply method APP, status REPLIED |
-| E10 | Close with an outcome on desktop | `closed_at` stamped; row hidden for everyone within a minute |
-| E11 | Close from the mobile app | `closed_at` stamped by n8n within a minute; row hidden |
-| E12 | Nightly archive | Closed rows in Archive, Customers upserted, only those ids removed (snapshot diff) |
-| E13 | Customer returns before the nightly run | Same case reopens and is visible again |
-| E14 | Customer returns after archiving | New case with `previous_case_code` |
-| E15 | Restore ticked in Archive | Row back in Conversations, `restored_at` set, archive row kept, no double restore |
-| E16 | A person sorts the tab by hand during the day | No write lands on the wrong row, because every write is keyed by id (the residual in-flight window is documented) |
-| E17 | Dashboard longest wait | Matches a hand computation on fixture data (not 0) |
-| E18 | Dashboard billing | Counts equal a hand count of the Messages fixture |
-| E19 | Hand-typed new row with only a phone and a reply | Claimed, sent, then keyed by id |
+| E10 | Close on desktop | Hidden at once; `closed_at` stamped by n8n within a minute |
+| E11 | Close from the mobile app | Stamped and hidden within a minute |
+| E12 | Nightly archive | Closed rows in Archive, Customers upserted, only those ids removed (snapshot diff); nothing deleted outside `ARCHIVE_HOUR` |
+| E13 | Customer writes again before the nightly run | Same case reopens and becomes visible |
+| E14 | Customer writes again after archiving | New case with name, `previous_case_code` and a note |
+| E15 | Restore ticked in Archive | Row back, `restored_at` set, archive row kept, no double restore |
+| E16 | Someone tries to sort the tab or delete a row | Blocked by protection (S7 yes) or, if not, no write lands on the wrong row, because writes are keyed by id |
+| E17 | Dashboard longest wait | Matches a hand computation (not 0) |
+| E18 | Dashboard billing | Equals a hand count of the Messages fixture |
+| E19 | Hand-typed row for a new number | Plain text: blocked as window-closed and kept. Template marker: claimed, sent, then keyed by id |
 | E20 | Same fixtures with `SHEET_LANGUAGE=en` and `ar` | Identical decisions |
-| E21 | Migration of a V1 copy | Every V1 row readable, statuses translated, workflows green, a second run changes nothing |
+| E21 | Migration of a V1 copy | All V1 rows readable, statuses translated, workflows green; a second run changes nothing |
+| E22 | Agent name edited by hand | Within a minute `assigned_agent_id` matches; load and "My queue" agree |
+| E23 | Morning list (when configured) | Each agent receives only their due follow-ups |
+| E24 | A V1 row still marked `ARCHIVED` | Treated as closed: hidden, archived at night |
+| E25 | Customer writes to a hidden closed row | Row reopens and becomes visible without anyone touching the filter |
 
 ---
 
 ## 9. Upgrading an existing deployment
 
 1. Tag the current state (`git tag v1-final`) and export the workflows.
-2. The owner makes a copy of the spreadsheet (File → Make a copy). The copy is
-   the rollback.
-3. `node scripts/setup/migrate-v2.js` (dry run) and read the plan it prints.
-4. `node scripts/setup/migrate-v2.js --apply` outside business hours. It stops
+2. The owner makes a copy of the spreadsheet. The copy is the rollback.
+3. `node scripts/setup/migrate-v2.js` (dry run); read the plan it prints.
+4. Add the new settings to the server's compose file by hand. It is
+   maintained separately from the repository.
+5. `node scripts/setup/migrate-v2.js --apply` outside working hours. It stops
    the workflows first and restarts them last.
-5. Run the smoke scenarios E1, E5, E6, E10 and E12 on the live sheet with a
-   test number.
+6. Paste the new Apps Script files and run `removeLegacyTriggers` once.
+7. Smoke test with a test number: E1, E5, E6, E10, and E12 the next morning.
 
-Rollback: point `GOOGLE_SHEET_ID` at the copy, check out `v1-final`, re-import
-the workflows. Messages that arrived during the V2 window are in the Messages
-tab of the V2 sheet and can be replayed with `send-fixture.js`.
+Rollback: point `GOOGLE_SHEET_ID` back at the copy, check out `v1-final`, and
+re-import the workflows. V1 cannot read Arabic labels, so conversations that
+arrived during the V2 window are copied into the copy by hand. They are plain
+values in the V2 sheet, and the Messages tab has the full history.
 
 ---
 
@@ -808,9 +972,9 @@ tab of the V2 sheet and can be replayed with `send-fixture.js`.
 | AI replies | A paying client asks, and the grounding rules in `FUTURE_AI.md` are met |
 | Web inbox | Sheets limits bite (about 300 conversations a day), or agents must not see each other's rows |
 | WAHA in the paid product | Never for paying clients, unless Meta's terms change |
-| Postgres | Same trigger as the web inbox; see `GOOGLE_SHEETS_TO_POSTGRES.md` |
-| Other channels (Instagram, Messenger) | After the first paying clients |
-| Daily digest to agents | After V2. Messaging agents from the business number is business-initiated, so it needs a paid template; email is the likely channel |
+| Postgres | Same trigger as the web inbox (`GOOGLE_SHEETS_TO_POSTGRES.md`) |
+| Other channels | After the first paying clients |
+| Folding duplicates during the day | Needs compare-and-set, meaning a database |
 | Per-agent row privacy | Not possible in Google Sheets; needs the web inbox |
 
 ---
@@ -820,8 +984,9 @@ tab of the V2 sheet and can be replayed with `send-fixture.js`.
 | # | Decision | Recommendation |
 |---|---|---|
 | D1 | Default `SHEET_LANGUAGE` for new installs | `ar` for Jordanian clients; `en` stays the default for existing installs |
-| D2 | Nightly archive time | 03:00 Asia/Amman |
-| D3 | Can a case close without an outcome? | Yes, with a warning; archived as "not recorded" |
-| D4 | The stage list | The proposal in section 4.3, edited to match how the client sells |
+| D2 | Nightly archive hour | 03:00 Asia/Amman (`ARCHIVE_HOUR=3`) |
+| D3 | Can a case close without a stage or outcome? | Yes; the outcome is derived, "not recorded" if nothing fits |
+| D4 | The stage list | The prototype's five (4.3), edited to match how the client sells |
 | D5 | Template category for `followup_general` | Utility if Meta approves it; marketing costs about four times as much |
-| D6 | Whether the key row stays hidden or visible but narrow | Hidden; the layout tool can show it for debugging |
+| D6 | First-reply SLA for "value lost because late" | 2 hours, editable in Lists |
+| D7 | Morning list channel (V2-47) | Telegram (free, instant); email as the alternative |
