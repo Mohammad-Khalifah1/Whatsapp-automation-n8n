@@ -63,7 +63,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js, scripts/lib/phone.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ----- scripts/lib/phone.js -----\n/**\n * Phone number normalization to E.164.\n *\n * CANONICAL SOURCE. This file is unit-tested (tests/conversations/phone.test.js)\n * and injected verbatim into n8n Code nodes by scripts/setup/build-workflows.js.\n * Do not fork this logic inside a workflow — edit here and re-run the build.\n *\n * Storage rule: phone numbers are stored as E.164 WITHOUT the leading '+'\n * (digits only), matching the format Meta uses for `wa_id` / `from`.\n * The '+' form and the wa.me link are derived, never stored separately.\n *\n * Normalization rules (docs/ARCHITECTURE.md \"Phone Number Normalization\"):\n *   1. Strip all formatting: spaces, '-', '(', ')', '.', non-breaking spaces,\n *      and Arabic-Indic digits are transliterated to ASCII.\n *   2. '00' international prefix  -> dropped (00962... -> 962...)\n *   3. Leading '+'                -> dropped (+962... -> 962...)\n *   4. Leading '0' national form  -> '0' replaced with defaultCountryCode\n *                                    (0791234567 -> 962791234567)\n *   5. Already-E.164 digits       -> passed through unchanged\n *   6. Anything else is flagged AMBIGUOUS rather than silently rewritten.\n *\n * The function NEVER throws. Callers branch on `ok`.\n */\n\n\n/** E.164 permits at most 15 digits; ITU minimum in practice is ~7 (+ country code). */\nconst E164_MAX_DIGITS = 15;\nconst E164_MIN_DIGITS = 8;\n\n/** Arabic-Indic (٠-٩) and Eastern Arabic-Indic (۰-۹) digit transliteration. */\nconst ARABIC_DIGIT_MAP = {\n  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',\n  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',\n  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',\n  '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',\n};\n\n/**\n * Country-specific national-number length checks. Used ONLY to detect\n * ambiguity, never to rewrite a number. Extend as more markets are added.\n * `nsnLengths` = valid lengths of the national significant number\n * (i.e. what follows the country code).\n */\nconst COUNTRY_RULES = {\n  // Jordan: mobile NSN is 9 digits beginning with 7 (77/78/79 today).\n  '962': { nsnLengths: [9], mobilePrefixes: ['7'], name: 'Jordan' },\n};\n\nfunction transliterateDigits(str) {\n  let out = '';\n  for (const ch of str) {\n    out += Object.prototype.hasOwnProperty.call(ARABIC_DIGIT_MAP, ch)\n      ? ARABIC_DIGIT_MAP[ch]\n      : ch;\n  }\n  return out;\n}\n\n/**\n * @param {string} raw                 Phone number in any common format.\n * @param {object} [opts]\n * @param {string} [opts.defaultCountryCode='962']  Country code (no '+') used to\n *                                    expand national '0...' forms.\n * @returns {{\n *   ok: boolean,\n *   e164: string|null,          // digits only, no '+', e.g. '962791234567'\n *   e164Plus: string|null,      // '+962791234567'\n *   waLink: string|null,        // 'https://wa.me/962791234567'\n *   input: string,\n *   applied: string[],          // transformations applied, for audit\n *   ambiguous: boolean,\n *   reason: string|null         // machine-readable code when !ok or ambiguous\n * }}\n */\nfunction normalizePhone(raw, opts) {\n  const options = opts || {};\n  const defaultCountryCode = String(\n    options.defaultCountryCode || '962'\n  ).replace(/\\D/g, '');\n\n  const result = {\n    ok: false,\n    e164: null,\n    e164Plus: null,\n    waLink: null,\n    input: raw === undefined || raw === null ? '' : String(raw),\n    applied: [],\n    ambiguous: false,\n    reason: null,\n  };\n\n  if (raw === undefined || raw === null || String(raw).trim() === '') {\n    result.reason = 'EMPTY_INPUT';\n    return result;\n  }\n\n  let s = transliterateDigits(String(raw).trim());\n  if (s !== String(raw).trim()) result.applied.push('transliterated_arabic_digits');\n\n  // Reject clearly non-numeric input (letters imply this isn't a phone number).\n  if (/[A-Za-z]/.test(s)) {\n    result.reason = 'CONTAINS_LETTERS';\n    return result;\n  }\n\n  const hadPlus = s.startsWith('+');\n  // Strip every character that isn't a digit (spaces, -, (), ., etc.).\n  const digitsOnly = s.replace(/\\D/g, '');\n  if (digitsOnly.length !== s.length) result.applied.push('stripped_formatting');\n\n  if (digitsOnly === '') {\n    result.reason = 'NO_DIGITS';\n    return result;\n  }\n\n  let e164 = digitsOnly;\n\n  if (hadPlus) {\n    // '+CC...' is already E.164; nothing to infer.\n    result.applied.push('stripped_plus');\n  } else if (e164.startsWith('00')) {\n    // '00' is the international access prefix in most of the world.\n    e164 = e164.slice(2);\n    result.applied.push('stripped_00_idd_prefix');\n  } else if (e164.startsWith('0')) {\n    // National (trunk) format: replace the trunk '0' with the country code.\n    e164 = defaultCountryCode + e164.slice(1);\n    result.applied.push('national_to_e164:' + defaultCountryCode);\n  }\n\n  // Length sanity checks against E.164 bounds.\n  if (e164.length > E164_MAX_DIGITS) {\n    result.reason = 'TOO_LONG';\n    result.e164 = null;\n    return result;\n  }\n  if (e164.length < E164_MIN_DIGITS) {\n    result.reason = 'TOO_SHORT';\n    return result;\n  }\n\n  // Ambiguity detection — flag, don't rewrite.\n  const rule = COUNTRY_RULES[defaultCountryCode];\n  if (rule && !hadPlus && !digitsOnly.startsWith('00') && !digitsOnly.startsWith('0')) {\n    const startsWithCountryCode = e164.startsWith(defaultCountryCode);\n    if (!startsWithCountryCode) {\n      const looksLikeBareNsn =\n        rule.nsnLengths.indexOf(e164.length) !== -1 &&\n        rule.mobilePrefixes.some((p) => e164.startsWith(p));\n      if (looksLikeBareNsn) {\n        // e.g. '791234567' — probably Jordanian without the trunk 0, but we\n        // will not guess. Surface it and let the caller decide.\n        result.ambiguous = true;\n        result.reason = 'AMBIGUOUS_MISSING_COUNTRY_CODE';\n      } else {\n        // Some other country's E.164 number — legitimate, pass through.\n        result.applied.push('assumed_foreign_e164');\n      }\n    }\n  }\n\n  result.ok = true;\n  result.e164 = e164;\n  result.e164Plus = '+' + e164;\n  result.waLink = 'https://wa.me/' + e164;\n  return result;\n}\n\n/**\n * Build a wa.me deep link. Returns null rather than a malformed URL when the\n * input cannot be normalized — callers must handle null (never interpolate\n * an unvalidated number straight into a URL).\n */\nfunction buildWaLink(raw, opts) {\n  const n = normalizePhone(raw, opts);\n  return n.ok ? n.waLink : null;\n}\n\n/**\n * Convenience: strict variant that treats ambiguity as failure. Used on paths\n * where guessing wrong would message the wrong person (e.g. outbound sends).\n */\nfunction normalizePhoneStrict(raw, opts) {\n  const n = normalizePhone(raw, opts);\n  if (n.ambiguous) {\n    return Object.assign({}, n, { ok: false, e164: null, e164Plus: null, waLink: null });\n  }\n  return n;\n}\n\n// ===================== end generated block ================================\n\n// Accept a row with only a phone number and reply_text. Someone typing\n// a new row by hand to message a customer is a legitimate use, and\n// requiring a conversation_id silently ignored those rows entirely.\nconst rows = $input.all().map((i) => i.json)\n  .filter((r) => r && (r.conversation_id || r.customer_phone));\nconst defaultCountryCode = $env.DEFAULT_COUNTRY_CODE || '962';\n\n// A reply is pending when a human has typed into reply_text and the\n// system has not yet processed it. reply_status is the guard that\n// stops the same text being sent twice on the next poll.\nconst pending = [];\n\nfor (const row of rows) {\n  const text = (row.reply_text === undefined || row.reply_text === null) ? '' : String(row.reply_text).trim();\n  if (text === '') continue;\n\n  // reply_text being non-empty IS the instruction to send. The system\n  // clears the cell the moment the message goes out, so text sitting\n  // there always means \"not sent yet\" and nothing can be sent twice.\n  //\n  // reply_status is deliberately NOT a guard. It is an OUTCOME the\n  // system writes, and treating it as one meant that anyone who set it\n  // to SENT themselves - the obvious way to say \"send this\" - had\n  // their message silently dropped.\n\n  // Strict normalization: never message a number we had to guess.\n  const phone = normalizePhoneStrict(row.customer_phone, { defaultCountryCode });\n  if (!phone.ok) {\n    pending.push({ json: {\n      conversation_id: row.conversation_id,\n      row_number: row.row_number,\n      skip: true,\n      reply_status: 'FAILED',\n      reply_error: 'invalid_phone:' + (phone.reason || 'unknown'),\n      reply_text: text,\n    } });\n    continue;\n  }\n\n  if (text.length > 4096) {\n    pending.push({ json: {\n      conversation_id: row.conversation_id,\n      row_number: row.row_number,\n      skip: true,\n      reply_status: 'FAILED',\n      reply_error: 'text_too_long:' + text.length,\n      reply_text: text,\n    } });\n    continue;\n  }\n\n  // A hand-typed row has no id yet. Mint one so the outcome can be\n  // written back to that row, and so the message is recorded against\n  // a real conversation rather than floating free.\n  const convId = row.conversation_id ||\n    ('CONV-' + ($env.META_PHONE_NUMBER_ID || 'manual') + '-' + phone.e164 + '-' + Date.now());\n\n  pending.push({ json: {\n    conversation_id: convId,\n    is_manual: !row.conversation_id,\n    // Write the outcome back to the PHYSICAL row this text came from.\n    // conversation_id is blank on a hand-typed row, and two rows can\n    // hold the same phone, so neither is a safe key. n8n treats\n    // row_number as the row index itself.\n    row_number: row.row_number,\n    customer_phone: phone.e164,\n    to: phone.e164,\n    text,\n    skip: false,\n    // Carried so the outcome write can keep every column it does not\n    // mean to change.\n    source_row: row,\n    agent_id: row.assigned_agent_id || 'sheet',\n    agent_name: row.assigned_agent_name || '',\n    reply_text: text,\n  } });\n}\n\nconsole.log(JSON.stringify({\n  event: 'sheet_reply_scan',\n  scanned: rows.length,\n  pending: pending.length,\n}));\n\nreturn pending;"
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js, scripts/lib/phone.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ----- scripts/lib/phone.js -----\n/**\n * Phone number normalization to E.164.\n *\n * CANONICAL SOURCE. This file is unit-tested (tests/conversations/phone.test.js)\n * and injected verbatim into n8n Code nodes by scripts/setup/build-workflows.js.\n * Do not fork this logic inside a workflow — edit here and re-run the build.\n *\n * Storage rule: phone numbers are stored as E.164 WITHOUT the leading '+'\n * (digits only), matching the format Meta uses for `wa_id` / `from`.\n * The '+' form and the wa.me link are derived, never stored separately.\n *\n * Normalization rules (docs/ARCHITECTURE.md \"Phone Number Normalization\"):\n *   1. Strip all formatting: spaces, '-', '(', ')', '.', non-breaking spaces,\n *      and Arabic-Indic digits are transliterated to ASCII.\n *   2. '00' international prefix  -> dropped (00962... -> 962...)\n *   3. Leading '+'                -> dropped (+962... -> 962...)\n *   4. Leading '0' national form  -> '0' replaced with defaultCountryCode\n *                                    (0791234567 -> 962791234567)\n *   5. Already-E.164 digits       -> passed through unchanged\n *   6. Anything else is flagged AMBIGUOUS rather than silently rewritten.\n *\n * The function NEVER throws. Callers branch on `ok`.\n */\n\n\n/** E.164 permits at most 15 digits; ITU minimum in practice is ~7 (+ country code). */\nconst E164_MAX_DIGITS = 15;\nconst E164_MIN_DIGITS = 8;\n\n/** Arabic-Indic (٠-٩) and Eastern Arabic-Indic (۰-۹) digit transliteration. */\nconst ARABIC_DIGIT_MAP = {\n  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',\n  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',\n  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',\n  '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',\n};\n\n/**\n * Country-specific national-number length checks. Used ONLY to detect\n * ambiguity, never to rewrite a number. Extend as more markets are added.\n * `nsnLengths` = valid lengths of the national significant number\n * (i.e. what follows the country code).\n */\nconst COUNTRY_RULES = {\n  // Jordan: mobile NSN is 9 digits beginning with 7 (77/78/79 today).\n  '962': { nsnLengths: [9], mobilePrefixes: ['7'], name: 'Jordan' },\n};\n\nfunction transliterateDigits(str) {\n  let out = '';\n  for (const ch of str) {\n    out += Object.prototype.hasOwnProperty.call(ARABIC_DIGIT_MAP, ch)\n      ? ARABIC_DIGIT_MAP[ch]\n      : ch;\n  }\n  return out;\n}\n\n/**\n * @param {string} raw                 Phone number in any common format.\n * @param {object} [opts]\n * @param {string} [opts.defaultCountryCode='962']  Country code (no '+') used to\n *                                    expand national '0...' forms.\n * @returns {{\n *   ok: boolean,\n *   e164: string|null,          // digits only, no '+', e.g. '962791234567'\n *   e164Plus: string|null,      // '+962791234567'\n *   waLink: string|null,        // 'https://wa.me/962791234567'\n *   input: string,\n *   applied: string[],          // transformations applied, for audit\n *   ambiguous: boolean,\n *   reason: string|null         // machine-readable code when !ok or ambiguous\n * }}\n */\nfunction normalizePhone(raw, opts) {\n  const options = opts || {};\n  const defaultCountryCode = String(\n    options.defaultCountryCode || '962'\n  ).replace(/\\D/g, '');\n\n  const result = {\n    ok: false,\n    e164: null,\n    e164Plus: null,\n    waLink: null,\n    input: raw === undefined || raw === null ? '' : String(raw),\n    applied: [],\n    ambiguous: false,\n    reason: null,\n  };\n\n  if (raw === undefined || raw === null || String(raw).trim() === '') {\n    result.reason = 'EMPTY_INPUT';\n    return result;\n  }\n\n  let s = transliterateDigits(String(raw).trim());\n  if (s !== String(raw).trim()) result.applied.push('transliterated_arabic_digits');\n\n  // Reject clearly non-numeric input (letters imply this isn't a phone number).\n  if (/[A-Za-z]/.test(s)) {\n    result.reason = 'CONTAINS_LETTERS';\n    return result;\n  }\n\n  const hadPlus = s.startsWith('+');\n  // Strip every character that isn't a digit (spaces, -, (), ., etc.).\n  const digitsOnly = s.replace(/\\D/g, '');\n  if (digitsOnly.length !== s.length) result.applied.push('stripped_formatting');\n\n  if (digitsOnly === '') {\n    result.reason = 'NO_DIGITS';\n    return result;\n  }\n\n  let e164 = digitsOnly;\n\n  if (hadPlus) {\n    // '+CC...' is already E.164; nothing to infer.\n    result.applied.push('stripped_plus');\n  } else if (e164.startsWith('00')) {\n    // '00' is the international access prefix in most of the world.\n    e164 = e164.slice(2);\n    result.applied.push('stripped_00_idd_prefix');\n  } else if (e164.startsWith('0')) {\n    // National (trunk) format: replace the trunk '0' with the country code.\n    e164 = defaultCountryCode + e164.slice(1);\n    result.applied.push('national_to_e164:' + defaultCountryCode);\n  }\n\n  // Length sanity checks against E.164 bounds.\n  if (e164.length > E164_MAX_DIGITS) {\n    result.reason = 'TOO_LONG';\n    result.e164 = null;\n    return result;\n  }\n  if (e164.length < E164_MIN_DIGITS) {\n    result.reason = 'TOO_SHORT';\n    return result;\n  }\n\n  // Ambiguity detection — flag, don't rewrite.\n  const rule = COUNTRY_RULES[defaultCountryCode];\n  if (rule && !hadPlus && !digitsOnly.startsWith('00') && !digitsOnly.startsWith('0')) {\n    const startsWithCountryCode = e164.startsWith(defaultCountryCode);\n    if (!startsWithCountryCode) {\n      const looksLikeBareNsn =\n        rule.nsnLengths.indexOf(e164.length) !== -1 &&\n        rule.mobilePrefixes.some((p) => e164.startsWith(p));\n      if (looksLikeBareNsn) {\n        // e.g. '791234567' — probably Jordanian without the trunk 0, but we\n        // will not guess. Surface it and let the caller decide.\n        result.ambiguous = true;\n        result.reason = 'AMBIGUOUS_MISSING_COUNTRY_CODE';\n      } else {\n        // Some other country's E.164 number — legitimate, pass through.\n        result.applied.push('assumed_foreign_e164');\n      }\n    }\n  }\n\n  result.ok = true;\n  result.e164 = e164;\n  result.e164Plus = '+' + e164;\n  result.waLink = 'https://wa.me/' + e164;\n  return result;\n}\n\n/**\n * Build a wa.me deep link. Returns null rather than a malformed URL when the\n * input cannot be normalized — callers must handle null (never interpolate\n * an unvalidated number straight into a URL).\n */\nfunction buildWaLink(raw, opts) {\n  const n = normalizePhone(raw, opts);\n  return n.ok ? n.waLink : null;\n}\n\n/**\n * Convenience: strict variant that treats ambiguity as failure. Used on paths\n * where guessing wrong would message the wrong person (e.g. outbound sends).\n */\nfunction normalizePhoneStrict(raw, opts) {\n  const n = normalizePhone(raw, opts);\n  if (n.ambiguous) {\n    return Object.assign({}, n, { ok: false, e164: null, e164Plus: null, waLink: null });\n  }\n  return n;\n}\n\n// ===================== end generated block ================================\n\n// Accept a row with only a phone number and reply_text. Someone typing\n// a new row by hand to message a customer is a legitimate use, and\n// requiring a conversation_id silently ignored those rows entirely.\nconst rows = $input.all().map((i) => i.json)\n  .filter((r) => r && (r.conversation_id || r.customer_phone));\nconst defaultCountryCode = $env.DEFAULT_COUNTRY_CODE || '962';\n\n// A reply is pending when a human has typed into reply_text and the\n// system has not yet processed it. reply_status is the guard that\n// stops the same text being sent twice on the next poll.\nconst pending = [];\n\nfor (const row of rows) {\n  const text = (row.reply_text === undefined || row.reply_text === null) ? '' : String(row.reply_text).trim();\n  if (text === '') continue;\n\n  // reply_text being non-empty IS the instruction to send. The system\n  // clears the cell the moment the message goes out, so text sitting\n  // there always means \"not sent yet\" and nothing can be sent twice.\n  //\n  // reply_status is deliberately NOT a guard. It is an OUTCOME the\n  // system writes, and treating it as one meant that anyone who set it\n  // to SENT themselves - the obvious way to say \"send this\" - had\n  // their message silently dropped.\n\n  // Strict normalization: never message a number we had to guess.\n  const phone = normalizePhoneStrict(row.customer_phone, { defaultCountryCode });\n  if (!phone.ok) {\n    pending.push({ json: {\n      conversation_id: row.conversation_id,\n      is_manual: !row.conversation_id,\n      row_number: row.row_number,\n      skip: true,\n      reply_status: 'FAILED',\n      reply_error: 'invalid_phone:' + (phone.reason || 'unknown'),\n      reply_text: text,\n    } });\n    continue;\n  }\n\n  if (text.length > 4096) {\n    pending.push({ json: {\n      conversation_id: row.conversation_id,\n      is_manual: !row.conversation_id,\n      row_number: row.row_number,\n      skip: true,\n      reply_status: 'FAILED',\n      reply_error: 'text_too_long:' + text.length,\n      reply_text: text,\n    } });\n    continue;\n  }\n\n  // A hand-typed row has no id yet. Mint one so the outcome can be\n  // written back to that row, and so the message is recorded against\n  // a real conversation rather than floating free.\n  const convId = row.conversation_id ||\n    ('CONV-' + ($env.META_PHONE_NUMBER_ID || 'manual') + '-' + phone.e164 + '-' + Date.now());\n\n  pending.push({ json: {\n    conversation_id: convId,\n    // A row that already has an id is written back BY that id: a row\n    // number goes stale the moment anything above it moves. Only a\n    // hand-typed row, which has no id until this write gives it one, is\n    // addressed by row_number (the \"Claim Row\" nodes).\n    is_manual: !row.conversation_id,\n    row_number: row.row_number,\n    customer_phone: phone.e164,\n    to: phone.e164,\n    text,\n    skip: false,\n    // Carried so the outcome write can keep every column it does not\n    // mean to change.\n    source_row: row,\n    agent_id: row.assigned_agent_id || 'sheet',\n    agent_name: row.assigned_agent_name || '',\n    reply_text: text,\n  } });\n}\n\nconsole.log(JSON.stringify({\n  event: 'sheet_reply_scan',\n  scanned: rows.length,\n  pending: pending.length,\n}));\n\nreturn pending;"
       },
       "id": "find-pending",
       "name": "Find Pending Replies",
@@ -162,7 +162,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ===================== end generated block ================================\n\nconst request = $('Sendable?').item.json;\nconst response = $input.first().json;\nconst nowIso = localIso();\n\nconst connector = String($env.WHATSAPP_CONNECTOR || 'meta').trim().toLowerCase();\nlet messageId = null;\nlet apiError = null;\nif (connector === 'waha') {\n  messageId = response && typeof response.id === 'string' ? response.id : null;\n  apiError = response && typeof response.statusCode === 'number' && response.statusCode >= 400\n    ? { code: response.statusCode, message: response.message || response.error || 'WAHA send failed' }\n    : null;\n} else {\n  messageId = response && response.messages && response.messages[0]\n    ? response.messages[0].id\n    : null;\n  apiError = response && response.error ? response.error : null;\n}\nconst ok = !!messageId && !apiError;\n\nconsole.log(JSON.stringify({\n  event: ok ? 'sheet_reply_sent' : 'sheet_reply_failed',\n  conversation_id: request.conversation_id,\n  message_id: messageId,\n  error_code: apiError ? apiError.code : null,\n  text_length: request.text ? request.text.length : 0,\n}));\n\n// Every field the Sheets node writes must have a concrete value here.\n// A mapped column whose expression is undefined lands as an EMPTY\n// cell, so 'leave this one alone' has to be written as the value the\n// row already holds. On a failure that means keeping the conversation\n// exactly as it was, and only recording why the send did not go out.\nconst row = request.source_row || {};\n\nreturn [{ json: {\n  conversation_id: request.conversation_id,\n  row_number: request.row_number,\n  to: request.to,\n  text: request.text,\n  agent_id: request.agent_id,\n  ok,\n  message_id: messageId,\n  reply_status: ok ? 'SENT' : 'FAILED',\n  reply_error: apiError ? ('[' + apiError.code + '] ' + String(apiError.message).slice(0, 200)) : '',\n  sent_at: nowIso,\n  new_status: ok ? 'REPLIED' : (row.status || ''),\n  new_unanswered: ok ? '' : (row.unanswered_messages || ''),\n  new_unanswered_count: ok ? '0' : (row.unanswered_count || ''),\n  new_last_message: ok ? request.text : (row.last_message || ''),\n  new_last_message_id: ok ? messageId : (row.last_message_id || ''),\n  new_last_message_type: ok ? 'text' : (row.last_message_type || 'text'),\n  new_last_message_direction: ok ? 'outbound' : (row.last_message_direction || ''),\n  new_last_agent_message_at: ok ? nowIso : (row.last_agent_message_at || ''),\n  new_unread: ok ? 'FALSE' : (row.unread || ''),\n} }];"
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ===================== end generated block ================================\n\n// EVERY reply sent this minute, not just the first. Reading only\n// $input.first() recorded one outcome per poll: the other replies were\n// sent, their cells were never cleared, and the next poll sent them\n// again, once a minute, until each had its turn at being first.\nconst results = [];\nconst inputs = $input.all();\nfor (let i = 0; i < inputs.length; i++) {\n  const request = $('Sendable?').itemMatching(i).json;\n  const response = inputs[i].json;\n  const nowIso = localIso();\n\n  const connector = String($env.WHATSAPP_CONNECTOR || 'meta').trim().toLowerCase();\n  let messageId = null;\n  let apiError = null;\n  if (connector === 'waha') {\n    messageId = response && typeof response.id === 'string' ? response.id : null;\n    apiError = response && typeof response.statusCode === 'number' && response.statusCode >= 400\n      ? { code: response.statusCode, message: response.message || response.error || 'WAHA send failed' }\n      : null;\n  } else {\n    messageId = response && response.messages && response.messages[0]\n      ? response.messages[0].id\n      : null;\n    apiError = response && response.error ? response.error : null;\n  }\n  const ok = !!messageId && !apiError;\n\n  console.log(JSON.stringify({\n    event: ok ? 'sheet_reply_sent' : 'sheet_reply_failed',\n    conversation_id: request.conversation_id,\n    message_id: messageId,\n    error_code: apiError ? apiError.code : null,\n    text_length: request.text ? request.text.length : 0,\n  }));\n\n  // Every field the Sheets node writes must have a concrete value here.\n  // A mapped column whose expression is undefined lands as an EMPTY\n  // cell, so 'leave this one alone' has to be written as the value the\n  // row already holds. On a failure that means keeping the conversation\n  // exactly as it was, and only recording why the send did not go out.\n  const row = request.source_row || {};\n\n  results.push({ pairedItem: { item: i }, json: {\n    conversation_id: request.conversation_id,\n    is_manual: !!request.is_manual,\n    row_number: request.row_number,\n    customer_phone: request.customer_phone,\n    to: request.to,\n    text: request.text,\n    agent_id: request.agent_id,\n    ok,\n    message_id: messageId,\n    reply_status: ok ? 'SENT' : 'FAILED',\n    reply_error: apiError ? ('[' + apiError.code + '] ' + String(apiError.message).slice(0, 200)) : '',\n    sent_at: nowIso,\n    new_status: ok ? 'REPLIED' : (row.status || ''),\n    new_unanswered: ok ? '' : (row.unanswered_messages || ''),\n    new_unanswered_count: ok ? '0' : (row.unanswered_count || ''),\n    new_last_message: ok ? request.text : (row.last_message || ''),\n    new_last_message_id: ok ? messageId : (row.last_message_id || ''),\n    new_last_message_type: ok ? 'text' : (row.last_message_type || 'text'),\n    new_last_message_direction: ok ? 'outbound' : (row.last_message_direction || ''),\n    new_last_agent_message_at: ok ? nowIso : (row.last_agent_message_at || ''),\n    new_unread: ok ? 'FALSE' : (row.unread || ''),\n  } });\n}\nreturn results;"
       },
       "id": "interpret-sheet-send",
       "name": "Interpret Sheet Send",
@@ -172,6 +172,263 @@
         580,
         -120
       ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "if-row-had-id-cond",
+              "leftValue": "={{ $json.is_manual }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-row-had-id",
+      "name": "Row Had An Id?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        800,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "conversation_id": "={{ $json.conversation_id }}",
+            "reply_text": "",
+            "reply_status": "={{ $json.reply_status }}",
+            "reply_error": "={{ $json.reply_error }}",
+            "reply_sent_at": "={{ $json.sent_at }}",
+            "status": "={{ $json.new_status }}",
+            "unanswered_messages": "={{ $json.new_unanswered }}",
+            "unanswered_count": "={{ $json.new_unanswered_count }}",
+            "last_message": "={{ $json.new_last_message }}",
+            "last_message_id": "={{ $json.new_last_message_id }}",
+            "last_message_type": "={{ $json.new_last_message_type }}",
+            "last_message_direction": "={{ $json.new_last_message_direction }}",
+            "last_agent_message_at": "={{ $json.new_last_agent_message_at }}",
+            "last_activity_at": "={{ $json.sent_at }}",
+            "unread": "={{ $json.new_unread }}",
+            "updated_at": "={{ $json.sent_at }}"
+          },
+          "matchingColumns": [
+            "conversation_id"
+          ],
+          "schema": [
+            {
+              "id": "conversation_id",
+              "displayName": "conversation_id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_text",
+              "displayName": "reply_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_status",
+              "displayName": "reply_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_error",
+              "displayName": "reply_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_sent_at",
+              "displayName": "reply_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "unanswered_messages",
+              "displayName": "unanswered_messages",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "unanswered_count",
+              "displayName": "unanswered_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message",
+              "displayName": "last_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message_id",
+              "displayName": "last_message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message_type",
+              "displayName": "last_message_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_message_direction",
+              "displayName": "last_message_direction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_agent_message_at",
+              "displayName": "last_agent_message_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_activity_at",
+              "displayName": "last_activity_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "unread",
+              "displayName": "unread",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "clear-reply",
+      "name": "Clear Cell And Record Outcome",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1040,
+        -200
+      ],
+      "onError": "stopWorkflow",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -206,7 +463,8 @@
             "last_agent_message_at": "={{ $json.new_last_agent_message_at }}",
             "last_activity_at": "={{ $json.sent_at }}",
             "unread": "={{ $json.new_unread }}",
-            "updated_at": "={{ $json.sent_at }}"
+            "updated_at": "={{ $json.sent_at }}",
+            "customer_phone": "={{ $json.customer_phone }}"
           },
           "matchingColumns": [
             "row_number"
@@ -381,6 +639,16 @@
               "type": "string",
               "canBeUsedToMatch": true,
               "removed": false
+            },
+            {
+              "id": "customer_phone",
+              "displayName": "customer_phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
             }
           ],
           "attemptToConvertTypes": false,
@@ -388,13 +656,13 @@
         },
         "options": {}
       },
-      "id": "clear-reply",
-      "name": "Clear Cell And Record Outcome",
+      "id": "claim-reply",
+      "name": "Claim Row And Record Outcome",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        820,
-        -120
+        1040,
+        -40
       ],
       "onError": "stopWorkflow",
       "credentials": {
@@ -441,7 +709,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        1060,
+        1300,
         -120
       ],
       "onError": "continueErrorOutput",
@@ -632,11 +900,137 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        1060,
+        1300,
         80
       ],
       "onError": "continueRegularOutput",
       "notes": "Runs only when the API append above fails, for example when .env has no service account.",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "if-invalid-row-had-id-cond",
+              "leftValue": "={{ $json.is_manual }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-invalid-row-had-id",
+      "name": "Invalid Row Had An Id?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        340,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "conversation_id": "={{ $json.conversation_id }}",
+            "reply_status": "FAILED",
+            "reply_error": "={{ $json.reply_error }}",
+            "reply_sent_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "conversation_id"
+          ],
+          "schema": [
+            {
+              "id": "conversation_id",
+              "displayName": "conversation_id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_status",
+              "displayName": "reply_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_error",
+              "displayName": "reply_error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reply_sent_at",
+              "displayName": "reply_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "mark-invalid",
+      "name": "Mark Invalid Reply",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        580,
+        80
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "reply_text is deliberately NOT cleared here, so the person can see and correct what they typed.",
       "credentials": {
         "googleApi": {
           "id": "googleSheetsWaSupport",
@@ -719,13 +1113,13 @@
         },
         "options": {}
       },
-      "id": "mark-invalid",
-      "name": "Mark Invalid Reply",
+      "id": "claim-invalid",
+      "name": "Claim Row And Mark Invalid",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        340,
-        160
+        580,
+        240
       ],
       "onError": "continueRegularOutput",
       "notes": "reply_text is deliberately NOT cleared here, so the person can see and correct what they typed.",
@@ -741,13 +1135,13 @@
     },
     {
       "parameters": {
-        "content": "## Workflow 7 — Reply From The Sheet\n\nType a message into the **reply_text** column of a conversation row.\nWithin a minute it is sent to that customer over the Cloud API and\nthe cell is cleared.\n\n### Why this matters\nIt gives non-technical staff a working reply channel with no app to\ninstall and no training — and unlike replying from a personal phone,\nevery message IS tracked.\n\n### Guard against double-sending\n`reply_status` is the interlock. Blank/PENDING = send it.\nSENDING/SENT/FAILED = leave it alone. Without this, every poll would\nresend the same text until someone cleared the cell by hand.\n\n### On failure\nreply_text is NOT cleared, so the author can see and fix what they\ntyped. reply_error says what went wrong.",
+        "content": "## Workflow 7 — Reply From The Sheet\n\nType a message into the **reply_text** column of a conversation row.\nWithin a minute it is sent to that customer over the Cloud API and\nthe cell is cleared.\n\n### Why this matters\nIt gives non-technical staff a working reply channel with no app to\ninstall and no training — and unlike replying from a personal phone,\nevery message IS tracked.\n\n### Guard against double-sending\nText in reply_text IS the instruction to send, and clearing the cell\nis the interlock: every reply sent in a poll has its cell cleared,\nevery one, not only the first. reply_status is an outcome, never a\nguard.\n\n### Which row gets the outcome\nA row with a conversation_id is written back by that id. Only a\nhand-typed row, which has none yet, is written by row number, and\nthat write gives it its id (\"Claim Row\" nodes).\n\n### On failure\nAn invalid value (bad phone, too long) keeps reply_text so the\nauthor can fix it. A send Meta refused clears the cell and\nrecords why in reply_error.",
         "height": 420,
         "width": 620,
         "color": 5
       },
-      "id": "sticky-a0888385",
-      "name": "Note a03c",
+      "id": "sticky-ed9168ae",
+      "name": "Note 481e",
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
@@ -766,7 +1160,7 @@
       "typeVersion": 2,
       "position": [
         -380,
-        -480
+        -560
       ]
     },
     {
@@ -800,7 +1194,7 @@
       "typeVersion": 2.3,
       "position": [
         -160,
-        -480
+        -560
       ]
     },
     {
@@ -846,7 +1240,7 @@
       "typeVersion": 4.5,
       "position": [
         60,
-        -600
+        -680
       ],
       "onError": "continueRegularOutput"
     },
@@ -881,7 +1275,7 @@
       "typeVersion": 2.3,
       "position": [
         280,
-        -480
+        -560
       ]
     },
     {
@@ -913,7 +1307,7 @@
       "typeVersion": 4.5,
       "position": [
         500,
-        -360
+        -440
       ],
       "notes": "One batchGet for every tab this workflow appends to: a single read request.",
       "onError": "continueRegularOutput"
@@ -929,7 +1323,7 @@
       "typeVersion": 2,
       "position": [
         720,
-        -480
+        -560
       ]
     }
   ],
@@ -983,7 +1377,25 @@
         ],
         [
           {
+            "node": "Invalid Row Had An Id?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invalid Row Had An Id?": {
+      "main": [
+        [
+          {
             "node": "Mark Invalid Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Claim Row And Mark Invalid",
             "type": "main",
             "index": 0
           }
@@ -1005,7 +1417,25 @@
       "main": [
         [
           {
+            "node": "Row Had An Id?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Row Had An Id?": {
+      "main": [
+        [
+          {
             "node": "Clear Cell And Record Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Claim Row And Record Outcome",
             "type": "main",
             "index": 0
           }
@@ -1013,6 +1443,17 @@
       ]
     },
     "Clear Cell And Record Outcome": {
+      "main": [
+        [
+          {
+            "node": "Record Sent Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Row And Record Outcome": {
       "main": [
         [
           {

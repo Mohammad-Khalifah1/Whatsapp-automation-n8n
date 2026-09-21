@@ -3164,6 +3164,7 @@ function buildReplyFromSheet() {
         '  if (!phone.ok) {',
         '    pending.push({ json: {',
         '      conversation_id: row.conversation_id,',
+        '      is_manual: !row.conversation_id,',
         '      row_number: row.row_number,',
         '      skip: true,',
         "      reply_status: 'FAILED',",
@@ -3176,6 +3177,7 @@ function buildReplyFromSheet() {
         '  if (text.length > 4096) {',
         '    pending.push({ json: {',
         '      conversation_id: row.conversation_id,',
+        '      is_manual: !row.conversation_id,',
         '      row_number: row.row_number,',
         '      skip: true,',
         "      reply_status: 'FAILED',",
@@ -3193,11 +3195,11 @@ function buildReplyFromSheet() {
         '',
         '  pending.push({ json: {',
         '    conversation_id: convId,',
+        '    // A row that already has an id is written back BY that id: a row',
+        '    // number goes stale the moment anything above it moves. Only a',
+        '    // hand-typed row, which has no id until this write gives it one, is',
+        '    // addressed by row_number (the "Claim Row" nodes).',
         '    is_manual: !row.conversation_id,',
-        '    // Write the outcome back to the PHYSICAL row this text came from.',
-        '    // conversation_id is blank on a hand-typed row, and two rows can',
-        '    // hold the same phone, so neither is a safe key. n8n treats',
-        '    // row_number as the row index itself.',
         '    row_number: row.row_number,',
         '    customer_phone: phone.e164,',
         '    to: phone.e164,',
@@ -3285,55 +3287,112 @@ function buildReplyFromSheet() {
       [580, -120],
       [],
       [
-        "const request = $('Sendable?').item.json;",
-        'const response = $input.first().json;',
-        'const nowIso = localIso();',
+        '// EVERY reply sent this minute, not just the first. Reading only',
+        '// $input.first() recorded one outcome per poll: the other replies were',
+        '// sent, their cells were never cleared, and the next poll sent them',
+        '// again, once a minute, until each had its turn at being first.',
+        'const results = [];',
+        'const inputs = $input.all();',
+        'for (let i = 0; i < inputs.length; i++) {',
+        "  const request = $('Sendable?').itemMatching(i).json;",
+        '  const response = inputs[i].json;',
+        '  const nowIso = localIso();',
         '',
-        ...WHATSAPP_INTERPRET_RESULT_LINES,
+        ...WHATSAPP_INTERPRET_RESULT_LINES.map((line) => '  ' + line),
         '',
-        'console.log(JSON.stringify({',
-        "  event: ok ? 'sheet_reply_sent' : 'sheet_reply_failed',",
-        '  conversation_id: request.conversation_id,',
-        '  message_id: messageId,',
-        '  error_code: apiError ? apiError.code : null,',
-        '  text_length: request.text ? request.text.length : 0,',
-        '}));',
+        '  console.log(JSON.stringify({',
+        "    event: ok ? 'sheet_reply_sent' : 'sheet_reply_failed',",
+        '    conversation_id: request.conversation_id,',
+        '    message_id: messageId,',
+        '    error_code: apiError ? apiError.code : null,',
+        '    text_length: request.text ? request.text.length : 0,',
+        '  }));',
         '',
-        '// Every field the Sheets node writes must have a concrete value here.',
-        '// A mapped column whose expression is undefined lands as an EMPTY',
-        "// cell, so 'leave this one alone' has to be written as the value the",
-        '// row already holds. On a failure that means keeping the conversation',
-        '// exactly as it was, and only recording why the send did not go out.',
-        'const row = request.source_row || {};',
+        '  // Every field the Sheets node writes must have a concrete value here.',
+        '  // A mapped column whose expression is undefined lands as an EMPTY',
+        "  // cell, so 'leave this one alone' has to be written as the value the",
+        '  // row already holds. On a failure that means keeping the conversation',
+        '  // exactly as it was, and only recording why the send did not go out.',
+        '  const row = request.source_row || {};',
         '',
-        'return [{ json: {',
-        '  conversation_id: request.conversation_id,',
-        '  row_number: request.row_number,',
-        '  to: request.to,',
-        '  text: request.text,',
-        '  agent_id: request.agent_id,',
-        '  ok,',
-        '  message_id: messageId,',
-        "  reply_status: ok ? 'SENT' : 'FAILED',",
-        "  reply_error: apiError ? ('[' + apiError.code + '] ' + String(apiError.message).slice(0, 200)) : '',",
-        '  sent_at: nowIso,',
-        "  new_status: ok ? 'REPLIED' : (row.status || ''),",
-        "  new_unanswered: ok ? '' : (row.unanswered_messages || ''),",
-        "  new_unanswered_count: ok ? '0' : (row.unanswered_count || ''),",
-        "  new_last_message: ok ? request.text : (row.last_message || ''),",
-        "  new_last_message_id: ok ? messageId : (row.last_message_id || ''),",
-        "  new_last_message_type: ok ? 'text' : (row.last_message_type || 'text'),",
-        "  new_last_message_direction: ok ? 'outbound' : (row.last_message_direction || ''),",
-        "  new_last_agent_message_at: ok ? nowIso : (row.last_agent_message_at || ''),",
-        "  new_unread: ok ? 'FALSE' : (row.unread || ''),",
-        '} }];',
+        '  results.push({ pairedItem: { item: i }, json: {',
+        '    conversation_id: request.conversation_id,',
+        '    is_manual: !!request.is_manual,',
+        '    row_number: request.row_number,',
+        '    customer_phone: request.customer_phone,',
+        '    to: request.to,',
+        '    text: request.text,',
+        '    agent_id: request.agent_id,',
+        '    ok,',
+        '    message_id: messageId,',
+        "    reply_status: ok ? 'SENT' : 'FAILED',",
+        "    reply_error: apiError ? ('[' + apiError.code + '] ' + String(apiError.message).slice(0, 200)) : '',",
+        '    sent_at: nowIso,',
+        "    new_status: ok ? 'REPLIED' : (row.status || ''),",
+        "    new_unanswered: ok ? '' : (row.unanswered_messages || ''),",
+        "    new_unanswered_count: ok ? '0' : (row.unanswered_count || ''),",
+        "    new_last_message: ok ? request.text : (row.last_message || ''),",
+        "    new_last_message_id: ok ? messageId : (row.last_message_id || ''),",
+        "    new_last_message_type: ok ? 'text' : (row.last_message_type || 'text'),",
+        "    new_last_message_direction: ok ? 'outbound' : (row.last_message_direction || ''),",
+        "    new_last_agent_message_at: ok ? nowIso : (row.last_agent_message_at || ''),",
+        "    new_unread: ok ? 'FALSE' : (row.unread || ''),",
+        '  } });',
+        '}',
+        'return results;',
       ].join('\n')
     )
   );
 
+  // A row with an id is written back BY that id. A row number goes stale the
+  // moment anything above it moves (a delete, a sort, a row inserted by hand),
+  // and the write then lands on another customer's row. Only a hand-typed row,
+  // which has no id until this very write gives it one, is addressed by its
+  // row number: the "Claim Row" nodes, fed by the false output of an IF.
+  const hadAnId = (name, id, position) => ({
+    parameters: {
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          {
+            id: id + '-cond',
+            leftValue: '={{ $json.is_manual }}',
+            rightValue: false,
+            operator: { type: 'boolean', operation: 'false', singleValue: true },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+    id,
+    name,
+    type: 'n8n-nodes-base.if',
+    typeVersion: NODE_VERSION.if,
+    position,
+  });
+
   // On success: clear reply_text so the cell is ready for the next reply, and
   // record the outcome where the person who typed it will see it.
-  nodes.push({
+  const outcomeColumns = {
+    conversation_id: '={{ $json.conversation_id }}',
+    reply_text: '',
+    reply_status: '={{ $json.reply_status }}',
+    reply_error: '={{ $json.reply_error }}',
+    reply_sent_at: '={{ $json.sent_at }}',
+    status: '={{ $json.new_status }}',
+    unanswered_messages: '={{ $json.new_unanswered }}',
+    unanswered_count: '={{ $json.new_unanswered_count }}',
+    last_message: '={{ $json.new_last_message }}',
+    last_message_id: '={{ $json.new_last_message_id }}',
+    last_message_type: '={{ $json.new_last_message_type }}',
+    last_message_direction: '={{ $json.new_last_message_direction }}',
+    last_agent_message_at: '={{ $json.new_last_agent_message_at }}',
+    last_activity_at: '={{ $json.sent_at }}',
+    unread: '={{ $json.new_unread }}',
+    updated_at: '={{ $json.sent_at }}',
+  };
+  const outcomeWrite = (name, id, position, byRowNumber) => ({
     parameters: {
       operation: 'update',
       authentication: 'serviceAccount',
@@ -3341,36 +3400,26 @@ function buildReplyFromSheet() {
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       columns: {
         mappingMode: 'defineBelow',
-        value: {
-          row_number: '={{ $json.row_number }}',
-          conversation_id: '={{ $json.conversation_id }}',
-          reply_text: '',
-          reply_status: '={{ $json.reply_status }}',
-          reply_error: '={{ $json.reply_error }}',
-          reply_sent_at: '={{ $json.sent_at }}',
-          status: '={{ $json.new_status }}',
-          unanswered_messages: '={{ $json.new_unanswered }}',
-          unanswered_count: '={{ $json.new_unanswered_count }}',
-          last_message: '={{ $json.new_last_message }}',
-          last_message_id: '={{ $json.new_last_message_id }}',
-          last_message_type: '={{ $json.new_last_message_type }}',
-          last_message_direction: '={{ $json.new_last_message_direction }}',
-          last_agent_message_at: '={{ $json.new_last_agent_message_at }}',
-          last_activity_at: '={{ $json.sent_at }}',
-          unread: '={{ $json.new_unread }}',
-          updated_at: '={{ $json.sent_at }}',
-        },
-        matchingColumns: ['row_number'],
+        value: byRowNumber
+          ? Object.assign({ row_number: '={{ $json.row_number }}' }, outcomeColumns,
+            // The claim: the row gets its id, and the number it was sent to.
+            { customer_phone: '={{ $json.customer_phone }}' })
+          : outcomeColumns,
+        matchingColumns: [byRowNumber ? 'row_number' : 'conversation_id'],
       },
       options: {},
     },
-    id: 'clear-reply',
-    name: 'Clear Cell And Record Outcome',
+    id,
+    name,
     type: 'n8n-nodes-base.googleSheets',
     typeVersion: NODE_VERSION.googleSheets,
-    position: [820, -120],
+    position,
     onError: 'continueErrorOutput',
   });
+
+  nodes.push(hadAnId('Row Had An Id?', 'if-row-had-id', [800, -120]));
+  nodes.push(outcomeWrite('Clear Cell And Record Outcome', 'clear-reply', [1040, -200], false));
+  nodes.push(outcomeWrite('Claim Row And Record Outcome', 'claim-reply', [1040, -40], true));
 
   nodes.push({
     parameters: {
@@ -3406,13 +3455,14 @@ function buildReplyFromSheet() {
     name: 'Record Sent Reply',
     type: 'n8n-nodes-base.googleSheets',
     typeVersion: NODE_VERSION.googleSheets,
-    position: [1060, -120],
+    position: [1300, -120],
     onError: 'continueRegularOutput',
   });
 
-  // Validation failures never reach Meta — record why, and clear the cell so a
-  // bad value does not retry forever.
-  nodes.push({
+  // Validation failures never reach Meta. Record why; reply_text is kept so
+  // the person can see and correct what they typed. Same rule as above: by id,
+  // or by row number only for a hand-typed row that has no id.
+  const invalidWrite = (name, id, position, byRowNumber) => ({
     parameters: {
       operation: 'update',
       authentication: 'serviceAccount',
@@ -3420,24 +3470,30 @@ function buildReplyFromSheet() {
       sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
       columns: {
         mappingMode: 'defineBelow',
-        value: {
-          row_number: '={{ $json.row_number }}',
-          reply_status: 'FAILED',
-          reply_error: '={{ $json.reply_error }}',
-          reply_sent_at: '={{ $now.toISO() }}',
-        },
-        matchingColumns: ['row_number'],
+        value: Object.assign(
+          byRowNumber ? { row_number: '={{ $json.row_number }}' } : { conversation_id: '={{ $json.conversation_id }}' },
+          {
+            reply_status: 'FAILED',
+            reply_error: '={{ $json.reply_error }}',
+            reply_sent_at: '={{ $now.toISO() }}',
+          }
+        ),
+        matchingColumns: [byRowNumber ? 'row_number' : 'conversation_id'],
       },
       options: {},
     },
-    id: 'mark-invalid',
-    name: 'Mark Invalid Reply',
+    id,
+    name,
     type: 'n8n-nodes-base.googleSheets',
     typeVersion: NODE_VERSION.googleSheets,
-    position: [340, 160],
+    position,
     onError: 'continueRegularOutput',
     notes: 'reply_text is deliberately NOT cleared here, so the person can see and correct what they typed.',
   });
+
+  nodes.push(hadAnId('Invalid Row Had An Id?', 'if-invalid-row-had-id', [340, 160]));
+  nodes.push(invalidWrite('Mark Invalid Reply', 'mark-invalid', [580, 80], false));
+  nodes.push(invalidWrite('Claim Row And Mark Invalid', 'claim-invalid', [580, 240], true));
 
   nodes.push(
     stickyNote(
@@ -3454,13 +3510,20 @@ function buildReplyFromSheet() {
         'every message IS tracked.',
         '',
         '### Guard against double-sending',
-        '`reply_status` is the interlock. Blank/PENDING = send it.',
-        'SENDING/SENT/FAILED = leave it alone. Without this, every poll would',
-        'resend the same text until someone cleared the cell by hand.',
+        'Text in reply_text IS the instruction to send, and clearing the cell',
+        'is the interlock: every reply sent in a poll has its cell cleared,',
+        'every one, not only the first. reply_status is an outcome, never a',
+        'guard.',
+        '',
+        '### Which row gets the outcome',
+        'A row with a conversation_id is written back by that id. Only a',
+        'hand-typed row, which has none yet, is written by row number, and',
+        'that write gives it its id ("Claim Row" nodes).',
         '',
         '### On failure',
-        'reply_text is NOT cleared, so the author can see and fix what they',
-        'typed. reply_error says what went wrong.',
+        'An invalid value (bad phone, too long) keeps reply_text so the',
+        'author can fix it. A send Meta refused clears the cell and',
+        'records why in reply_error.',
       ].join('\n'),
       [-620, -520],
       420,
@@ -3475,12 +3538,25 @@ function buildReplyFromSheet() {
   connections['Sendable?'] = {
     main: [
       [{ node: 'Send Reply Via Cloud API', type: 'main', index: 0 }],
+      [{ node: 'Invalid Row Had An Id?', type: 'main', index: 0 }],
+    ],
+  };
+  connections['Invalid Row Had An Id?'] = {
+    main: [
       [{ node: 'Mark Invalid Reply', type: 'main', index: 0 }],
+      [{ node: 'Claim Row And Mark Invalid', type: 'main', index: 0 }],
     ],
   };
   connections['Send Reply Via Cloud API'] = { main: [[{ node: 'Interpret Sheet Send', type: 'main', index: 0 }]] };
-  connections['Interpret Sheet Send'] = { main: [[{ node: 'Clear Cell And Record Outcome', type: 'main', index: 0 }]] };
+  connections['Interpret Sheet Send'] = { main: [[{ node: 'Row Had An Id?', type: 'main', index: 0 }]] };
+  connections['Row Had An Id?'] = {
+    main: [
+      [{ node: 'Clear Cell And Record Outcome', type: 'main', index: 0 }],
+      [{ node: 'Claim Row And Record Outcome', type: 'main', index: 0 }],
+    ],
+  };
   connections['Clear Cell And Record Outcome'] = { main: [[{ node: 'Record Sent Reply', type: 'main', index: 0 }]] };
+  connections['Claim Row And Record Outcome'] = { main: [[{ node: 'Record Sent Reply', type: 'main', index: 0 }]] };
 
   return {
     id: WORKFLOW_ID.replyFromSheet,

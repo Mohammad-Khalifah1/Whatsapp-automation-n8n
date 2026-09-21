@@ -5,6 +5,42 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-04 — Replies from the sheet go to the right row, once
+
+### Fixed
+
+- **Several replies typed in the same minute were sent again and again.**
+  `Interpret Sheet Send` read only `$input.first()`. Every reply of the poll was
+  sent, but only the first had its outcome written and its cell cleared. The
+  rest were sent again the next minute, and the next, until each had its turn at
+  being first: a customer could receive the same reply several times. It now
+  answers for every reply, each paired to its own request. Run against the old
+  generated code, three replies produced one outcome.
+- **A reply's outcome was written by row number.** A row number goes stale the
+  moment anything above it moves (a delete, a sort, a row inserted by hand), and
+  the outcome, the cleared cell and the new status then landed on another
+  customer's row. A row that has a `conversation_id` is now written back by that
+  id. Only a hand-typed row, which has no id yet, is written by row number, in a
+  `Claim Row` node that gives it its id and the normalised phone. The same split
+  applies to invalid replies.
+- `N8N_WORKFLOWS.md` said the workflow skipped rows by `reply_status` and kept
+  the text when Meta refused a send. Neither was true. It now describes what
+  happens.
+
+### Added
+
+- `validate-workflows.js`: Conversations may be written by row number only in a
+  `Claim Row` node behind the no-id output of an `is_manual` IF. The previous
+  workflow 7 fails it on both of its writes.
+- `tests/build/reply-from-sheet.test.js` (12 tests), run on the generated code.
+
+### Not yet verified
+
+- Two sheet replies in the same minute, and a hand-typed row, against the test
+  spreadsheet.
+
+---
+
 ## [Unreleased] — Version 2, task V2-03 — The system no longer moves rows to sort them
 
 ### Changed

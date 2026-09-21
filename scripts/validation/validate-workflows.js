@@ -276,6 +276,36 @@ function validateWorkflow(file) {
   const moving = ['sortRange', 'moveDimension', 'insertDimension'].filter((op) => raw.indexOf(op) !== -1);
   check('no workflow sorts, moves or inserts rows', moving.length === 0, 'found: ' + moving.join(', '));
 
+  // --- a row is addressed by its id, not by where it happens to sit ---
+  // A row number goes stale the moment anything above it moves, and the write
+  // then lands on another customer's row. Only a hand-typed row, which has no
+  // id until that write gives it one, may be written by row number: a
+  // "Claim Row" node, fed only by the no-id (false) output of an is_manual IF.
+  for (const node of wf.nodes) {
+    if (!node.type || node.type.indexOf('googleSheets') === -1) continue;
+    const params = node.parameters || {};
+    if (params.operation !== 'update' || (params.sheetName || {}).value !== 'Conversations') continue;
+    const matching = (params.columns || {}).matchingColumns || [];
+    if (matching.indexOf('row_number') === -1) continue;
+
+    const feeders = [];
+    for (const src of Object.keys(wf.connections)) {
+      ((wf.connections[src] || {}).main || []).forEach((targets, index) => {
+        if ((targets || []).some((t) => t.node === node.name)) feeders.push({ src, index });
+      });
+    }
+    const fromNoIdOutput = feeders.length > 0 && feeders.every((f) => {
+      const ifNode = byName.get(f.src);
+      return f.index === 1 && !!ifNode && ifNode.type === 'n8n-nodes-base.if' &&
+        JSON.stringify(ifNode.parameters || {}).indexOf('is_manual') !== -1;
+    });
+    check(
+      'Conversations is written by row number only to claim a hand-typed row: ' + node.name,
+      node.name.indexOf('Claim Row ') === 0 && fromNoIdOutput,
+      'match on conversation_id; row_number is for a row with no id yet, behind an is_manual IF'
+    );
+  }
+
   // --- a full team must not stop a message being written ---
   // With every agent at capacity, Select Agent decides WAITING_FOR_AGENT with
   // no agent id. An Agents update with an empty match value fails, and the

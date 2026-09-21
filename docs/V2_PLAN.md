@@ -53,6 +53,7 @@ read or run, not assumed.
 | R15 | The cherry-pick of `e5fdaec` may conflict | Tried on a copy of `main`: it applies cleanly. Tests, the build check, workflow validation (now 508 checks) and schema consistency pass. The docs checker then fails once: `docs/TESTING.md` still quotes 504 | V2-02 is small and includes that one-line doc fix |
 | R16 | All data writes are `RAW` | n8n 2.38.5's Google Sheets node v4.7 defaults to `USER_ENTERED` (`cellFormatDefault`), and no node here sets it. Every write is parsed as if typed, so customer text starting with `=` becomes a formula | Found while building V2-01. New Phase 0 task V2-06 (C-18) |
 | R17 | API appends must be positional, so CSV order must equal sheet order | V2-01 places values by name against the live header row instead | Column order is cosmetic again. The fallback Sheets node still fills `''` into unmapped columns, which V2-13 must handle |
+| R18 | Workflow 7 records one outcome per reply | `Interpret Sheet Send` read `$input.first()`. With several replies in one poll, every one was sent, only the first was recorded and cleared, and the rest were sent again the next minute. **Live on main** | Found while building V2-04 and fixed there |
 
 ---
 
@@ -605,16 +606,22 @@ These ship first, because every later phase builds on the paths they fix.
   the bottom and the view shows them first; sorting in the view leaves the
   order the API reads unchanged (S3).
 
-**V2-04 · Key reply writes on `conversation_id`** · M · risk medium · after V2-03
-- Files: `build-workflows.js` (wf7), `docs/GOOGLE_SHEETS_SCHEMA.md`.
-- Do: "Find Pending Replies" emits a claim for each hand-typed row (a phone, no
-  id). "Claim Manual Row" writes the minted id by `row_number`, the only
-  `row_number` write left. Every other write matches `conversation_id`.
-  Invalid hand-typed rows are claimed too, so their error can be recorded.
+**V2-04 · Key reply writes on `conversation_id`** · M · risk medium · after V2-03 ·
+**built; offline gates pass; live check pending**
+- As built: an `is_manual` IF in front of each write. A row with an id is
+  written by `conversation_id` ("Clear Cell And Record Outcome", "Mark Invalid
+  Reply"). A hand-typed row is written by `row_number` in a "Claim Row" node,
+  which also gives it its id and normalised phone ("Claim Row And Record
+  Outcome", "Claim Row And Mark Invalid").
+- Also fixed (R18): `Interpret Sheet Send` read only the first reply of a poll,
+  so the others were sent again every minute. It now answers for every reply.
 - Residual risk: until V2-15, workflow 8 still deletes during the day, so a
   claim can in rare cases race a delete. This is documented and closed by V2-15.
-- Test: a validator rule that no Conversations update matches `row_number`
-  except "Claim Manual Row". Unit tests for the claim/send split.
+- Tests: a validator rule that Conversations is written by row number only in a
+  "Claim Row" node behind the no-id output (the old workflow 7 fails it twice);
+  12 tests run on the generated code, including three replies in one poll.
+- Still to do: two sheet replies in the same minute and a hand-typed row,
+  against the test spreadsheet.
 
 **V2-05 · One deleter, verified deletes** · M · risk medium · after V2-01
 - Files: new `scripts/lib/rows.js`, `build-workflows.js` (wf8),

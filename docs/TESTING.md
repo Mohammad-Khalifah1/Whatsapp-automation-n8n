@@ -7,8 +7,8 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **230 passing** |
-| 2 — Workflow validation | No | **799 checks passing** |
+| 1 — Unit tests (business logic) | No | **242 passing** |
+| 2 — Workflow validation | No | **817 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
 | 4 — **End-to-end against the live deployment** | Yes (both) | **26 checks passing** |
@@ -58,7 +58,7 @@ node tests/run-tests.js assignment    # one area
 No npm install, no credentials, ~15 ms.
 
 ```
-230 passed, 0 failed, 230 total
+242 passed, 0 failed, 242 total
 ```
 
 | Suite | Tests | Covers |
@@ -71,6 +71,7 @@ No npm install, no credentials, ~15 ms.
 | `conversations/conversation.test.js` | 39 | State machine, identity, row building, inactivity |
 | `build/append-via-api.test.js` | 28 | The build's rewrite of every Sheets append into an `INSERT_ROWS` API append with a fallback; values placed by column name; the body of every generated append evaluates to one full row |
 | `build/access-branch.test.js` | 10 | The generated `Sign Sheets Token Request` and `Sheets Access` code, run with stand-ins for n8n: signing, token and header caching, a refused token, a missing column |
+| `build/reply-from-sheet.test.js` | 12 | Workflow 7's generated code: every reply of a poll gets its own outcome, each paired to its request; rows with an id are written back by id, hand-typed rows claimed by row number |
 
 These test the **same code** that runs in n8n — `scripts/setup/build-workflows.js`
 inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
@@ -83,7 +84,7 @@ inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
 node scripts/validation/validate-workflows.js
 ```
 
-799 checks across the 9 workflows:
+817 checks across the 9 workflows:
 
 - every Code node body **parses as JavaScript** (`vm.Script` compile)
 - no leftover `module.exports` or relative `require()` from inlining
@@ -98,6 +99,8 @@ node scripts/validation/validate-workflows.js
   so a full team can never stop a conversation row being written
 - no workflow sorts, moves or inserts rows (`sortRange`, `moveDimension`,
   `insertDimension`), because that sends an in-flight write to another row
+- Conversations is written by row number only in a `Claim Row` node, fed by the
+  no-id output of an `is_manual` IF; every other write matches `conversation_id`
 - **no hard-coded secrets** (Meta tokens, private keys, bearer literals, API keys)
 
 This catches things that would otherwise fail at 3am. It found two real bugs

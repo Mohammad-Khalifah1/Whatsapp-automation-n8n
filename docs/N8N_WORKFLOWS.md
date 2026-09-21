@@ -310,7 +310,7 @@ This is stated rather than pretended away.
 |---|---|
 | **Input** | The `Conversations` tab |
 | **Output** | A sent WhatsApp message; `Messages` row with `sent_via = google_sheet` |
-| **Selects** | Rows where `reply_text` is non-empty AND `reply_status` is not `SENT`/`SENDING`/`FAILED` |
+| **Selects** | Rows where `reply_text` is non-empty. Nothing else is a guard (see *Idempotency*) |
 
 ### Flow
 
@@ -320,10 +320,14 @@ Every Minute
         └─> Find Pending Replies        (validate phone + length)
              └─> Sendable?
                   ├─ yes ─> Send Reply Via Cloud API
-                  │           └─> Interpret Sheet Send
-                  │                └─> Clear Cell And Record Outcome
-                  │                     └─> Record Sent Reply
-                  └─ no  ─> Mark Invalid Reply
+                  │           └─> Interpret Sheet Send      (every reply of the poll)
+                  │                └─> Row Had An Id?
+                  │                     ├─ yes ─> Clear Cell And Record Outcome   (by conversation_id)
+                  │                     └─ no  ─> Claim Row And Record Outcome    (by row_number)
+                  │                          └─> Record Sent Reply
+                  └─ no  ─> Invalid Row Had An Id?
+                             ├─ yes ─> Mark Invalid Reply            (by conversation_id)
+                             └─ no  ─> Claim Row And Mark Invalid    (by row_number)
 ```
 
 ### Idempotency
@@ -339,9 +343,25 @@ message silently dropped. A non-empty `reply_text` is now the only instruction
 needed.
 
 On success `reply_text` is cleared and `reply_status` becomes `SENT`.
-On failure `reply_text` is **kept** so the author can see and correct it,
-`reply_error` explains why, and the rest of the row is left exactly as it was —
-including the backlog of unanswered messages, because nothing was answered.
+When Meta refuses the send, the cell is also cleared (so it is not retried
+every minute), `reply_status` becomes `FAILED`, `reply_error` says why, and
+the rest of the row is left exactly as it was, including the backlog of
+unanswered messages, because nothing was answered. An **invalid** value (a
+phone that cannot be normalised, text over 4096 characters) never reaches
+Meta, and its `reply_text` is **kept** so the author can correct it.
+
+Every reply sent in one poll gets its own outcome. Until V2-04 only the first
+did: the others were sent, kept their text, and were sent again the next
+minute.
+
+### Which row the outcome is written to
+
+A row that has a `conversation_id` is written back **by that id**. A row
+number goes stale the moment anything above it moves, and the write then
+lands on another customer's row. Only a hand-typed row, which has no id yet,
+is written by row number, and that write gives it its id and the normalised
+phone. `validate-workflows.js` rejects any other row-number write to
+Conversations.
 
 ### Error handling
 
