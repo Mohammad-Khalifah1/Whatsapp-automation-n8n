@@ -403,6 +403,7 @@ code and the running code identical.
 | [TESTING.md](docs/TESTING.md) | The three test levels and the 25 required scenarios |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Symptoms, causes, fixes |
 | [GOOGLE_SHEETS_TO_POSTGRES.md](docs/GOOGLE_SHEETS_TO_POSTGRES.md) | Exactly what changes when moving to Postgres |
+| [V2_PLAN.md](docs/V2_PLAN.md) | **Version 2 plan** — the Arabic sheet inbox, the 24-hour window guard, billing, the case lifecycle, every conflict with the current code, and the task list |
 | [FUTURE_AGENT_INBOX.md](docs/FUTURE_AGENT_INBOX.md) | The web inbox this is designed to grow into |
 | [FUTURE_AI.md](docs/FUTURE_AI.md) | Where an AI layer plugs in, and where it must not |
 | [FUTURE_TASKS_EMPLOYEES_AND_AI_AGENTS.md](docs/FUTURE_TASKS_EMPLOYEES_AND_AI_AGENTS.md) | Task-board framing, employee management, anti-bot-detection, and grounding AI answers in this business only |
