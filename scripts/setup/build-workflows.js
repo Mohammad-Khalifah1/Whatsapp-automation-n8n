@@ -283,11 +283,6 @@ function conversationColumnMap(source) {
   return value;
 }
 
-/** The canonical Messages header, for anything that needs it by position. */
-const MESSAGE_COLUMNS = fs.readFileSync(
-  path.join(__dirname, '..', '..', 'sheets-templates', 'Messages.csv'), 'utf8'
-).split(/\r?\n/)[0].split(',').map((c) => c.trim()).filter(Boolean);
-
 /** Column map for the Log tab, mirroring sheets-templates/Log.csv. */
 function logColumnMap() {
   const cols = ['event_id', 'event_type', 'conversation_id', 'message_id',
@@ -2418,148 +2413,14 @@ function buildConversationAndAssignment() {
   connections['Append Conversation'] = { main: [[{ node: 'Append Message', type: 'main', index: 0 }]] };
   connections['Update Conversation'] = { main: [[{ node: 'Append Message', type: 'main', index: 0 }]] };
 
-  // ---- keep the newest conversation at the top -------------------------------
-  //
-  // A Sheets append always lands at the BOTTOM, so without this the oldest
-  // conversation sits at the top of the tab and whoever is using it scrolls to
-  // find what just came in. The n8n Sheets node has no sort operation, so this
-  // calls the Sheets API directly.
-  //
-  // It uses the access token the workflow got at its start (see
-  // addSheetsAccessBranch) rather than the n8n Google credential: that
-  // credential authenticates an HTTP Request node with a scope that does not
-  // cover spreadsheets.batchUpdate, and the call comes back 403 Forbidden.
-  nodes.push(
-    codeNode(
-      'Build Sort Request',
-      'build-sort-request',
-      [3400, 0],
-      [],
-      [
-        '// Sorting is cosmetic: without a token it is skipped, never an error.',
-        'let token = null;',
-        'try {',
-        "  token = ($('Sheets Access').first().json || {}).token;",
-        '} catch (e) {',
-        '  token = null;',
-        '}',
-        'if (!token) {',
-        '  console.log(JSON.stringify({ event: "sort_skipped", reason: "no_token" }));',
-        '  return [];',
-        '}',
-        '',
-        '// Sort on last_activity_at, descending: whatever moved most recently is',
-        '// at the top. The column is found by NAME, so reordering the sheet',
-        '// cannot silently sort the wrong one.',
-        'const COLUMNS = ' + JSON.stringify(CONVERSATION_COLUMNS) + ';',
-        "const sortColumn = COLUMNS.indexOf('last_activity_at');",
-        'if (sortColumn === -1) return [];',
-        '',
-        'const MESSAGE_COLUMNS = ' + JSON.stringify(MESSAGE_COLUMNS) + ';',
-        '',
-        'return [{ json: {',
-        '  token,',
-        '  sortColumn,',
-        '  columnCount: COLUMNS.length,',
-        "  messageSortColumn: MESSAGE_COLUMNS.indexOf('timestamp'),",
-        '  messageColumnCount: MESSAGE_COLUMNS.length,',
-        '} }];',
-      ].join('\n')
-    )
-  );
-
-  nodes.push({
-    parameters: {
-      url: '=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}?fields=sheets.properties',
-      sendHeaders: true,
-      headerParameters: {
-        parameters: [{ name: 'Authorization', value: '=Bearer {{ $json.token }}' }],
-      },
-      options: { timeout: 10000, response: { response: { neverError: true, responseFormat: 'json' } } },
-    },
-    id: 'read-tab-ids',
-    name: 'Read Tab Ids',
-    type: 'n8n-nodes-base.httpRequest',
-    typeVersion: NODE_VERSION.httpRequest,
-    position: [3620, 0],
-    onError: 'continueRegularOutput',
-  });
-
-  nodes.push(
-    codeNode(
-      'Build Sort Range',
-      'build-sort-range',
-      [3840, 0],
-      [],
-      [
-        "const cfg = $('Build Sort Request').item.json;",
-        'const meta = $input.first().json || {};',
-        'const props = (meta.sheets || []).map((s) => s.properties).filter(Boolean);',
-        '',
-        '// Row 1 is the header and must stay put, so every range starts at row 2.',
-        'const sortTab = (title, column, columnCount) => {',
-        '  const tab = props.find((p) => p.title === title);',
-        '  if (!tab || column === -1) return null;',
-        '  const rowCount = (tab.gridProperties && tab.gridProperties.rowCount) || 0;',
-        '  if (rowCount < 3) return null;',
-        '  return { sortRange: {',
-        '    range: {',
-        '      sheetId: tab.sheetId,',
-        '      startRowIndex: 1,',
-        '      endRowIndex: rowCount,',
-        '      startColumnIndex: 0,',
-        '      endColumnIndex: columnCount,',
-        '    },',
-        '    sortSpecs: [{ dimensionIndex: column, sortOrder: "DESCENDING" }],',
-        '  } };',
-        '};',
-        '',
-        '// Both tabs, newest at the top: Conversations by when the customer last',
-        '// moved, Messages by when each message happened. One batch, one call.',
-        'const requests = [',
-        "  sortTab('Conversations', cfg.sortColumn, cfg.columnCount),",
-        "  sortTab('Messages', cfg.messageSortColumn, cfg.messageColumnCount),",
-        '].filter(Boolean);',
-        '',
-        'if (!requests.length) {',
-        '  console.log(JSON.stringify({ event: "sort_skipped", reason: "nothing_to_sort" }));',
-        '  return [];',
-        '}',
-        '',
-        'return [{ json: { token: cfg.token, body: { requests } } }];',
-      ].join('\n')
-    )
-  );
-
-  nodes.push({
-    parameters: {
-      method: 'POST',
-      url: '=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}:batchUpdate',
-      sendHeaders: true,
-      headerParameters: {
-        parameters: [
-          { name: 'Authorization', value: '=Bearer {{ $json.token }}' },
-          { name: 'Content-Type', value: 'application/json' },
-        ],
-      },
-      sendBody: true,
-      specifyBody: 'json',
-      jsonBody: '={{ JSON.stringify($json.body) }}',
-      options: { timeout: 15000, response: { response: { neverError: true, responseFormat: 'json' } } },
-    },
-    id: 'sort-conversations',
-    name: 'Sort Newest First',
-    type: 'n8n-nodes-base.httpRequest',
-    typeVersion: NODE_VERSION.httpRequest,
-    position: [4060, 0],
-    onError: 'continueRegularOutput',
-  });
-
+  // No sort here, deliberately. This workflow used to sort the whole
+  // Conversations and Messages tabs after every new conversation, to keep the
+  // newest at the top. A sort moves rows under every write that is in flight:
+  // n8n's update reads the key column, then writes to the row index it found,
+  // so a sort in between sends that write to another customer's row. Newest
+  // first is now a filter view (apply-sheet-layout.js), which orders what a
+  // person sees without moving a single row.
   connections['Append Message'] = { main: [[{ node: 'Audit Assignment', type: 'main', index: 0 }]] };
-  connections['Audit Assignment'] = { main: [[{ node: 'Build Sort Request', type: 'main', index: 0 }]] };
-  connections['Build Sort Request'] = { main: [[{ node: 'Read Tab Ids', type: 'main', index: 0 }]] };
-  connections['Read Tab Ids'] = { main: [[{ node: 'Build Sort Range', type: 'main', index: 0 }]] };
-  connections['Build Sort Range'] = { main: [[{ node: 'Sort Newest First', type: 'main', index: 0 }]] };
 
 
   return {

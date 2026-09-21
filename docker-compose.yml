@@ -106,7 +106,7 @@ services:
       # these, so appends can use INSERT_ROWS and cannot overwrite each other
       # (the n8n Google credential cannot authorise those calls: 403). Unset,
       # appends fall back to the Sheets node, which can lose a row when two
-      # messages arrive at once, and workflow 3 skips its sort.
+      # messages arrive at once.
       # The key is ONE line, quoted, with literal \n escapes - a multi-line PEM
       # in .env breaks `docker compose config` outright.
       - GOOGLE_SERVICE_ACCOUNT_EMAIL=${GOOGLE_SERVICE_ACCOUNT_EMAIL}

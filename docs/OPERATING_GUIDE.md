@@ -24,8 +24,8 @@ Originally only one of these was visible to the system. With **Coexistence**
   It is the fastest and needs no training — it is just WhatsApp. Every reply
   produces a `smb_message_echoes` webhook, so the conversation advances to
   `REPLIED` automatically.
-- **Supervisors** watch the **Conversations sheet**, filtered to
-  `UNANSWERED` sorted oldest-first, and reply from there when something is
+- **Supervisors** watch the **Conversations sheet** through a filter view of
+  `UNANSWERED`, sorted oldest-first, and reply from there when something is
   aging.
 - **The API** stays reserved for the inbox when you build it.
 
@@ -48,8 +48,9 @@ three times and are still waiting.
 It clears itself when a reply goes out — and only then. A reply that failed
 leaves it exactly as it was, because nothing was actually answered.
 
-Sort or filter on `unanswered_count` to work the queue by who has waited
-longest.
+In a filter view, sort on `unanswered_count` to work the queue by who has
+waited longest. Never sort the tab itself: that moves rows under the system's
+own writes (see *Recommended filter views* below).
 
 ---
 
@@ -137,6 +138,7 @@ Create these once (*Data → Filter views → Create new*). The menu item
 
 | View | Filter | Use |
 |---|---|---|
+| **Newest first** | none; sorted by `last_activity_at` descending. Created for you by `apply-sheet-layout.js` | What just came in, at the top |
 | **Needs attention** | `status` is `UNANSWERED` or `WAITING_FOR_AGENT`, sorted by `last_customer_message_at` **ascending** | The working queue. Oldest waiting first |
 | **Unassigned** | `status = WAITING_FOR_AGENT` | Staffing gaps — nobody could take these |
 | **By agent** | `assigned_agent_name = …` | One person's workload |
@@ -148,6 +150,11 @@ Create these once (*Data → Filter views → Create new*). The menu item
 > **Filter *views* are per-person.** Yours does not change what colleagues see.
 > A plain filter does — which is why views are the right tool for a shared
 > sheet.
+>
+> **Sort only inside a view.** Sorting the tab itself (*Data → Sort range*, or
+> the sort in a plain filter) physically moves rows, and a reply or status the
+> system is writing at that moment can land on another customer's row. The
+> system itself stopped sorting the tab for the same reason.
 
 **Any column can be filtered**, including ones not listed here — customer name,
 phone, business number, message text, dates. Nothing about the design restricts

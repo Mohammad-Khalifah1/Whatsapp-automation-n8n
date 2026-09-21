@@ -166,7 +166,7 @@ running deployment, not inspected in the code.
 | Reply from the sheet | **Verified live** — including a real message to a real number |
 | Messaging a new number by hand | **Verified live** |
 | Archiving | **Verified live, 17 checks** — both the `ARCHIVED` status and the sweep of long-closed conversations, including a two-row batch that leaves the third row untouched |
-| Newest-first ordering | **Verified live** — both Conversations and Messages |
+| Newest-first ordering | A filter view, **Newest first**, created by `apply-sheet-layout.js`. The tab itself is no longer sorted: a sort moved rows under the system's own writes. **Not yet verified live** |
 | Dashboard | **Live formulas** over Conversations, Messages, Archive and Agents |
 | Coexistence (WhatsApp Business App echoes) | **Built and unit-tested**; needs Coexistence enabled on the number |
 
@@ -296,14 +296,11 @@ worth understanding — the other seven are short.
                                         │              never overwritten
                                         ▼
                                  Audit Assignment ──── who got it and why
-                                        │
-                                        ▼
-                               Sort Newest First
-                                 keeps the newest at the top of both tabs
 
  Every append goes through the Sheets API with INSERT_ROWS, so rows written
- at the same instant cannot overwrite each other. A token branch hangs off
+ at the same instant cannot overwrite each other. An access branch hangs off
  the trigger and runs first; the original Sheets node is the fallback.
+ Nothing sorts the tab: newest first is a filter view, which moves no row.
 ```
 
 Full detail: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.

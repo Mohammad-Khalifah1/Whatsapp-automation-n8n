@@ -1618,106 +1618,6 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ===================== end generated block ================================\n\n// Sorting is cosmetic: without a token it is skipped, never an error.\nlet token = null;\ntry {\n  token = ($('Sheets Access').first().json || {}).token;\n} catch (e) {\n  token = null;\n}\nif (!token) {\n  console.log(JSON.stringify({ event: \"sort_skipped\", reason: \"no_token\" }));\n  return [];\n}\n\n// Sort on last_activity_at, descending: whatever moved most recently is\n// at the top. The column is found by NAME, so reordering the sheet\n// cannot silently sort the wrong one.\nconst COLUMNS = [\"customer_name\",\"customer_phone\",\"assigned_agent_name\",\"status\",\"unanswered_count\",\"unanswered_messages\",\"last_message\",\"last_message_type\",\"last_message_direction\",\"product\",\"quantity\",\"first_message_at\",\"last_activity_at\",\"reply_text\",\"reply_status\",\"unread\",\"wa_link\",\"conversation_id\",\"assigned_agent_id\",\"business_phone_number_id\",\"last_message_id\",\"last_customer_message_at\",\"last_agent_message_at\",\"created_at\",\"updated_at\",\"closed_at\",\"unassigned_reason\",\"reply_error\",\"reply_sent_at\"];\nconst sortColumn = COLUMNS.indexOf('last_activity_at');\nif (sortColumn === -1) return [];\n\nconst MESSAGE_COLUMNS = [\"status\",\"direction\",\"customer_phone\",\"recipient_phone\",\"message_type\",\"text\",\"timestamp\",\"status_updated_at\",\"agent_id\",\"sent_via\",\"supported\",\"processing_status\",\"message_id\",\"sender_phone\",\"created_at\",\"correlation_id\",\"raw_event_reference\",\"conversation_id\",\"dedupe_key\"];\n\nreturn [{ json: {\n  token,\n  sortColumn,\n  columnCount: COLUMNS.length,\n  messageSortColumn: MESSAGE_COLUMNS.indexOf('timestamp'),\n  messageColumnCount: MESSAGE_COLUMNS.length,\n} }];"
-      },
-      "id": "build-sort-request",
-      "name": "Build Sort Request",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3400,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}?fields=sheets.properties",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $json.token }}"
-            }
-          ]
-        },
-        "options": {
-          "timeout": 10000,
-          "response": {
-            "response": {
-              "neverError": true,
-              "responseFormat": "json"
-            }
-          }
-        }
-      },
-      "id": "read-tab-ids",
-      "name": "Read Tab Ids",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.5,
-      "position": [
-        3620,
-        0
-      ],
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ===================== end generated block ================================\n\nconst cfg = $('Build Sort Request').item.json;\nconst meta = $input.first().json || {};\nconst props = (meta.sheets || []).map((s) => s.properties).filter(Boolean);\n\n// Row 1 is the header and must stay put, so every range starts at row 2.\nconst sortTab = (title, column, columnCount) => {\n  const tab = props.find((p) => p.title === title);\n  if (!tab || column === -1) return null;\n  const rowCount = (tab.gridProperties && tab.gridProperties.rowCount) || 0;\n  if (rowCount < 3) return null;\n  return { sortRange: {\n    range: {\n      sheetId: tab.sheetId,\n      startRowIndex: 1,\n      endRowIndex: rowCount,\n      startColumnIndex: 0,\n      endColumnIndex: columnCount,\n    },\n    sortSpecs: [{ dimensionIndex: column, sortOrder: \"DESCENDING\" }],\n  } };\n};\n\n// Both tabs, newest at the top: Conversations by when the customer last\n// moved, Messages by when each message happened. One batch, one call.\nconst requests = [\n  sortTab('Conversations', cfg.sortColumn, cfg.columnCount),\n  sortTab('Messages', cfg.messageSortColumn, cfg.messageColumnCount),\n].filter(Boolean);\n\nif (!requests.length) {\n  console.log(JSON.stringify({ event: \"sort_skipped\", reason: \"nothing_to_sort\" }));\n  return [];\n}\n\nreturn [{ json: { token: cfg.token, body: { requests } } }];"
-      },
-      "id": "build-sort-range",
-      "name": "Build Sort Range",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        3840,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}:batchUpdate",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "=Bearer {{ $json.token }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.body) }}",
-        "options": {
-          "timeout": 15000,
-          "response": {
-            "response": {
-              "neverError": true,
-              "responseFormat": "json"
-            }
-          }
-        }
-      },
-      "id": "sort-conversations",
-      "name": "Sort Newest First",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.5,
-      "position": [
-        4060,
-        0
-      ],
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForAllItems",
         "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ===================== end generated block ================================\n\n// Allowed by NODE_FUNCTION_ALLOW_BUILTIN=crypto. The prelude only hoists\n// requires it finds inside an inlined library, so this node asks for it.\nconst crypto = require('crypto');\n\nconst store = $getWorkflowStaticData('global');\nconst nowMs = Date.now();\nconst headersFresh = !!(store.sheetHeaders && store.sheetHeaders.at &&\n  (nowMs - store.sheetHeaders.at) < 60000);\n\n// Reuse the token until shortly before it expires, as Google recommends.\nif (store.sheetsToken && store.sheetsToken.value &&\n    store.sheetsToken.expiresAt - nowMs > 300000) {\n  return [{ json: { need_token: false, token: store.sheetsToken.value, headers_fresh: headersFresh } }];\n}\n\nconst email = $env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '';\n// Stored with literal \\n escapes, the way a .env file can hold a key.\nconst key = String($env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').split('\\\\n').join('\\n');\n\n// Without a service account every append falls back to its Sheets node,\n// which still writes, but can collide when messages arrive together.\nif (!email || !key) {\n  console.log(JSON.stringify({ event: \"sheets_token_unavailable\", reason: \"no_service_account\" }));\n  return [];\n}\n\nconst b64 = (o) => Buffer.from(typeof o === 'string' ? o : JSON.stringify(o)).toString('base64url');\nconst now = Math.floor(nowMs / 1000);\nconst unsigned = b64({ alg: 'RS256', typ: 'JWT' }) + '.' + b64({\n  iss: email,\n  scope: 'https://www.googleapis.com/auth/spreadsheets',\n  aud: 'https://oauth2.googleapis.com/token',\n  iat: now,\n  exp: now + 3600,\n});\nconst signature = crypto.createSign('RSA-SHA256').update(unsigned).sign(key, 'base64url');\n\nreturn [{ json: { need_token: true, assertion: unsigned + '.' + signature, headers_fresh: headersFresh } }];"
       },
       "id": "sign-sheets-token",
@@ -2076,57 +1976,6 @@
         ]
       ]
     },
-    "Audit Assignment": {
-      "main": [
-        [
-          {
-            "node": "Build Sort Request",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Fallback: Audit Assignment",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build Sort Request": {
-      "main": [
-        [
-          {
-            "node": "Read Tab Ids",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Read Tab Ids": {
-      "main": [
-        [
-          {
-            "node": "Build Sort Range",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Build Sort Range": {
-      "main": [
-        [
-          {
-            "node": "Sort Newest First",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Fallback: Append Conversation": {
       "main": [
         [
@@ -2149,15 +1998,21 @@
         ]
       ]
     },
-    "Fallback: Audit Assignment": {
+    "Audit Assignment": {
       "main": [
+        [],
         [
           {
-            "node": "Build Sort Request",
+            "node": "Fallback: Audit Assignment",
             "type": "main",
             "index": 0
           }
         ]
+      ]
+    },
+    "Fallback: Audit Assignment": {
+      "main": [
+        []
       ]
     },
     "Sign Sheets Token Request": {

@@ -222,8 +222,8 @@ cell:
 It grows with every inbound message and is cleared the moment a reply goes out.
 Nothing else clears it — in particular, a reply that **failed** leaves it alone,
 because the customer is still waiting. `unanswered_count` is the same thing as a
-number, so the tab can be sorted or filtered by who has been waiting longest and
-the dashboard can count it.
+number, so a filter view can sort by who has been waiting longest and the
+dashboard can count it.
 
 It keeps the newest 10 messages. A customer who sends forty should not make the
 row unreadable.
@@ -284,6 +284,7 @@ between them:
 
 | View | Filter | Purpose |
 |---|---|---|
+| **Newest first** | none; sorted by `last_activity_at` descending. **Created by `apply-sheet-layout.js`** | What just moved, at the top. Replaces the old automatic sort of the tab, which moved rows under the system's own writes |
 | **Needs attention** | `status` is `UNANSWERED` or `WAITING_FOR_AGENT` | The daily working queue |
 | **Unassigned** | `status` = `WAITING_FOR_AGENT` | Staffing gaps |
 | **Unanswered** | `status` = `UNANSWERED` | SLA risk |
@@ -484,3 +485,9 @@ Any `*_id` column, `open_conversations`, `last_assigned_at`, `dedupe_key`, any
 **Never delete a row** while the system is running — deleting shifts every row
 below it, and an in-flight update addressing a row can then write to the wrong
 one. Close conversations instead of deleting them.
+
+**Never sort the tab itself** (*Data → Sort range*, or the sort in a plain
+filter) while the system is running. A sort moves rows exactly the way a delete
+does. Sort inside a **filter view** instead: it orders what you see and moves
+nothing. The system no longer sorts the tab either; `Newest first` is a filter
+view created by `apply-sheet-layout.js`.

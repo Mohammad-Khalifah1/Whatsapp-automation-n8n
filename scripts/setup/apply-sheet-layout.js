@@ -173,6 +173,20 @@ const HIDE_COLUMNS = {
   Messages: ['dedupe_key', 'correlation_id', 'raw_event_reference', 'conversation_id'],
 };
 
+/**
+ * Filter views, each a saved ordering a person opens from Data > Filter views.
+ *
+ * The workflows used to sort the Conversations tab itself after every new
+ * conversation. A sort moves rows under every write that is in flight, and a
+ * write resolved to a row index before the sort then lands on another
+ * customer's row. A filter view orders what one person sees and moves nothing,
+ * so "newest first" lives here now. Matched by title, so re-running updates a
+ * view instead of adding another copy.
+ */
+const FILTER_VIEWS = [
+  { tab: 'Conversations', title: 'Newest first', sortBy: 'last_activity_at', order: 'DESCENDING' },
+];
+
 /** What each tab is for, shown as a note on A1. */
 const NOTES = {
   Dashboard: [
@@ -411,7 +425,11 @@ async function main() {
     }
   }
 
-  if (DRY) { console.log('\n  dry run: no formatting applied'); return; }
+  if (DRY) {
+    console.log('\n  filter views: ' + FILTER_VIEWS.map((v) => v.tab + ' "' + v.title + '"').join(', '));
+    console.log('  dry run: no formatting applied');
+    return;
+  }
 
   // Re-read: clearing and deleting columns changes the grid.
   meta = await api('GET', '?fields=sheets.properties');
@@ -563,6 +581,32 @@ async function main() {
     console.log('  ' + tab.name.padEnd(14) + dropdowns + ' dropdowns, ' +
                 colourReqs.length + ' colour rules, rows 2-' + endRow);
   }
+
+  // --- filter views: an order for people that moves no row ------------------
+  const existingViews = await api('GET',
+    '?fields=sheets(properties(sheetId,title),filterViews(filterViewId,title))');
+  const viewReqs = [];
+  for (const spec of FILTER_VIEWS) {
+    const tab = TABS.find((t) => t.name === spec.tab);
+    if (!tab || !tab.columns || !props[spec.tab]) continue;
+    const col = tab.columns.indexOf(spec.sortBy);
+    if (col === -1) continue;
+    const sheetId = props[spec.tab].sheetId;
+    // No endRowIndex: the view covers every row, including ones added later.
+    const view = {
+      title: spec.title,
+      range: { sheetId, startRowIndex: 0, startColumnIndex: 0, endColumnIndex: tab.columns.length },
+      sortSpecs: [{ dimensionIndex: col, sortOrder: spec.order }],
+    };
+    const sheet = (existingViews.sheets || []).find((s) => s.properties.sheetId === sheetId) || {};
+    const found = (sheet.filterViews || []).find((v) => v.title === spec.title);
+    viewReqs.push(found
+      ? { updateFilterView: { filter: Object.assign({ filterViewId: found.filterViewId }, view),
+        fields: 'title,range,sortSpecs' } }
+      : { addFilterView: { filter: view } });
+  }
+  if (viewReqs.length) await api('POST', ':batchUpdate', { requests: viewReqs });
+  console.log('\n  filter views: ' + FILTER_VIEWS.map((v) => v.tab + ' "' + v.title + '"').join(', '));
 
   // --- tab order and visibility ---------------------------------------------
   const finalReqs = [];

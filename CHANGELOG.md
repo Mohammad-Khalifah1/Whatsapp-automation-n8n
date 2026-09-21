@@ -5,6 +5,36 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-03 — The system no longer moves rows to sort them
+
+### Changed
+
+- **Workflow 3 no longer sorts the Conversations and Messages tabs.** It did so
+  after every new conversation to keep the newest at the top. A sort moves
+  rows, and n8n's update reads the key column and then writes to the row index
+  it found, so an update resolved just before a sort landed on another
+  customer's row: status, last message or reply cell overwritten, with nothing
+  failing. The four sort nodes are gone.
+- **Newest first is a filter view now.** `apply-sheet-layout.js` creates
+  `Newest first` on Conversations (sorted by `last_activity_at`, descending),
+  and updates it in place when re-run. A filter view orders what one person
+  sees and moves no row. New rows are appended at the bottom of the tab itself.
+- The operating guide and the schema document said to sort the tab to work the
+  queue. They now say to sort inside a filter view, and never the tab itself.
+
+### Added
+
+- `validate-workflows.js`: no workflow may send `sortRange`, `moveDimension` or
+  `insertDimension`. The previous workflow 3 fails it.
+
+### Not yet verified
+
+- Running `apply-sheet-layout.js` against the test spreadsheet, and confirming
+  that sorting inside the view leaves the order the API reads unchanged (spike
+  S3 in the V2 plan).
+
+---
+
 ## [Unreleased] — Version 2, task V2-02 — A full team no longer loses messages
 
 Ported from the `add-waha-connector` branch (`e5fdaec`), where it was found

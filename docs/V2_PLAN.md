@@ -591,13 +591,19 @@ These ship first, because every later phase builds on the paths they fix.
   branch, proven by wiring it back to Select Agent.
 - Still to do: `scenario-multi-agent.js` with every agent at capacity (E2).
 
-**V2-03 · Remove the full-tab sort** · S · risk low · after V2-01
-- Files: `build-workflows.js` (wf3: remove "Build Sort Request", "Read Tab Ids",
-  "Build Sort Range", "Sort Newest First"; the access branch stays, because the
-  appends use it), `apply-sheet-layout.js` (a "Newest first" filter view now,
-  so people keep the ordering), `docs/OPERATING_GUIDE.md`.
-- Test: a validator rule that no workflow sends `sortRange` or `moveDimension`.
-  Live: new rows land at the bottom; the view shows them first.
+**V2-03 · Remove the full-tab sort** · S · risk low · after V2-01 ·
+**built; offline gates pass; live check pending**
+- As built: the four sort nodes are gone from workflow 3 (the access branch
+  stays; the appends use it). `apply-sheet-layout.js` creates or updates a
+  `Newest first` filter view on Conversations. The operating guide and schema
+  document now say to sort only inside a view, never the tab itself. Workflow
+  3 had also sorted Messages; that tab is hidden and nothing reads it by
+  position, so it gets no view.
+- Tests: a validator rule that no workflow sends `sortRange`, `moveDimension`
+  or `insertDimension`; the previous workflow 3 fails it.
+- Still to do: run the layout tool on the test spreadsheet; new rows land at
+  the bottom and the view shows them first; sorting in the view leaves the
+  order the API reads unchanged (S3).
 
 **V2-04 · Key reply writes on `conversation_id`** · M · risk medium · after V2-03
 - Files: `build-workflows.js` (wf7), `docs/GOOGLE_SHEETS_SCHEMA.md`.

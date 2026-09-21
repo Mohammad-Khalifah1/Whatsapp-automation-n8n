@@ -269,6 +269,13 @@ function validateWorkflow(file) {
       String(node.parameters.jsonBody || '').indexOf('$("Sheets Access")') !== -1);
   }
 
+  // --- nothing moves rows during the day ---
+  // n8n's update reads the key column, then writes to the row index it found.
+  // A sort or a row move in between sends that write to another customer's
+  // row. Ordering for people is a filter view, which moves nothing.
+  const moving = ['sortRange', 'moveDimension', 'insertDimension'].filter((op) => raw.indexOf(op) !== -1);
+  check('no workflow sorts, moves or inserts rows', moving.length === 0, 'found: ' + moving.join(', '));
+
   // --- a full team must not stop a message being written ---
   // With every agent at capacity, Select Agent decides WAITING_FOR_AGENT with
   // no agent id. An Agents update with an empty match value fails, and the

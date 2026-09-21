@@ -8,7 +8,7 @@ run and observed.
 | Level | Needs credentials? | Status |
 |---|---|---|
 | 1 — Unit tests (business logic) | No | **230 passing** |
-| 2 — Workflow validation | No | **812 checks passing** |
+| 2 — Workflow validation | No | **799 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
 | 4 — **End-to-end against the live deployment** | Yes (both) | **26 checks passing** |
@@ -83,7 +83,7 @@ inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
 node scripts/validation/validate-workflows.js
 ```
 
-812 checks across the 9 workflows:
+799 checks across the 9 workflows:
 
 - every Code node body **parses as JavaScript** (`vm.Script` compile)
 - no leftover `module.exports` or relative `require()` from inlining
@@ -96,6 +96,8 @@ node scripts/validation/validate-workflows.js
   is the trigger's topmost child, so it runs first
 - `Increment Agent Load` is fed only by the true output of `Agent Assigned?`,
   so a full team can never stop a conversation row being written
+- no workflow sorts, moves or inserts rows (`sortRange`, `moveDimension`,
+  `insertDimension`), because that sends an in-flight write to another row
 - **no hard-coded secrets** (Meta tokens, private keys, bearer literals, API keys)
 
 This catches things that would otherwise fail at 3am. It found two real bugs

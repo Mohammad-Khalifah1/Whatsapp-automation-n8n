@@ -178,7 +178,7 @@ two variables. With the token, appends go through the Sheets API with
 cannot overwrite each other
 ([ARCHITECTURE.md](ARCHITECTURE.md#messages-arriving-at-the-same-instant)).
 Without them, each append falls back to its Sheets node and still writes, but a
-burst can lose a row again. Workflow 3 also skips its newest-first sort.
+burst can lose a row again.
 
 The key is the `private_key` field of the service account's JSON key, on one
 line, quoted, with its `\n` escapes left literal. Both compose files pass the
