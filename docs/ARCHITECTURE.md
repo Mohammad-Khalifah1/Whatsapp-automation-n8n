@@ -472,11 +472,11 @@ same tables — the WhatsApp integration core does not change. Details:
 
 ---
 
-## Known limitation: messages arriving at the same instant
+## Messages arriving at the same instant
 
-**Two or more webhooks that arrive in the same instant can lose one of the
-rows they write.** Sequential messages — which is what normal traffic looks
-like, even busy traffic — are unaffected. This is measured, not suspected.
+**Two webhooks that arrived in the same instant could lose one of the rows they
+wrote.** This was measured, not suspected, and it is now fixed by appending
+with `INSERT_ROWS`, as long as the service account is set in `.env` (below).
 
 ### What was measured
 
@@ -490,13 +490,33 @@ Against the Google Sheets API directly, with n8n entirely out of the picture:
 `values.append` with the default option picks its target row from the table's
 current extent and writes there. Two calls that arrive together compute the
 **same** target, and the second overwrites the first. Both are told they
-succeeded.
+succeeded. n8n's own Sheets append (2.38.5) does the same in its own way: it
+reads the sheet, works out the next free row, and writes to it.
 
 That is the whole explanation for the symptom: a burst of messages, every
 execution green in the n8n log, every webhook answered `200`, and fewer rows in
 the sheet than messages sent.
 
-### What was fixed
+### How appends work now
+
+`build-workflows.js` rewrites every Google Sheets append into three parts:
+
+| Part | What it does |
+|---|---|
+| **Access branch** | Hangs off the trigger, above everything else, so it runs first (`executionOrder` v1 runs branches topmost first). It ends in `Sheets Access`, which holds a token and the header row of every tab the workflow appends to. The token is signed from `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` and reused until five minutes before it expires, as Google recommends. The headers are re-read at most once a minute (one `batchGet`). Both are cached in the workflow's static data, which n8n also saves for sub-workflow runs, so a typical run makes no extra request |
+| **API append** | Keeps the original node's name. Calls `values:append` with `insertDataOption=INSERT_ROWS` and `valueInputOption=USER_ENTERED`, sending every value as text, exactly as the Sheets node did. Values are placed **by column name** against the live header, so inserting or moving a column in the sheet still breaks nothing |
+| **Fallback** | The original Sheets node, renamed `Fallback: <name>`, on the API append's error output. No token, no header, a quota error, or any other failure: the row is still written, the old way |
+
+The fallback keeps a deployment without the service account working exactly
+as before. It is also the one cost of the design: a call that wrote but then
+timed out is written again by the fallback. A duplicate row is recoverable; a
+lost message is not.
+
+`validate-workflows.js` enforces the shape: no Sheets-node append except as a
+fallback, every API append uses `INSERT_ROWS` and has its fallback wired, and
+the token branch is the trigger's topmost child.
+
+### Other causes fixed earlier
 
 Three contributing causes, all of them a limit that dropped rather than queued:
 
@@ -512,19 +532,14 @@ Three contributing causes, all of them a limit that dropped rather than queued:
 
 ### What remains
 
-The append collision itself. The fix is known and proven — call
-`values:append` with `insertDataOption=INSERT_ROWS` — but n8n's Google Sheets
-node does not expose that option, so the two appends that would lose a customer
-message (`Append Conversation`, `Append Message`) have to go through the Sheets
-API directly, the way workflow 3 already mints a token for sorting.
-
-Until then:
-
-- **Normal traffic is unaffected.** Messages a second or more apart all land;
-  `verify-live.js` and `verify-archive.js` pass in full.
 - **`scripts/testing/verify-burst.js` is the regression test.** It posts a burst
-  and insists every message is present. It currently fails, deliberately, and
-  is how the fix will be confirmed.
+  and insists every message is present. It must pass against a deployment that
+  has the service account in `.env`.
+- **Without the service account**, appends take the fallback and a burst can
+  lose a row, as before.
+- **Duplicate conversations** are a different race: two first messages from the
+  same customer, arriving together, can each create a conversation, because
+  Sheets has no compare-and-set. Workflow 8 folds them back together.
 - The Google Sheets quota — 60 reads per minute for one service account — is the
   throughput ceiling either way. A deployment that genuinely receives bursts has
   outgrown the spreadsheet; that is what

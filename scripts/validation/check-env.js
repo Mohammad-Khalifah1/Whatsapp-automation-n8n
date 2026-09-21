@@ -60,8 +60,8 @@ const GROUPS = [
     required: false,
     vars: [
       { key: 'GOOGLE_SHEET_ID', required: true, note: 'from the spreadsheet URL' },
-      { key: 'GOOGLE_SERVICE_ACCOUNT_EMAIL', required: false, note: 'the Sheets node uses an n8n credential instead' },
-      { key: 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', required: false, note: 'the Sheets node uses an n8n credential instead' },
+      { key: 'GOOGLE_SERVICE_ACCOUNT_EMAIL', required: false, note: 'strongly recommended: without it appends fall back to the Sheets node and can collide' },
+      { key: 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', required: false, note: 'strongly recommended: without it appends fall back to the Sheets node and can collide' },
     ],
   },
   {

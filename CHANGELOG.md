@@ -5,6 +5,62 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-01 — Appends that cannot overwrite each other
+
+The limitation left open in 0.6.0 is closed in the build. The live burst test
+has not been run yet: it needs a test spreadsheet and the local stack, which
+were not available when this was built.
+
+### The cause, read from n8n's source
+
+`appendViaApi()` was written in 0.6.0 and never called, so every append still
+went through n8n's Google Sheets node. In n8n 2.38.5 that node reads the sheet,
+works out the next free row, and writes to it. Two executions arriving together
+work out the same row. Its "Minimise API Calls" option calls `values.append`,
+but without an `insertDataOption`, which means `OVERWRITE`, and that collides
+the same way.
+
+### Changed
+
+- `build-workflows.js` rewrites every Google Sheets append (ten nodes, six
+  workflows) into an API append with `insertDataOption=INSERT_ROWS`, keeping the
+  original node's name. The Sheets node stays as `Fallback: <name>` on the API
+  append's error output, so a deployment without a service account, or a failed
+  call, still writes the row.
+- Values are placed **by column name** against the live header row, so the
+  documented promise that inserting or moving a column breaks nothing still
+  holds.
+- Every value is still sent as text with `USER_ENTERED`, which is what the
+  Sheets node did (v4.7's default), so cells keep their types.
+- An access branch hangs off each trigger and runs first. It ends in
+  `Sheets Access`: a token, reused until five minutes before it expires, and
+  the header rows, re-read at most once a minute. Both are cached in the
+  workflow's static data, which n8n 2.38.5 also saves for sub-workflow runs, so
+  a typical run makes no extra request. Workflow 3's sort uses the same token.
+- `docker-compose.prod.yml` and `.env.prod.example` now pass
+  `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`. They
+  were missing, so in production the sort had always been skipped silently.
+
+### Added
+
+- `validate-workflows.js`: no Sheets-node append except as a fallback; every API
+  append uses `INSERT_ROWS` and `USER_ENTERED`, falls back, and places values by
+  name; the access branch is complete and is the trigger's topmost child. Each
+  rule was checked by breaking a generated file on purpose.
+- `tests/build/append-via-api.test.js` (28 tests): the rewrite, and the body of
+  every generated append evaluated to a full row.
+- `tests/build/access-branch.test.js` (10 tests): the generated access-branch
+  code, run with stand-ins for n8n, signing with a real RSA key.
+
+### Not yet verified
+
+- `scripts/testing/verify-burst.js` against a running stack with a test
+  spreadsheet.
+- A server upgrade needs the two variables added to its own compose file, which
+  is maintained by hand.
+
+---
+
 ## [0.6.0] — 2026-09-13 — Messages that arrived and were never seen
 
 A burst test found the worst bug in this system so far, and most of it is fixed.
@@ -56,7 +112,7 @@ message for good.
 The append collision itself. The fix is proven but n8n's Sheets node does not
 expose `insertDataOption`, so the two appends that can lose a customer message
 must call the API directly. Written up in
-[ARCHITECTURE.md](docs/ARCHITECTURE.md#known-limitation-messages-arriving-at-the-same-instant).
+[ARCHITECTURE.md](docs/ARCHITECTURE.md#messages-arriving-at-the-same-instant).
 
 Normal traffic is unaffected — messages a second or more apart all land, and
 `verify-live.js` and `verify-archive.js` pass in full.

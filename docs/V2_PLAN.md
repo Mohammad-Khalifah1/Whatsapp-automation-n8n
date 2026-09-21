@@ -51,6 +51,8 @@ read or run, not assumed.
 | R13 | `ARCHIVE_CLOSED_AFTER_HOURS=0` could replace `ARCHIVE_AFTER_DAYS` | In V1, `ARCHIVE_AFTER_DAYS=0` **disables** archiving. Reading it as "0 hours" would archive everything | Legacy meaning kept; new variables defined without inversion (C-30) |
 | R14 | Implementation on a new `v2` branch | The owner wants the work on the new branch that holds this plan | Implementation continues on `plan-v2` |
 | R15 | The cherry-pick of `e5fdaec` may conflict | Tried on a copy of `main`: it applies cleanly. Tests, the build check, workflow validation (now 508 checks) and schema consistency pass. The docs checker then fails once: `docs/TESTING.md` still quotes 504 | V2-02 is small and includes that one-line doc fix |
+| R16 | All data writes are `RAW` | n8n 2.38.5's Google Sheets node v4.7 defaults to `USER_ENTERED` (`cellFormatDefault`), and no node here sets it. Every write is parsed as if typed, so customer text starting with `=` becomes a formula | Found while building V2-01. New Phase 0 task V2-06 (C-18) |
+| R17 | API appends must be positional, so CSV order must equal sheet order | V2-01 places values by name against the live header row instead | Column order is cosmetic again. The fallback Sheets node still fills `''` into unmapped columns, which V2-13 must handle |
 
 ---
 
@@ -188,7 +190,8 @@ V2 adds no new workflow file. The same nine files change.
   Reads accept a code or any known label, so a V1 sheet keeps working.
 - **P5 — Derive, do not rewrite.** Window state, hours waiting and real date
   values are bounded spreadsheet formulas over the machine columns. n8n never
-  rewrites a cell because time passed. All writes stay `RAW`.
+  rewrites a cell because time passed. Customer text is never allowed to become
+  a formula (V2-06).
 - **P6 — The server guard is the authority.** The sheet warns. n8n refuses.
 - **P7 — No money is spent without a human.** Templates are only sent from an
   explicit marker a person typed or inserted.
@@ -227,12 +230,15 @@ the code uses.
 
 Row 1 holds the machine keys; n8n and Apps Script read them. Row 2 holds the
 labels a person reads. Row 1 is hidden, and both rows are frozen. n8n 2.38.5
-supports this for reads and updates (verified in its source, section 6). Appends
-go through the API and are unaffected.
+supports this for reads and updates (verified in its source, section 6). API
+appends read row 1 (`!1:1`) as their header, so they keep matching by key.
 
-The physical order below becomes the CSV order. Appends are positional once
-V2-01 is done, so CSV order and sheet order must always match. Reordering an
-existing sheet happens only in the migration, with workflows stopped.
+The physical order below becomes the CSV order. Since V2-01, appends place
+values by name against the live header, so a sheet whose columns are in a
+different order still works. The order matters for what people see.
+Reordering an existing sheet still happens only in the migration, with
+workflows stopped, because `apply-sheet-layout.js` rewrites rows while it
+re-maps them.
 
 **Visible block** (what an agent works in):
 
@@ -457,8 +463,8 @@ System tab displays, so a stale paste is visible.
 | C-14 | Reply guard in `onEdit` only | prototype | Mobile skips it; the send fails at Meta | n8n guard (P6) | V2-20 |
 | C-15 | Failed send clears the typed text | wf7 routes failures into "Clear Cell" | Meta error 131047 (window closed) loses what the agent wrote | Guard before sending; keep the text; map 131047 to the same state | V2-20 |
 | C-16 | Blocked rows re-processed every minute | wf7 "Mark Invalid Reply" keeps the text | A wasted write per row per minute | `reply_blocked_hash` | V2-20 |
-| C-17 | Formula columns vs appends | n8n's append writes `''` into unmapped columns; unbounded spills extend the table | A broken `ARRAYFORMULA`, or appends landing far below the data | Every append through the API with `null` for derived positions; bounded arrays; S2 | V2-01, V2-13 |
-| C-18 | `USER_ENTERED` to get real dates | any write path | A message starting with `=` becomes a formula; `+962…` loses its plus | All data writes stay `RAW`; validator rule. Only the dashboard builder writes formulas | V2-13 |
+| C-17 | Formula columns vs appends | n8n's append writes `''` into unmapped columns; unbounded spills extend the table | A broken `ARRAYFORMULA`, or appends landing far below the data | API appends (V2-01) already send `null` for any column they do not write. V2-13 also switches the fallback Sheets nodes to "Minimise API Calls", which fills `null` instead of `''` (2.38.5 source). Bounded arrays; S2 | V2-01, V2-13 |
+| C-18 | Customer text interpreted as a formula | every Sheets node write: n8n 2.38.5's v4.7 default is `USER_ENTERED`, and no node overrides it | A message starting with `=`, `+`, `-` or `@` is parsed by Sheets. `=IMPORTXML(…)` or `=HYPERLINK(…)` from a customer becomes a live formula in the team's sheet. **Live on main** | Neutralise customer-controlled text before any write (a leading apostrophe keeps it literal under `USER_ENTERED`); validator rule. Switching to `RAW` is not done blindly, because it would change the type of every cell (numbers, `TRUE`/`FALSE`) | V2-06 |
 | C-19 | A shared filter | basic filter on Conversations | An agent filtering by their name changes everyone's view | Personal filter views; the main filter is re-applied by the system | V2-35 |
 | C-20 | Localised tab names vs name-based references | Sheets nodes, API URLs, dashboard formulas | A renamed tab breaks every reference | `tabName(key)` everywhere; validator rule; System health line | V2-30 |
 | C-21 | Archive lookup per new conversation | returning customer | Reading a growing Archive burns quota | `Customers` tab | V2-43 |
@@ -466,7 +472,7 @@ System tab displays, so a stale paste is visible.
 | C-23 | Arabic prose in docs | `check-docs.js` | Build fails | Arabic only in tables and code; the Arabic guide lives in the Start tab | all docs tasks |
 | C-24 | Extra Sheets reads per minute | wf7 reads Archive restore columns and Agents | 60 reads per minute per service account | Narrow reads; wf8's per-minute read moves to the night (net +2 reads per minute) | V2-15, V2-42, V2-46 |
 | C-25 | Cherry-picking brings a tool trailer | commit message | Branding rule | `git cherry-pick -n`, own message | V2-02 |
-| C-26 | Simultaneous appends overwrite each other | every Sheets-node append (n8n computes the row, then writes) | A customer's message or conversation row vanishes with every execution green. **Live on main**, documented as a known limitation | Wire `appendViaApi()` (`INSERT_ROWS`) for every append; validator forbids Sheets-node appends | V2-01 |
+| C-26 | Simultaneous appends overwrite each other | every Sheets-node append (n8n computes the row, then writes) | A customer's message or conversation row vanishes with every execution green. **Live on main**, documented as a known limitation | Every append goes through the API with `INSERT_ROWS`; the Sheets node survives only as its fallback; validator rules. **Built in V2-01**; live burst test pending | V2-01 |
 | C-27 | Outreach rows vs the window guard | wf7 hand-typed rows | Plain text to a new number is blocked | Outreach is template-only; documented; E19 | V2-20 |
 | C-28 | Reassigning by editing the name | `assigned_agent_name` vs `assigned_agent_id` | Load and "My queue" disagree | n8n reconciles the id from the name every minute | V2-46 |
 | C-29 | Prototype statuses (new, on hold) | prototype vs `CONVERSATION_STATUSES` | Unknown values | On hold = `WAITING_FOR_CUSTOMER`; "new" is derived | V2-11 |
@@ -488,6 +494,8 @@ System tab displays, so a stale paste is visible.
 | n8n update reads the key column, then writes only the mapped cells at the index it found | n8n 2.38.5 `GoogleSheet.ts` (`prepareDataForUpdateOrUpsert`, `batchUpdate`) |
 | n8n append computes the next row and writes there; the "Minimise API calls" option uses `values.append` without `INSERT_ROWS`; unmapped columns are filled with `''` | n8n 2.38.5 `append.operation.ts`, `GoogleSheet.ts` (`appendData`, `updateRows`) |
 | n8n read and update accept a header row and a first data row | `dataLocationOnSheet` (read), `locationDefine` (update) in the same source |
+| Every Sheets node write is `USER_ENTERED`: v4.7's default, and no node overrides it | n8n 2.38.5 `GoogleSheets.utils.ts` (`cellFormatDefault`) |
+| Static data is saved for sub-workflow runs as well as trigger runs | n8n 2.38.5 `execution-lifecycle-hooks.ts` (`getLifecycleHooksForSubExecutions` includes `hookFunctionsSave`) |
 | `appendViaApi()` is never called | search of `build-workflows.js` |
 | Workflow 8 runs every minute and deletes by `row_number` | its schedule rule and "Remove From Conversations" |
 | The token pair in workflow 3 only feeds the sort | its connections |
@@ -552,16 +560,25 @@ The results are written back into this table with the date and the evidence.
 
 These ship first, because every later phase builds on the paths they fix.
 
-**V2-01 · Concurrency-safe appends everywhere** · M · risk medium
-- Files: `build-workflows.js` (every Sheets-node append becomes
-  `appendViaApi`; the Sign/Get token pair runs before the first append in each
-  workflow that appends), `validate-workflows.js`, `docs/ARCHITECTURE.md`
-  (known limitation closed), `CHANGELOG.md`.
-- Rows are built in CSV column order from the existing column maps, with
-  `null` for anything the node did not mean to write.
-- Test: a validator rule that no Google Sheets node uses `operation: 'append'`,
-  and a unit test that every generated row array has the CSV's length.
-  **Live: `verify-burst.js` passes** (E3), and `verify-live.js` still passes.
+**V2-01 · Concurrency-safe appends everywhere** · M · risk medium ·
+**built; offline gates pass; live burst test pending**
+- As built: `build-workflows.js` rewrites all ten Sheets-node appends (six
+  workflows) into an API append with `INSERT_ROWS` under the original name, and
+  keeps the Sheets node as `Fallback: <name>` on its error output. Values are
+  placed **by column name** against the live header row, so column order in
+  the sheet still does not matter. An access branch hangs off each trigger and
+  runs first. It ends in `Sheets Access`: a cached token (reused until five
+  minutes before expiry) and cached header rows (re-read at most once a
+  minute). Writes keep `USER_ENTERED` with text values, exactly as before.
+  `docker-compose.prod.yml` and `.env.prod.example` now pass the service
+  account (they did not, so production had always skipped the sort).
+- Tests: validator rules (fallback-only Sheets appends, `INSERT_ROWS`,
+  `USER_ENTERED`, by-name placement, complete access branch that runs first),
+  each proven by breaking a generated file. Two new test files (38 tests), including the body of
+  every generated append evaluated to a full row, and the generated access
+  branch run with a real RSA key.
+- Still to do: **`verify-burst.js` passes** (E3) and `verify-live.js` still
+  passes, against a test spreadsheet on the local stack.
 
 **V2-02 · Port the capacity fix** · S · risk low · after V2-01
 - Do: `git cherry-pick -n e5fdaec` (verified clean), regenerate, update the
@@ -575,8 +592,8 @@ These ship first, because every later phase builds on the paths they fix.
 
 **V2-03 · Remove the full-tab sort** · S · risk low · after V2-01
 - Files: `build-workflows.js` (wf3: remove "Build Sort Request", "Read Tab Ids",
-  "Build Sort Range", "Sort Newest First"; keep the token pair, which the
-  appends now use), `apply-sheet-layout.js` (a "Newest first" filter view now,
+  "Build Sort Range", "Sort Newest First"; the access branch stays, because the
+  appends use it), `apply-sheet-layout.js` (a "Newest first" filter view now,
   so people keep the ordering), `docs/OPERATING_GUIDE.md`.
 - Test: a validator rule that no workflow sends `sortRange` or `moveDimension`.
   Live: new rows land at the bottom; the view shows them first.
@@ -605,6 +622,21 @@ These ship first, because every later phase builds on the paths they fix.
 - Test: unit tests (order, unknown ids, duplicate ids, gaps).
   `verify-archive.js` compares full snapshots before and after: only the
   archived ids differ.
+
+**V2-06 · Customer text never becomes a formula** · S · risk low · after V2-01
+- Found while building V2-01 (R16). Every Sheets write is `USER_ENTERED`, so
+  Sheets parses a customer's message as if someone typed it.
+- Files: new `scripts/lib/sheet-safe.js` (`sheetSafe(value)`: a string that
+  starts with `=`, `+`, `-` or `@` gets a leading apostrophe, which Sheets keeps
+  as text and does not display), the Code nodes that build customer-controlled
+  fields (`last_message`, `unanswered_messages`, `customer_name`, Messages
+  `text`), tests, `validate-workflows.js`, `docs/SECURITY.md`.
+- Not a switch to `RAW`: that would change the type of every cell the system
+  writes today (counts, `TRUE`/`FALSE`, phone numbers), which the dashboard
+  formulas rely on.
+- Test: unit tests for `sheetSafe` (formula prefixes, Arabic text, numbers,
+  empty); a validator rule that those fields pass through `sheetSafe`; live, a
+  message `=1+1` is shown as `=1+1`, not `2`.
 
 ### 7.4 Phase 1 — foundations
 
@@ -639,13 +671,13 @@ These ship first, because every later phase builds on the paths they fix.
 
 **V2-13 · Derived columns and write safety** · M · risk medium · after V2-10 (S2)
 - Files: CSV templates, `SetupSheet.gs` schema (`DERIVED_COLUMNS`),
-  `build-workflows.js` (`null` in derived positions),
+  `build-workflows.js` (fallback Sheets appends set "Minimise API Calls" so they
+  write `null`, not `''`, into columns they do not map),
   `check-schema-consistency.js`, `apply-sheet-layout.js`.
 - Do: bounded `ARRAYFORMULA`s for the derived columns in 4.2. The dates are
   converted from each value's stored offset to the sheet's zone, using the
   System tab's offset cell.
-- Test: the checker fails if a workflow maps a derived column, or if a data
-  write uses `USER_ENTERED`. A formula fixture: known timestamps give the
+- Test: the checker fails if a workflow maps a derived column. A formula fixture: known timestamps give the
   expected window, hours and dates.
 
 **V2-14 · Window rule** · S · risk low
@@ -717,7 +749,7 @@ These ship first, because every later phase builds on the paths they fix.
 - Do: replace the flat $10.32 figure with the per-message model and its
   caveat (1.2), and add the client-pays rule and the service price.
 
-**Milestone M1 — target before 1 October:** V2-01 to V2-05, V2-11, V2-14,
+**Milestone M1 — target before 1 October:** V2-01 to V2-06, V2-11, V2-14,
 V2-20, V2-23, V2-25, and V2-21 if the template is approved in time. The
 must-have is V2-20: from 1 October a reply that silently fails costs a customer.
 
@@ -869,7 +901,8 @@ Starts after S1, S2, S3 and S7 are answered.
 ```
 Phase 0:  V2-01 ─┬─> V2-02
                  ├─> V2-03 ─> V2-04
-                 └─> V2-05
+                 ├─> V2-05
+                 └─> V2-06
 Phase 1:  V2-10 (spikes)   V2-11 ─> V2-12   V2-14   V2-13 (S2)
           V2-15 (V2-05, V2-12, S3)
 Phase 2:  V2-20 (V2-04, V2-11, V2-14) ─> V2-21 (O2)
@@ -900,13 +933,14 @@ New validator rules, each added by the task that needs it:
 
 | Rule | Task |
 |---|---|
-| No Google Sheets node uses `append`; every generated row has the CSV's length | V2-01 |
+| A Sheets-node append exists only as the fallback of an API append; every API append uses `INSERT_ROWS` and `USER_ENTERED`, places values by name, and falls back; the access branch is complete and the trigger's topmost child (**in place**) | V2-01 |
 | "Increment Agent Load" only behind "Agent Assigned?" = true | V2-02 |
 | No `sortRange` / `moveDimension` anywhere | V2-03 |
 | No Conversations update matched on `row_number` except "Claim Manual Row" | V2-04 |
 | Workflow 8 deletes only through one `batchUpdate` built by `planDeletes` | V2-05 |
 | Every Conversations read is normalised; no raw status literal in a Sheets node | V2-12 |
-| No workflow maps a derived column; no `USER_ENTERED` on data | V2-13 |
+| Customer-controlled text passes through `sheetSafe` before any write | V2-06 |
+| No workflow maps a derived column | V2-13 |
 | Every tab reference goes through `tabName()`; header options on every read and update | V2-30 |
 | Every dashboard formula references existing columns | V2-24 |
 | No duplicate top-level names in `.gs`; Apps Script never moves rows or writes system columns | V2-37 |

@@ -107,6 +107,12 @@ services:
       - META_APP_SECRET=${META_APP_SECRET}
       - WEBHOOK_VERIFY_TOKEN=${WEBHOOK_VERIFY_TOKEN}
       - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
+      # Appends sign their own Sheets token from these so they can use
+      # INSERT_ROWS and cannot overwrite each other. Unset, they fall back to
+      # the Sheets node, which can lose a row when two messages arrive at once.
+      # The key is ONE line, quoted, with literal \n escapes.
+      - GOOGLE_SERVICE_ACCOUNT_EMAIL=${GOOGLE_SERVICE_ACCOUNT_EMAIL}
+      - GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
       - CONVERSATION_INACTIVITY_HOURS=${CONVERSATION_INACTIVITY_HOURS:-24}
       - DEFAULT_COUNTRY_CODE=${DEFAULT_COUNTRY_CODE:-962}
       - ASSIGNMENT_STRATEGY=${ASSIGNMENT_STRATEGY:-LEAST_OPEN_CONVERSATIONS}

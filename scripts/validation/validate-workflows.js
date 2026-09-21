@@ -234,6 +234,64 @@ function validateWorkflow(file) {
     );
   }
 
+  // --- appends cannot overwrite each other ---
+  // n8n's Sheets append works out the next free row and writes there, so two
+  // executions arriving together pick the same row and one row is lost with
+  // both executions green. Every append goes through the Sheets API with
+  // insertDataOption=INSERT_ROWS, and the Sheets node survives only as that
+  // append's fallback, reached from its error output.
+  const byName = new Map(wf.nodes.map((n) => [n.name, n]));
+  const isApiAppend = (node) => !!node && node.type === 'n8n-nodes-base.httpRequest' &&
+    typeof (node.parameters || {}).url === 'string' && /\/values\/[^?]*:append\?/.test(node.parameters.url);
+
+  for (const node of wf.nodes) {
+    if (!node.type || node.type.indexOf('googleSheets') === -1) continue;
+    if ((node.parameters || {}).operation !== 'append') continue;
+    const owner = node.name.indexOf('Fallback: ') === 0 ? node.name.slice('Fallback: '.length) : null;
+    const ownerOut = owner ? (((wf.connections[owner] || {}).main || [])[1] || []) : [];
+    check(
+      'Sheets append is only a fallback behind an API append: ' + node.name,
+      isApiAppend(byName.get(owner)) && ownerOut.some((t) => t.node === node.name),
+      'a Sheets-node append can overwrite a row appended at the same instant'
+    );
+  }
+
+  const apiAppends = wf.nodes.filter(isApiAppend);
+  for (const node of apiAppends) {
+    const url = node.parameters.url;
+    const errorOut = ((wf.connections[node.name] || {}).main || [])[1] || [];
+    check('API append inserts rows: ' + node.name, url.indexOf('insertDataOption=INSERT_ROWS') !== -1);
+    check('API append keeps USER_ENTERED, like the Sheets node: ' + node.name,
+      url.indexOf('valueInputOption=USER_ENTERED') !== -1);
+    check('API append falls back to its Sheets node: ' + node.name,
+      node.onError === 'continueErrorOutput' && errorOut.some((t) => t.node === 'Fallback: ' + node.name));
+    check('API append places values by header name: ' + node.name,
+      String(node.parameters.jsonBody || '').indexOf('$("Sheets Access")') !== -1);
+  }
+
+  // --- the access branch runs before anything appends ---
+  // With executionOrder v1, n8n runs a node's branches topmost first. The
+  // access branch hangs off the trigger and must be its topmost child, or an
+  // append runs before its token exists and every row takes the fallback.
+  if (apiAppends.length > 0) {
+    const required = ['Sign Sheets Token Request', 'Need Sheets Token?', 'Get Sheets Token',
+      'Sheet Headers Fresh?', 'Read Sheet Headers', 'Sheets Access'];
+    const missing = required.filter((n) => !byName.has(n));
+    check('access branch is complete', missing.length === 0, 'missing: ' + missing.join(', '));
+    check('executionOrder is v1', !!wf.settings && wf.settings.executionOrder === 'v1');
+
+    const trigger = Object.keys(wf.connections).find((src) =>
+      (((wf.connections[src] || {}).main || [])[0] || []).some((t) => t.node === 'Sign Sheets Token Request'));
+    const children = trigger ? wf.connections[trigger].main[0].map((t) => byName.get(t.node)).filter(Boolean) : [];
+    const sign = byName.get('Sign Sheets Token Request');
+    check(
+      'access branch hangs off the trigger and runs first',
+      !!trigger && /Trigger$|\.webhook$/.test((byName.get(trigger) || {}).type || '') && !!sign &&
+        children.every((c) => c === sign || c.position[1] > sign.position[1]),
+      'Sign Sheets Token Request must be the topmost child of the trigger'
+    );
+  }
+
   // --- secret scanning ---
   for (const pattern of SECRET_PATTERNS) {
     const hit = pattern.re.exec(raw);

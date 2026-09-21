@@ -58,7 +58,7 @@ node tests/run-tests.js assignment    # one area
 No npm install, no credentials, ~15 ms.
 
 ```
-169 passed, 0 failed, 169 total
+230 passed, 0 failed, 230 total
 ```
 
 | Suite | Tests | Covers |
@@ -69,6 +69,8 @@ No npm install, no credentials, ~15 ms.
 | `webhook/security.test.js` | 22 | Handshake, HMAC, redaction |
 | `webhook/idempotency.test.js` | 29 | Dedupe keys, status ladder, locks |
 | `conversations/conversation.test.js` | 39 | State machine, identity, row building, inactivity |
+| `build/append-via-api.test.js` | 28 | The build's rewrite of every Sheets append into an `INSERT_ROWS` API append with a fallback; values placed by column name; the body of every generated append evaluates to one full row |
+| `build/access-branch.test.js` | 10 | The generated `Sign Sheets Token Request` and `Sheets Access` code, run with stand-ins for n8n: signing, token and header caching, a refused token, a missing column |
 
 These test the **same code** that runs in n8n — `scripts/setup/build-workflows.js`
 inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
@@ -81,7 +83,7 @@ inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
 node scripts/validation/validate-workflows.js
 ```
 
-504 checks across the 9 workflows:
+807 checks across the 9 workflows:
 
 - every Code node body **parses as JavaScript** (`vm.Script` compile)
 - no leftover `module.exports` or relative `require()` from inlining
@@ -89,6 +91,9 @@ node scripts/validation/validate-workflows.js
 - every node is wired into the graph (no orphans)
 - node names and ids are unique
 - every `typeVersion` is one the installed n8n supports
+- no Sheets-node append except as the fallback of an API append; every API
+  append uses `INSERT_ROWS` and places values by column name; the token branch
+  is the trigger's topmost child, so it runs first
 - **no hard-coded secrets** (Meta tokens, private keys, bearer literals, API keys)
 
 This catches things that would otherwise fail at 3am. It found two real bugs

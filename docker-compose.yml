@@ -102,9 +102,11 @@ services:
       - WEBHOOK_VERIFY_TOKEN=${WEBHOOK_VERIFY_TOKEN}
       - ALLOW_UNSIGNED_WEBHOOKS=${ALLOW_UNSIGNED_WEBHOOKS:-false}
       - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
-      # Workflow 3 signs its own Sheets token from these to keep Conversations
-      # and Messages newest-first. The n8n Google credential cannot authorise
-      # that call (403). Unset, the sort is skipped, with no error anywhere.
+      # Every workflow that appends a row signs its own Sheets token from
+      # these, so appends can use INSERT_ROWS and cannot overwrite each other
+      # (the n8n Google credential cannot authorise those calls: 403). Unset,
+      # appends fall back to the Sheets node, which can lose a row when two
+      # messages arrive at once, and workflow 3 skips its sort.
       # The key is ONE line, quoted, with literal \n escapes - a multi-line PEM
       # in .env breaks `docker compose config` outright.
       - GOOGLE_SERVICE_ACCOUNT_EMAIL=${GOOGLE_SERVICE_ACCOUNT_EMAIL}

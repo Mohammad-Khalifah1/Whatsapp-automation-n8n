@@ -333,47 +333,152 @@ function failLoudly(node, wiredErrorOutputs) {
   return node;
 }
 
+/** The header of a sheet tab, read from its template — the canonical order. */
+function tabHeader(tab) {
+  const file = path.join(__dirname, '..', '..', 'sheets-templates', tab + '.csv');
+  if (!fs.existsSync(file)) throw new Error('no template for tab "' + tab + '": ' + file);
+  return fs.readFileSync(file, 'utf8')
+    .split(/\r?\n/)[0].split(',').map((c) => c.trim()).filter(Boolean);
+}
+
+/**
+ * Turn one Sheets-node column value into a plain JavaScript expression.
+ *
+ * A column value is either a literal ('outbound') or an n8n expression
+ * ('={{ $json.message_id }}', or text mixed with {{ }} parts). The API append
+ * builds its whole row inside ONE expression, so each value has to become a
+ * bare JS expression first. Anything this cannot translate with certainty is a
+ * build error, never a guess: a wrong guess here writes the wrong data.
+ */
+function expressionToJs(value) {
+  if (typeof value !== 'string') return JSON.stringify(value === undefined ? null : value);
+  if (value.charAt(0) !== '=') return JSON.stringify(value);
+
+  const body = value.slice(1);
+  const opens = body.split('{{').length - 1;
+  const closes = body.split('}}').length - 1;
+  if (opens !== closes) {
+    throw new Error('cannot translate expression with unbalanced or nested braces: ' + value);
+  }
+
+  const trimmed = body.trim();
+  if (opens === 1 && trimmed.indexOf('{{') === 0 && trimmed.slice(-2) === '}}') {
+    return '(' + trimmed.slice(2, -2).trim() + ')';
+  }
+
+  // Text mixed with expressions: "=abc {{ x }} def" reads as 'abc ' + x + ' def'.
+  const parts = [];
+  let rest = body;
+  while (rest.length > 0) {
+    const open = rest.indexOf('{{');
+    if (open === -1) { parts.push(JSON.stringify(rest)); break; }
+    if (open > 0) parts.push(JSON.stringify(rest.slice(0, open)));
+    const close = rest.indexOf('}}', open + 2);
+    parts.push('String(' + rest.slice(open + 2, close).trim() + ')');
+    rest = rest.slice(close + 2);
+  }
+  return '(' + parts.join(' + ') + ')';
+}
+
+/**
+ * The values of one appended row, as [column, JS expression] pairs. Every
+ * column must exist in the tab's template: a typo here would otherwise be
+ * dropped at run time without a trace.
+ */
+function appendRowValues(tab, columnValues) {
+  const header = tabHeader(tab);
+  const unknown = Object.keys(columnValues).filter((c) => header.indexOf(c) === -1);
+  if (unknown.length > 0) {
+    throw new Error('append to ' + tab + ' maps columns its template does not have: ' + unknown.join(', '));
+  }
+  return Object.keys(columnValues).map((c) => {
+    const js = expressionToJs(columnValues[c]);
+    // The row is built inside a single {{ }} expression, which a stray pair of
+    // braces would end early.
+    if (js.indexOf('{{') !== -1 || js.indexOf('}}') !== -1) {
+      throw new Error('column ' + c + ' of ' + tab + ' contains {{ or }}: ' + columnValues[c]);
+    }
+    return [c, js];
+  });
+}
+
+/**
+ * The expression that lays one row out against the tab's LIVE header row.
+ *
+ * values.append is positional, but the sheet belongs to people, and the docs
+ * promise that inserting or moving a column breaks nothing because workflows
+ * address columns by name. So the row is placed by name at run time, using
+ * the header the access branch read (see addSheetsAccessBranch). A column the
+ * sheet has but the node does not write is `null`, which the API skips.
+ * Without a token or a header the expression throws, before any request is
+ * made, and the fallback Sheets node writes the row instead.
+ */
+function rowByHeaderExpr(tab, values) {
+  const tabKey = JSON.stringify(tab);
+  const byName = '{ ' + values.map(([c, js]) => JSON.stringify(c) + ': ' + js).join(', ') + ' }';
+  return '(() => { ' +
+    'const access = $("Sheets Access").first().json; ' +
+    'if (!access.token) throw new Error("no Sheets token"); ' +
+    'const header = (access.headers || {})[' + tabKey + ']; ' +
+    'if (!Array.isArray(header) || header.length === 0) throw new Error("no header row read for " + ' + tabKey + '); ' +
+    'const byName = ' + byName + '; ' +
+    'return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null)' +
+    '.map((v) => v === null || v === undefined ? null : (typeof v === "object" ? JSON.stringify(v) : String(v))); ' +
+    '})()';
+}
+
 /**
  * Append a row through the Sheets API, with insertDataOption=INSERT_ROWS.
  *
  * WHY NOT THE SHEETS NODE
- * values.append defaults to insertDataOption=OVERWRITE: it picks the target row
- * from the table's current extent and writes there. Two calls arriving together
- * compute the SAME target, and the second overwrites the first. Both return
- * HTTP 200. Measured against the Google API with no n8n involved: six
- * simultaneous appends, six 200s, THREE rows. Half the data gone, silently.
+ * n8n 2.38.5's append reads the sheet, works out the next free row and writes
+ * to it (GoogleSheet.appendData -> updateRows). Two executions arriving
+ * together work out the SAME row, and the second overwrites the first. Its
+ * "Minimise API Calls" option calls values.append instead, but without an
+ * insertDataOption, so it gets the default, OVERWRITE, which collides the
+ * same way. Measured against the Google API with no n8n involved: six
+ * simultaneous OVERWRITE appends, six 200s, THREE rows. INSERT_ROWS inserts
+ * instead and cannot collide: six of six.
  *
- * INSERT_ROWS inserts instead of overwriting and cannot collide - the same
- * measurement gives six of six. n8n's Google Sheets node does not expose the
- * option, so the two appends that would lose a CUSTOMER MESSAGE go direct.
+ * WHAT STAYS THE SAME
+ * USER_ENTERED, with every value sent as text, is exactly what the Sheets
+ * nodes do (v4.7 defaults to USER_ENTERED; withSheetSchema sets
+ * convertFieldsToString), so every cell lands with the type it always had.
+ * Columns are still matched by name (rowByHeaderExpr).
  *
- * Authentication is the token minted by the Sign/Get pair, for the same reason
- * the sort does it: the n8n Google credential authenticates an HTTP Request
- * node with a scope that does not cover this, and returns 403.
+ * Authentication is the token from `Sheets Access` (addSheetsAccessBranch):
+ * the n8n Google credential authenticates an HTTP Request node with a scope
+ * that does not cover this, and returns 403. `.first()` rather than `.item`,
+ * because the access branch is not an ancestor of the rows being appended.
  *
- * @param {string} name       Node name.
- * @param {string} id         Node id.
- * @param {Array}  position   Canvas position.
- * @param {string} tab        Sheet tab to append to.
- * @param {string} rowExpr    Expression yielding the row array, in column order.
+ * No retries here. Any failure, a missing token included, goes to the error
+ * output, where the original Sheets node takes over with its own retries (see
+ * routeAppendsThroughApi). Retrying a missing token would only add delay.
+ *
+ * @param {string}                name      Node name.
+ * @param {string}                id        Node id.
+ * @param {Array}                 position  Canvas position.
+ * @param {string}                tab       Sheet tab to append to.
+ * @param {Array<[string,string]>} values   [column, JS expression] pairs.
  */
-function appendViaApi(name, id, position, tab, rowExpr) {
+function appendViaApi(name, id, position, tab, values) {
+  const row = rowByHeaderExpr(tab, values);
   return {
     parameters: {
       method: 'POST',
       url: '=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}/values/' +
         encodeURIComponent(tab + '!A1') +
-        ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
+        ':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
       sendHeaders: true,
       headerParameters: {
         parameters: [
-          { name: 'Authorization', value: '=Bearer {{ $("Get Sheets Token").item.json.access_token }}' },
+          { name: 'Authorization', value: '=Bearer {{ $("Sheets Access").first().json.token }}' },
           { name: 'Content-Type', value: 'application/json' },
         ],
       },
       sendBody: true,
       specifyBody: 'json',
-      jsonBody: '={{ JSON.stringify({ values: [' + rowExpr + '] }) }}',
+      jsonBody: '={{ JSON.stringify({ values: [' + row + '] }) }}',
       options: {
         timeout: 15000,
         response: { response: { responseFormat: 'json' } },
@@ -384,12 +489,340 @@ function appendViaApi(name, id, position, tab, rowExpr) {
     type: 'n8n-nodes-base.httpRequest',
     typeVersion: NODE_VERSION.httpRequest,
     position,
-    // Losing this write loses the customer's message. Retry, then fail loudly.
-    retryOnFail: true,
-    maxTries: 3,
-    waitBetweenTries: 2000,
-    onError: 'stopWorkflow',
+    onError: 'continueErrorOutput',
+    notes: 'Appends with INSERT_ROWS so simultaneous executions cannot overwrite each other. ' +
+      'On any failure the Sheets node below writes the same row instead.',
   };
+}
+
+/** How long a workflow reuses the header rows it read, in milliseconds. */
+const SHEET_HEADER_TTL_MS = 60000;
+
+/** A cached access token is replaced this long before it expires. */
+const SHEET_TOKEN_MARGIN_MS = 300000;
+
+/**
+ * The access branch: a Sheets access token, and the header row of every tab
+ * the workflow appends to, both in one node, `Sheets Access`.
+ *
+ * The token is signed from the service account in .env, so the private key
+ * lives there and nowhere else. The token it buys (valid one hour) is cached in
+ * the workflow's static data and reused until five minutes before it expires,
+ * as Google recommends, instead of asking for a new one on every execution.
+ * The header rows are cached for SHEET_HEADER_TTL_MS: one read a minute per
+ * workflow at most, against a quota of 60 reads a minute, and a column someone
+ * moves by hand is picked up within that minute. Static data is saved for
+ * sub-workflow executions too (n8n 2.38.5, getLifecycleHooksForSubExecutions).
+ *
+ *   Sign Sheets Token Request ─> Need Sheets Token? ─yes─> Get Sheets Token ─┐
+ *                                                   └no─────────────────────┤
+ *   ┌───────────────────────────────────────────────────────────────────────┘
+ *   └─> Sheet Headers Fresh? ─yes───────────────────────> Sheets Access
+ *                            └no─> Read Sheet Headers ──> Sheets Access
+ *
+ * @param {Array}                     position  Where the branch starts.
+ * @param {Object<string, string[]>}  written   tab -> columns this workflow writes.
+ */
+function sheetsAccessNodes(position, written) {
+  const [x, y] = position;
+  const tabs = Object.keys(written).sort();
+
+  const sign = codeNode(
+    'Sign Sheets Token Request',
+    'sign-sheets-token',
+    [x, y],
+    [],
+    [
+      "// Allowed by NODE_FUNCTION_ALLOW_BUILTIN=crypto. The prelude only hoists",
+      '// requires it finds inside an inlined library, so this node asks for it.',
+      "const crypto = require('crypto');",
+      '',
+      "const store = $getWorkflowStaticData('global');",
+      'const nowMs = Date.now();',
+      'const headersFresh = !!(store.sheetHeaders && store.sheetHeaders.at &&',
+      '  (nowMs - store.sheetHeaders.at) < ' + SHEET_HEADER_TTL_MS + ');',
+      '',
+      '// Reuse the token until shortly before it expires, as Google recommends.',
+      'if (store.sheetsToken && store.sheetsToken.value &&',
+      '    store.sheetsToken.expiresAt - nowMs > ' + SHEET_TOKEN_MARGIN_MS + ') {',
+      '  return [{ json: { need_token: false, token: store.sheetsToken.value, headers_fresh: headersFresh } }];',
+      '}',
+      '',
+      "const email = $env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '';",
+      '// Stored with literal \\n escapes, the way a .env file can hold a key.',
+      "const key = String($env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').split('\\\\n').join('\\n');",
+      '',
+      '// Without a service account every append falls back to its Sheets node,',
+      '// which still writes, but can collide when messages arrive together.',
+      'if (!email || !key) {',
+      '  console.log(JSON.stringify({ event: "sheets_token_unavailable", reason: "no_service_account" }));',
+      '  return [];',
+      '}',
+      '',
+      "const b64 = (o) => Buffer.from(typeof o === 'string' ? o : JSON.stringify(o)).toString('base64url');",
+      'const now = Math.floor(nowMs / 1000);',
+      "const unsigned = b64({ alg: 'RS256', typ: 'JWT' }) + '.' + b64({",
+      '  iss: email,',
+      "  scope: 'https://www.googleapis.com/auth/spreadsheets',",
+      "  aud: 'https://oauth2.googleapis.com/token',",
+      '  iat: now,',
+      '  exp: now + 3600,',
+      '});',
+      "const signature = crypto.createSign('RSA-SHA256').update(unsigned).sign(key, 'base64url');",
+      '',
+      "return [{ json: { need_token: true, assertion: unsigned + '.' + signature, headers_fresh: headersFresh } }];",
+    ].join('\n')
+  );
+
+  const ifTrue = (id, name, leftValue, position) => ({
+    parameters: {
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          { id, leftValue, rightValue: true, operator: { type: 'boolean', operation: 'true', singleValue: true } },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+    id,
+    name,
+    type: 'n8n-nodes-base.if',
+    typeVersion: NODE_VERSION.if,
+    position,
+  });
+
+  const needToken = ifTrue('need-sheets-token', 'Need Sheets Token?',
+    "={{ $('Sign Sheets Token Request').first().json.need_token }}", [x + 220, y]);
+
+  const get = {
+    parameters: {
+      method: 'POST',
+      url: 'https://oauth2.googleapis.com/token',
+      sendHeaders: true,
+      headerParameters: {
+        parameters: [{ name: 'Content-Type', value: 'application/x-www-form-urlencoded' }],
+      },
+      // Sent as form fields rather than a raw body: with a raw body n8n hands
+      // back the response as an unparsed stream, and the access token arrives
+      // as a Buffer nobody downstream can read.
+      sendBody: true,
+      contentType: 'form-urlencoded',
+      bodyParameters: {
+        parameters: [
+          { name: 'grant_type', value: 'urn:ietf:params:oauth:grant-type:jwt-bearer' },
+          { name: 'assertion', value: "={{ $('Sign Sheets Token Request').first().json.assertion }}" },
+        ],
+      },
+      options: { timeout: 10000, response: { response: { neverError: true, responseFormat: 'json' } } },
+    },
+    id: 'get-sheets-token',
+    name: 'Get Sheets Token',
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: NODE_VERSION.httpRequest,
+    position: [x + 440, y - 120],
+    // No token is not an error: every append falls back to its Sheets node.
+    onError: 'continueRegularOutput',
+  };
+
+  const headersFresh = ifTrue('sheet-headers-fresh', 'Sheet Headers Fresh?',
+    "={{ $('Sign Sheets Token Request').first().json.headers_fresh }}", [x + 660, y]);
+
+  // The token comes from the cache (Sign) or from Get Sheets Token; the ||
+  // short-circuits, so Get Sheets Token is only read when it has run.
+  const tokenExpr = "($('Sign Sheets Token Request').first().json.token || " +
+    "$('Get Sheets Token').first().json.access_token)";
+  const ranges = tabs.map((t) => 'ranges=' + encodeURIComponent(t + '!1:1')).join('&');
+  const read = {
+    parameters: {
+      method: 'GET',
+      url: '=https://sheets.googleapis.com/v4/spreadsheets/{{ $env.GOOGLE_SHEET_ID }}/values:batchGet?majorDimension=ROWS&' + ranges,
+      sendHeaders: true,
+      headerParameters: {
+        parameters: [{ name: 'Authorization', value: '=Bearer {{ ' + tokenExpr + ' }}' }],
+      },
+      options: { timeout: 10000, response: { response: { neverError: true, responseFormat: 'json' } } },
+    },
+    id: 'read-sheet-headers',
+    name: 'Read Sheet Headers',
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: NODE_VERSION.httpRequest,
+    position: [x + 880, y + 120],
+    notes: 'One batchGet for every tab this workflow appends to: a single read request.',
+    onError: 'continueRegularOutput',
+  };
+
+  const access = codeNode(
+    'Sheets Access',
+    'sheets-access',
+    [x + 1100, y],
+    [],
+    [
+      '// What every API append in this workflow needs: a token, and the header',
+      '// row of its tab so it can place values BY NAME (rowByHeaderExpr).',
+      "const store = $getWorkflowStaticData('global');",
+      "const signed = $('Sign Sheets Token Request').first().json;",
+      'const input = ($input.first() || {}).json || {};',
+      'const WRITTEN = ' + JSON.stringify(written) + ';',
+      '',
+      'let token = signed.token || null;',
+      'if (!token) {',
+      '  // Get Sheets Token ran only if the cache had no usable token.',
+      '  try {',
+      "    const got = $('Get Sheets Token').first().json || {};",
+      '    if (got.access_token) {',
+      '      token = got.access_token;',
+      '      const seconds = Number(got.expires_in) > 0 ? Number(got.expires_in) : 3600;',
+      '      store.sheetsToken = { value: token, expiresAt: Date.now() + seconds * 1000 };',
+      '    }',
+      '  } catch (e) {',
+      '    token = null;',
+      '  }',
+      '}',
+      '',
+      '// A token Google no longer accepts must not be reused for the next hour.',
+      'if (input.error && Number(input.error.code) === 401) {',
+      '  delete store.sheetsToken;',
+      '  token = null;',
+      '}',
+      '',
+      'let headers = null;',
+      'if (Array.isArray(input.valueRanges)) {',
+      '  headers = {};',
+      '  for (const vr of input.valueRanges) {',
+      "    // \"Messages!A1:S1\", or \"'My Tab'!A1:S1\" when the name needs quoting.",
+      "    const tab = String(vr.range || '').split('!')[0].replace(/^'(.*)'$/, '$1').split(\"''\").join(\"'\");",
+      '    headers[tab] = ((vr.values || [])[0] || []).map((h) => String(h).trim());',
+      '  }',
+      '  store.sheetHeaders = { at: Date.now(), headers };',
+      '',
+      '  // A column the workflow writes but the sheet lacks is dropped from the',
+      '  // row. Say so where an operator will see it.',
+      '  for (const tab of Object.keys(WRITTEN)) {',
+      '    const missing = WRITTEN[tab].filter((c) => (headers[tab] || []).indexOf(c) === -1);',
+      '    if (missing.length > 0) {',
+      "      console.log(JSON.stringify({ event: 'sheet_header_mismatch', tab, missing }));",
+      '    }',
+      '  }',
+      '} else if (store.sheetHeaders && store.sheetHeaders.headers) {',
+      '  headers = store.sheetHeaders.headers;',
+      '}',
+      '',
+      'if (!token || !headers) {',
+      '  // Every API append in this execution will fall over to its Sheets node.',
+      "  console.log(JSON.stringify({ event: 'sheets_access_unavailable', token: !!token, headers: !!headers }));",
+      '}',
+      'return [{ json: { token, headers: headers || {} } }];',
+    ].join('\n')
+  );
+
+  return [sign, needToken, get, headersFresh, read, access];
+}
+
+/**
+ * Give a workflow its Sheets access, once per execution, BEFORE anything
+ * appends.
+ *
+ * The branch hangs off the trigger, above everything else. With executionOrder
+ * 'v1', n8n runs a node's branches one at a time, topmost first, so this branch
+ * finishes before the main branch starts. Hanging it off the trigger, rather
+ * than putting it in line, leaves every item in the main branch exactly as it
+ * was. With the token and the headers cached, a typical run costs no request.
+ *
+ * @param {object}                   built    The workflow being built.
+ * @param {Object<string, string[]>} written  tab -> columns this workflow writes.
+ */
+function addSheetsAccessBranch(built, written) {
+  const conns = built.connections;
+  if (built.nodes.some((n) => n.name === 'Sign Sheets Token Request')) {
+    throw new Error(built.name + ' already defines the token nodes; they are added by addSheetsAccessBranch');
+  }
+  if (!built.settings || built.settings.executionOrder !== 'v1') {
+    throw new Error(built.name + ' must use executionOrder v1 for the access branch to run first');
+  }
+
+  const triggers = built.nodes.filter((n) => /Trigger$|\.webhook$/.test(n.type));
+  if (triggers.length !== 1) {
+    throw new Error(built.name + ' needs exactly one trigger to hang the access branch on, found ' + triggers.length);
+  }
+  const trigger = triggers[0];
+  const placed = built.nodes.filter((n) => n.type !== 'n8n-nodes-base.stickyNote');
+  const top = Math.min.apply(null, placed.map((n) => n.position[1]));
+
+  const [sign, needToken, get, headersFresh, read, access] =
+    sheetsAccessNodes([trigger.position[0] + 240, top - 360], written);
+  built.nodes.push(sign, needToken, get, headersFresh, read, access);
+
+  const link = (to) => ({ node: to, type: 'main', index: 0 });
+  const out = conns[trigger.name] || (conns[trigger.name] = { main: [[]] });
+  out.main[0] = [link(sign.name)].concat(out.main[0] || []);
+  conns[sign.name] = { main: [[link(needToken.name)]] };
+  conns[needToken.name] = { main: [[link(get.name)], [link(headersFresh.name)]] };
+  conns[get.name] = { main: [[link(headersFresh.name)]] };
+  conns[headersFresh.name] = { main: [[link(access.name)], [link(read.name)]] };
+  conns[read.name] = { main: [[link(access.name)]] };
+}
+
+/**
+ * Route every Google Sheets append through the API, keeping the Sheets node
+ * as its fallback.
+ *
+ * Each append becomes two nodes: the API append under the original name, so
+ * every connection into and out of it is unchanged, and the original Sheets
+ * node as "Fallback: <name>", fed by the API node's error output. A deployment
+ * without a service account in .env, or a failed API call, therefore writes
+ * exactly as before instead of losing the row. The one cost: a call that
+ * wrote but timed out can be written twice. A duplicate row is recoverable;
+ * a lost message is not.
+ */
+function routeAppendsThroughApi(built) {
+  const conns = built.connections;
+  const appends = built.nodes.filter(
+    (n) => n.type === 'n8n-nodes-base.googleSheets' && (n.parameters || {}).operation === 'append'
+  );
+  if (appends.length === 0) return;
+
+  const inputsOf = (target) => Object.keys(conns).filter((src) =>
+    ((conns[src] || {}).main || []).some((outs) => (outs || []).some((t) => t.node === target)));
+
+  // tab -> every column this workflow writes there, for the header check.
+  const written = {};
+
+  for (const node of appends) {
+    const tab = node.parameters.sheetName.value;
+    const values = appendRowValues(tab, (node.parameters.columns || {}).value || {});
+    written[tab] = Array.from(new Set((written[tab] || []).concat(values.map(([c]) => c))));
+
+    // The fallback's input is the API node's ERROR output, so a bare $json
+    // there would read the error, not the row. Point it at the real source.
+    const fallback = JSON.parse(JSON.stringify(node));
+    fallback.name = 'Fallback: ' + node.name;
+    fallback.id = node.id + '-fallback';
+    fallback.position = [node.position[0], node.position[1] + 200];
+    fallback.notes = 'Runs only when the API append above fails, for example when .env has no service account.';
+    if (JSON.stringify(fallback.parameters).indexOf('$json') !== -1) {
+      const sources = inputsOf(node.name);
+      if (sources.length !== 1) {
+        throw new Error(node.name + ' reads $json but has ' + sources.length +
+          ' inputs; name its source in ITEM_SOURCES');
+      }
+      bindItemSource(fallback, sources[0]);
+    }
+
+    const api = appendViaApi(node.name, node.id, node.position, tab, values);
+
+    const original = conns[node.name] || { main: [[]] };
+    const next = (original.main && original.main[0]) || [];
+    const onError = (original.main && original.main[1]) || [];
+    conns[node.name] = { main: [next, [{ node: fallback.name, type: 'main', index: 0 }]] };
+    conns[fallback.name] = {
+      main: onError.length ? [JSON.parse(JSON.stringify(next)), onError] : [JSON.parse(JSON.stringify(next))],
+    };
+
+    built.nodes.splice(built.nodes.indexOf(node), 1, api, fallback);
+  }
+
+  addSheetsAccessBranch(built, written);
 }
 
 function withRetry(node) {
@@ -1954,77 +2387,10 @@ function buildConversationAndAssignment() {
   // find what just came in. The n8n Sheets node has no sort operation, so this
   // calls the Sheets API directly.
   //
-  // It mints its own access token rather than using the n8n Google credential:
-  // that credential authenticates an HTTP Request node with a scope that does
-  // not cover spreadsheets.batchUpdate, and the call comes back 403 Forbidden.
-  // Signing here also keeps to the rule that every secret this project uses
-  // lives in .env and nowhere else.
-  nodes.push(
-    codeNode(
-      'Sign Sheets Token Request',
-      'sign-sheets-token',
-      [2960, 0],
-      [],
-      [
-        "// Allowed by NODE_FUNCTION_ALLOW_BUILTIN=crypto. The prelude only hoists",
-        '// requires it finds inside an inlined library, so this node asks for it.',
-        "const crypto = require('crypto');",
-        '',
-        "const email = $env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '';",
-        '// Stored with literal \\n escapes, the way a .env file can hold a key.',
-        "const key = String($env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').split('\\\\n').join('\\n');",
-        '',
-        'if (!email || !key) {',
-        '  console.log(JSON.stringify({ event: "sort_skipped", reason: "no_service_account" }));',
-        '  return [];',
-        '}',
-        '',
-        "const b64 = (o) => Buffer.from(typeof o === 'string' ? o : JSON.stringify(o)).toString('base64url');",
-        'const now = Math.floor(Date.now() / 1000);',
-        "const unsigned = b64({ alg: 'RS256', typ: 'JWT' }) + '.' + b64({",
-        '  iss: email,',
-        "  scope: 'https://www.googleapis.com/auth/spreadsheets',",
-        "  aud: 'https://oauth2.googleapis.com/token',",
-        '  iat: now,',
-        '  exp: now + 3600,',
-        '});',
-        "const signature = crypto.createSign('RSA-SHA256').update(unsigned).sign(key, 'base64url');",
-        '',
-        "return [{ json: { assertion: unsigned + '.' + signature } }];",
-      ].join('\n')
-    )
-  );
-
-  nodes.push({
-    parameters: {
-      method: 'POST',
-      url: 'https://oauth2.googleapis.com/token',
-      sendHeaders: true,
-      headerParameters: {
-        parameters: [{ name: 'Content-Type', value: 'application/x-www-form-urlencoded' }],
-      },
-      // Sent as form fields rather than a raw body: with a raw body n8n hands
-      // back the response as an unparsed stream, and the access token arrives
-      // as a Buffer nobody downstream can read.
-      sendBody: true,
-      contentType: 'form-urlencoded',
-      bodyParameters: {
-        parameters: [
-          { name: 'grant_type', value: 'urn:ietf:params:oauth:grant-type:jwt-bearer' },
-          { name: 'assertion', value: '={{ $json.assertion }}' },
-        ],
-      },
-      options: { timeout: 10000, response: { response: { neverError: true, responseFormat: 'json' } } },
-    },
-    id: 'get-sheets-token',
-    name: 'Get Sheets Token',
-    type: 'n8n-nodes-base.httpRequest',
-    typeVersion: NODE_VERSION.httpRequest,
-    position: [3180, 0],
-    // Sorting is cosmetic. Failing to sort must never lose a message.
-    onError: 'continueRegularOutput',
-  });
-
+  // It uses the access token the workflow got at its start (see
+  // addSheetsAccessBranch) rather than the n8n Google credential: that
+  // credential authenticates an HTTP Request node with a scope that does not
+  // cover spreadsheets.batchUpdate, and the call comes back 403 Forbidden.
   nodes.push(
     codeNode(
       'Build Sort Request',
@@ -2032,7 +2398,13 @@ function buildConversationAndAssignment() {
       [3400, 0],
       [],
       [
-        'const token = ($input.first().json || {}).access_token;',
+        '// Sorting is cosmetic: without a token it is skipped, never an error.',
+        'let token = null;',
+        'try {',
+        "  token = ($('Sheets Access').first().json || {}).token;",
+        '} catch (e) {',
+        '  token = null;',
+        '}',
         'if (!token) {',
         '  console.log(JSON.stringify({ event: "sort_skipped", reason: "no_token" }));',
         '  return [];',
@@ -2146,9 +2518,7 @@ function buildConversationAndAssignment() {
   });
 
   connections['Append Message'] = { main: [[{ node: 'Audit Assignment', type: 'main', index: 0 }]] };
-  connections['Audit Assignment'] = { main: [[{ node: 'Sign Sheets Token Request', type: 'main', index: 0 }]] };
-  connections['Sign Sheets Token Request'] = { main: [[{ node: 'Get Sheets Token', type: 'main', index: 0 }]] };
-  connections['Get Sheets Token'] = { main: [[{ node: 'Build Sort Request', type: 'main', index: 0 }]] };
+  connections['Audit Assignment'] = { main: [[{ node: 'Build Sort Request', type: 'main', index: 0 }]] };
   connections['Build Sort Request'] = { main: [[{ node: 'Read Tab Ids', type: 'main', index: 0 }]] };
   connections['Read Tab Ids'] = { main: [[{ node: 'Build Sort Range', type: 'main', index: 0 }]] };
   connections['Build Sort Range'] = { main: [[{ node: 'Sort Newest First', type: 'main', index: 0 }]] };
@@ -3562,6 +3932,9 @@ function main() {
       if (sources[node.name]) bindItemSource(node, sources[node.name]);
     }
 
+    // After binding, so each API append and its fallback read the same source.
+    routeAppendsThroughApi(built);
+
     // Every Sheets node that maps columns explicitly needs a derived schema.
     for (const node of built.nodes) {
       if (node.type === 'n8n-nodes-base.googleSheets') withRetry(withSheetSchema(node));
@@ -3610,4 +3983,17 @@ function main() {
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+// For tests: the pieces that rewrite a workflow, testable without writing files.
+module.exports = {
+  tabHeader,
+  expressionToJs,
+  appendRowValues,
+  rowByHeaderExpr,
+  appendViaApi,
+  routeAppendsThroughApi,
+  addSheetsAccessBranch,
+};

@@ -156,7 +156,7 @@ running deployment, not inspected in the code.
 | Area | State |
 |---|---|
 | Docker + n8n environment | **Live** — n8n 2.38.5 on a VPS, behind nginx and Let's Encrypt |
-| Core business logic | **192 unit tests passing** |
+| Core business logic | **230 unit tests passing** |
 | Webhook receiver | **Verified live** — the handshake echoes the challenge; unsigned and wrongly-signed POSTs are refused |
 | Inbound message to a sheet row | **Verified live** |
 | Automatic assignment | **Verified live** — the eligible agent with the fewest open conversations |
@@ -202,7 +202,7 @@ node scripts/setup/build-workflows.js
 node scripts/setup/import-workflows.js
 
 # 5. Run the tests
-node tests/run-tests.js                   # 192 unit tests, no credentials needed
+node tests/run-tests.js                   # 230 unit tests, no credentials needed
 node scripts/validation/validate-workflows.js
 ```
 
@@ -298,8 +298,12 @@ worth understanding — the other seven are short.
                                  Audit Assignment ──── who got it and why
                                         │
                                         ▼
-                        Sign → Get Token → Sort Newest First
+                               Sort Newest First
                                  keeps the newest at the top of both tabs
+
+ Every append goes through the Sheets API with INSERT_ROWS, so rows written
+ at the same instant cannot overwrite each other. A token branch hangs off
+ the trigger and runs first; the original Sheets node is the fallback.
 ```
 
 Full detail: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.

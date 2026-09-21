@@ -177,9 +177,10 @@ are repaired rather than prevented:
   Conversations rows on every assignment, not from a stored counter, so the
   imbalance corrects itself on the very next one.
 
-What remains is the one race that does lose data: two rows appended in the same
-instant can collide in Google Sheets itself. It is written up with measurements
-in [ARCHITECTURE.md](ARCHITECTURE.md#known-limitation-messages-arriving-at-the-same-instant).
+The one race that did lose data, two rows appended in the same instant
+colliding in Google Sheets itself, is closed by appending with `INSERT_ROWS`
+when the service account is set in `.env`. It is written up with measurements
+in [ARCHITECTURE.md](ARCHITECTURE.md#messages-arriving-at-the-same-instant).
 
 Beyond one n8n instance none of this is enough — at which point you should be on
 PostgreSQL.

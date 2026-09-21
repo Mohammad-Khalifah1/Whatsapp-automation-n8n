@@ -105,7 +105,7 @@ of proof looks like — a real send, a real webhook, captured and checked).
 | Piece | Status |
 |---|---|
 | WAHA container starts, reports healthy, serves a QR | **Verified this session** |
-| n8n container still starts and passes all 192 unit tests + workflow validation with these changes | **Verified this session** |
+| n8n container still starts and passes all unit tests + workflow validation with these changes | **Verified this session** |
 | A real message scanned-and-sent round trip (phone → Sheet → reply → phone) | **Not yet done** — needs a phone to scan the QR, which this session cannot do for you |
 | Media messages (image/audio/document) via WAHA | **Not handled yet** — arrive as a placeholder text row, not dropped, not crashed on, but not usable content |
 | Group messages | Not scoped in this first cut |

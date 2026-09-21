@@ -170,9 +170,20 @@ https://docs.google.com/spreadsheets/d/THIS_PART/edit
 
 ### `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`
 
-Documented in `.env` for completeness, but the Sheets node reads them from an
-**n8n credential**, not from the environment. Create the credential in the UI —
-see [SETUP.md](SETUP.md#5a--google-sheets-credential).
+Strongly recommended. The Sheets nodes read the service account from an **n8n
+credential** (see [SETUP.md](SETUP.md#5a--google-sheets-credential)), but
+every workflow that appends a row also signs its own access token from these
+two variables. With the token, appends go through the Sheets API with
+`insertDataOption=INSERT_ROWS`, so two messages arriving at the same instant
+cannot overwrite each other
+([ARCHITECTURE.md](ARCHITECTURE.md#messages-arriving-at-the-same-instant)).
+Without them, each append falls back to its Sheets node and still writes, but a
+burst can lose a row again. Workflow 3 also skips its newest-first sort.
+
+The key is the `private_key` field of the service account's JSON key, on one
+line, quoted, with its `\n` escapes left literal. Both compose files pass the
+two variables to n8n. A hand-maintained compose file on a server must pass them
+too.
 
 **The spreadsheet must be shared with the service account email as an Editor.**
 This is the single most common cause of 403 errors.
