@@ -269,6 +269,30 @@ function validateWorkflow(file) {
       String(node.parameters.jsonBody || '').indexOf('$("Sheets Access")') !== -1);
   }
 
+  // --- customer text never becomes a formula ---
+  // Every write is USER_ENTERED, so Sheets parses a value the way it parses
+  // what a person types: a message starting with `=` became a live formula.
+  // Every value a Sheets node writes, and every API append row, goes through
+  // the guard in build-workflows.js (SHEET_SAFE_JS), recognised here by its
+  // test for formula-starting characters.
+  const GUARD = 'typeof v === "string" && /^[=+\\-@\\t\\r]/.test(v)';
+  for (const node of wf.nodes) {
+    const value = ((node.parameters || {}).columns || {}).value;
+    if (node.type === 'n8n-nodes-base.googleSheets' && value) {
+      const unguarded = Object.keys(value).filter((k) => {
+        const v = value[k];
+        if (typeof v !== 'string') return false;
+        return v.charAt(0) === '=' ? v.indexOf(GUARD) === -1 : /^[=+\-@\t\r]/.test(v);
+      });
+      check('every value written is kept from becoming a formula: ' + node.name,
+        unguarded.length === 0, 'unguarded: ' + unguarded.join(', '));
+    }
+    if (isApiAppend(node)) {
+      check('every API append row is kept from becoming a formula: ' + node.name,
+        String(node.parameters.jsonBody || '').indexOf(GUARD) !== -1);
+    }
+  }
+
   // --- nothing moves rows during the day ---
   // n8n's update reads the key column, then writes to the row index it found.
   // A sort or a row move in between sends that write to another customer's

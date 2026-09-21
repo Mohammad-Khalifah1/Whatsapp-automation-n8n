@@ -131,7 +131,7 @@ describe('workflow 7 wiring', () => {
 
   it('the claim gives the row its id and the number it was sent to', () => {
     const value = node('Claim Row And Record Outcome').parameters.columns.value;
-    assert.equal(value.conversation_id, '={{ $json.conversation_id }}');
-    assert.equal(value.customer_phone, '={{ $json.customer_phone }}');
+    assert.includes(value.conversation_id, '($json.conversation_id)');
+    assert.includes(value.customer_phone, '($json.customer_phone)');
   });
 });

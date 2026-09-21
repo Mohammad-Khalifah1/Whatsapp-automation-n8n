@@ -7,8 +7,8 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **275 passing** |
-| 2 — Workflow validation | No | **893 checks passing** |
+| 1 — Unit tests (business logic) | No | **317 passing** |
+| 2 — Workflow validation | No | **928 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
 | 4 — **End-to-end against the live deployment** | Yes (both) | **26 checks passing** |
@@ -58,7 +58,7 @@ node tests/run-tests.js assignment    # one area
 No npm install, no credentials, ~15 ms.
 
 ```
-275 passed, 0 failed, 275 total
+317 passed, 0 failed, 317 total
 ```
 
 | Suite | Tests | Covers |
@@ -74,6 +74,7 @@ No npm install, no credentials, ~15 ms.
 | `archive/rows.test.js` | 17 | The archive's delete plan: rows found by id in a fresh read, bottom-up batch, and the check afterwards that restores a row only when a delete clearly landed on it |
 | `build/archive-workflow.test.js` | 9 | Workflow 8's generated code through a whole run, including a misplaced delete and an empty second read |
 | `build/apps-script-rules.test.js` | 5 | The Apps Script files parse, and never delete, move or insert rows |
+| `build/sheet-safe.test.js` | 42 | Customer text is never a formula: the guard itself, every generated write checked, and a hostile message through a real generated append |
 | `build/reply-from-sheet.test.js` | 12 | Workflow 7's generated code: every reply of a poll gets its own outcome, each paired to its request; rows with an id are written back by id, hand-typed rows claimed by row number |
 
 These test the **same code** that runs in n8n — `scripts/setup/build-workflows.js`
@@ -87,7 +88,7 @@ inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
 node scripts/validation/validate-workflows.js
 ```
 
-893 checks across the 9 workflows:
+928 checks across the 9 workflows:
 
 - every Code node body **parses as JavaScript** (`vm.Script` compile)
 - no leftover `module.exports` or relative `require()` from inlining
@@ -106,6 +107,8 @@ node scripts/validation/validate-workflows.js
   no-id output of an `is_manual` IF; every other write matches `conversation_id`
 - a per-row Sheets delete runs only behind the no-token output of an IF; every
   API delete is planned by `planDeletes` and checked by `checkDeletes`
+- every value a Sheets node writes, and every API append row, passes through the
+  guard that keeps customer text from becoming a formula
 - **no hard-coded secrets** (Meta tokens, private keys, bearer literals, API keys)
 
 This catches things that would otherwise fail at 3am. It found two real bugs

@@ -224,22 +224,22 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "conversation_id": "={{ $json.conversation_id }}",
+            "conversation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_id)) }}",
             "reply_text": "",
-            "reply_status": "={{ $json.reply_status }}",
-            "reply_error": "={{ $json.reply_error }}",
-            "reply_sent_at": "={{ $json.sent_at }}",
-            "status": "={{ $json.new_status }}",
-            "unanswered_messages": "={{ $json.new_unanswered }}",
-            "unanswered_count": "={{ $json.new_unanswered_count }}",
-            "last_message": "={{ $json.new_last_message }}",
-            "last_message_id": "={{ $json.new_last_message_id }}",
-            "last_message_type": "={{ $json.new_last_message_type }}",
-            "last_message_direction": "={{ $json.new_last_message_direction }}",
-            "last_agent_message_at": "={{ $json.new_last_agent_message_at }}",
-            "last_activity_at": "={{ $json.sent_at }}",
-            "unread": "={{ $json.new_unread }}",
-            "updated_at": "={{ $json.sent_at }}"
+            "reply_status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.reply_status)) }}",
+            "reply_error": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.reply_error)) }}",
+            "reply_sent_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.sent_at)) }}",
+            "status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_status)) }}",
+            "unanswered_messages": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_unanswered)) }}",
+            "unanswered_count": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_unanswered_count)) }}",
+            "last_message": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_last_message)) }}",
+            "last_message_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_last_message_id)) }}",
+            "last_message_type": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_last_message_type)) }}",
+            "last_message_direction": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_last_message_direction)) }}",
+            "last_agent_message_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_last_agent_message_at)) }}",
+            "last_activity_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.sent_at)) }}",
+            "unread": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_unread)) }}",
+            "updated_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.sent_at)) }}"
           },
           "matchingColumns": [
             "conversation_id"
@@ -447,24 +447,24 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "row_number": "={{ $json.row_number }}",
-            "conversation_id": "={{ $json.conversation_id }}",
+            "row_number": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.row_number)) }}",
+            "conversation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_id)) }}",
             "reply_text": "",
-            "reply_status": "={{ $json.reply_status }}",
-            "reply_error": "={{ $json.reply_error }}",
-            "reply_sent_at": "={{ $json.sent_at }}",
-            "status": "={{ $json.new_status }}",
-            "unanswered_messages": "={{ $json.new_unanswered }}",
-            "unanswered_count": "={{ $json.new_unanswered_count }}",
-            "last_message": "={{ $json.new_last_message }}",
-            "last_message_id": "={{ $json.new_last_message_id }}",
-            "last_message_type": "={{ $json.new_last_message_type }}",
-            "last_message_direction": "={{ $json.new_last_message_direction }}",
-            "last_agent_message_at": "={{ $json.new_last_agent_message_at }}",
-            "last_activity_at": "={{ $json.sent_at }}",
-            "unread": "={{ $json.new_unread }}",
-            "updated_at": "={{ $json.sent_at }}",
-            "customer_phone": "={{ $json.customer_phone }}"
+            "reply_status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.reply_status)) }}",
+            "reply_error": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.reply_error)) }}",
+            "reply_sent_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.sent_at)) }}",
+            "status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_status)) }}",
+            "unanswered_messages": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_unanswered)) }}",
+            "unanswered_count": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_unanswered_count)) }}",
+            "last_message": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_last_message)) }}",
+            "last_message_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_last_message_id)) }}",
+            "last_message_type": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_last_message_type)) }}",
+            "last_message_direction": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_last_message_direction)) }}",
+            "last_agent_message_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_last_agent_message_at)) }}",
+            "last_activity_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.sent_at)) }}",
+            "unread": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.new_unread)) }}",
+            "updated_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.sent_at)) }}",
+            "customer_phone": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.customer_phone)) }}"
           },
           "matchingColumns": [
             "row_number"
@@ -694,7 +694,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Messages\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Messages\"); const byName = { \"message_id\": ($('Interpret Sheet Send').item.json.message_id), \"dedupe_key\": ('message:' + $('Interpret Sheet Send').item.json.message_id), \"conversation_id\": ($('Interpret Sheet Send').item.json.conversation_id), \"direction\": \"outbound\", \"sender_phone\": ($env.META_BUSINESS_PHONE || $env.META_PHONE_NUMBER_ID), \"recipient_phone\": ($('Interpret Sheet Send').item.json.to), \"customer_phone\": ($('Interpret Sheet Send').item.json.to), \"message_type\": \"text\", \"text\": ($('Interpret Sheet Send').item.json.text), \"timestamp\": ($('Interpret Sheet Send').item.json.sent_at), \"status\": ($('Interpret Sheet Send').item.json.reply_status), \"agent_id\": ($('Interpret Sheet Send').item.json.agent_id), \"sent_via\": \"google_sheet\", \"created_at\": ($('Interpret Sheet Send').item.json.sent_at) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
+        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Messages\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Messages\"); const byName = { \"message_id\": ($('Interpret Sheet Send').item.json.message_id), \"dedupe_key\": ('message:' + $('Interpret Sheet Send').item.json.message_id), \"conversation_id\": ($('Interpret Sheet Send').item.json.conversation_id), \"direction\": \"outbound\", \"sender_phone\": ($env.META_BUSINESS_PHONE || $env.META_PHONE_NUMBER_ID), \"recipient_phone\": ($('Interpret Sheet Send').item.json.to), \"customer_phone\": ($('Interpret Sheet Send').item.json.to), \"message_type\": \"text\", \"text\": ($('Interpret Sheet Send').item.json.text), \"timestamp\": ($('Interpret Sheet Send').item.json.sent_at), \"status\": ($('Interpret Sheet Send').item.json.reply_status), \"agent_id\": ($('Interpret Sheet Send').item.json.agent_id), \"sent_via\": \"google_sheet\", \"created_at\": ($('Interpret Sheet Send').item.json.sent_at) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map(((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
         "options": {
           "timeout": 15000,
           "response": {
@@ -732,20 +732,20 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "message_id": "={{ $('Interpret Sheet Send').item.json.message_id }}",
-            "dedupe_key": "={{ 'message:' + $('Interpret Sheet Send').item.json.message_id }}",
-            "conversation_id": "={{ $('Interpret Sheet Send').item.json.conversation_id }}",
+            "message_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($('Interpret Sheet Send').item.json.message_id)) }}",
+            "dedupe_key": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(('message:' + $('Interpret Sheet Send').item.json.message_id)) }}",
+            "conversation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($('Interpret Sheet Send').item.json.conversation_id)) }}",
             "direction": "outbound",
-            "sender_phone": "={{ $env.META_BUSINESS_PHONE || $env.META_PHONE_NUMBER_ID }}",
-            "recipient_phone": "={{ $('Interpret Sheet Send').item.json.to }}",
-            "customer_phone": "={{ $('Interpret Sheet Send').item.json.to }}",
+            "sender_phone": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($env.META_BUSINESS_PHONE || $env.META_PHONE_NUMBER_ID)) }}",
+            "recipient_phone": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($('Interpret Sheet Send').item.json.to)) }}",
+            "customer_phone": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($('Interpret Sheet Send').item.json.to)) }}",
             "message_type": "text",
-            "text": "={{ $('Interpret Sheet Send').item.json.text }}",
-            "timestamp": "={{ $('Interpret Sheet Send').item.json.sent_at }}",
-            "status": "={{ $('Interpret Sheet Send').item.json.reply_status }}",
-            "agent_id": "={{ $('Interpret Sheet Send').item.json.agent_id }}",
+            "text": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($('Interpret Sheet Send').item.json.text)) }}",
+            "timestamp": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($('Interpret Sheet Send').item.json.sent_at)) }}",
+            "status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($('Interpret Sheet Send').item.json.reply_status)) }}",
+            "agent_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($('Interpret Sheet Send').item.json.agent_id)) }}",
             "sent_via": "google_sheet",
-            "created_at": "={{ $('Interpret Sheet Send').item.json.sent_at }}"
+            "created_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($('Interpret Sheet Send').item.json.sent_at)) }}"
           },
           "schema": [
             {
@@ -966,10 +966,10 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "conversation_id": "={{ $json.conversation_id }}",
+            "conversation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_id)) }}",
             "reply_status": "FAILED",
-            "reply_error": "={{ $json.reply_error }}",
-            "reply_sent_at": "={{ $now.toISO() }}"
+            "reply_error": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.reply_error)) }}",
+            "reply_sent_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($now.toISO())) }}"
           },
           "matchingColumns": [
             "conversation_id"
@@ -1058,10 +1058,10 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "row_number": "={{ $json.row_number }}",
+            "row_number": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.row_number)) }}",
             "reply_status": "FAILED",
-            "reply_error": "={{ $json.reply_error }}",
-            "reply_sent_at": "={{ $now.toISO() }}"
+            "reply_error": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.reply_error)) }}",
+            "reply_sent_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($now.toISO())) }}"
           },
           "matchingColumns": [
             "row_number"

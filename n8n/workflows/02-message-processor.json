@@ -363,9 +363,9 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "message_id": "={{ $json.message_id }}",
-            "status": "={{ $json.status }}",
-            "status_updated_at": "={{ $json.timestamp_iso }}"
+            "message_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.message_id)) }}",
+            "status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.status)) }}",
+            "status_updated_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.timestamp_iso)) }}"
           },
           "matchingColumns": [
             "message_id"
@@ -547,15 +547,15 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "conversation_id": "={{ $json.conversation_update.conversation_id }}",
-            "status": "={{ $json.conversation_update.status }}",
-            "last_message": "={{ $json.conversation_update.last_message }}",
-            "last_message_id": "={{ $json.conversation_update.last_message_id }}",
+            "conversation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_update.conversation_id)) }}",
+            "status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_update.status)) }}",
+            "last_message": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_update.last_message)) }}",
+            "last_message_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_update.last_message_id)) }}",
             "last_message_direction": "outbound",
-            "last_agent_message_at": "={{ $json.conversation_update.last_agent_message_at }}",
-            "last_activity_at": "={{ $json.conversation_update.last_activity_at }}",
+            "last_agent_message_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_update.last_agent_message_at)) }}",
+            "last_activity_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_update.last_activity_at)) }}",
             "unread": "FALSE",
-            "updated_at": "={{ $json.conversation_update.updated_at }}"
+            "updated_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_update.updated_at)) }}"
           },
           "matchingColumns": [
             "conversation_id"
@@ -695,7 +695,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Messages\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Messages\"); const byName = { \"message_id\": ($(\"Apply App Reply\").item.json.message_id), \"dedupe_key\": ($(\"Apply App Reply\").item.json.dedupe_key), \"conversation_id\": ($(\"Apply App Reply\").item.json.conversation_id), \"direction\": \"outbound\", \"sender_phone\": ($(\"Apply App Reply\").item.json.business_display_phone_number), \"recipient_phone\": ($(\"Apply App Reply\").item.json.customer_phone_e164), \"customer_phone\": ($(\"Apply App Reply\").item.json.customer_phone_e164), \"message_type\": ($(\"Apply App Reply\").item.json.message_type), \"text\": ($(\"Apply App Reply\").item.json.preview), \"timestamp\": ($(\"Apply App Reply\").item.json.timestamp_iso), \"status\": \"SENT\", \"agent_id\": ($(\"Apply App Reply\").item.json.assigned_agent_id), \"sent_via\": \"whatsapp_business_app\", \"supported\": ($(\"Apply App Reply\").item.json.supported), \"processing_status\": ($(\"Apply App Reply\").item.json.processing_status), \"correlation_id\": ($(\"Apply App Reply\").item.json.correlation_id), \"created_at\": ($now.toISO()) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
+        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Messages\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Messages\"); const byName = { \"message_id\": ($(\"Apply App Reply\").item.json.message_id), \"dedupe_key\": ($(\"Apply App Reply\").item.json.dedupe_key), \"conversation_id\": ($(\"Apply App Reply\").item.json.conversation_id), \"direction\": \"outbound\", \"sender_phone\": ($(\"Apply App Reply\").item.json.business_display_phone_number), \"recipient_phone\": ($(\"Apply App Reply\").item.json.customer_phone_e164), \"customer_phone\": ($(\"Apply App Reply\").item.json.customer_phone_e164), \"message_type\": ($(\"Apply App Reply\").item.json.message_type), \"text\": ($(\"Apply App Reply\").item.json.preview), \"timestamp\": ($(\"Apply App Reply\").item.json.timestamp_iso), \"status\": \"SENT\", \"agent_id\": ($(\"Apply App Reply\").item.json.assigned_agent_id), \"sent_via\": \"whatsapp_business_app\", \"supported\": ($(\"Apply App Reply\").item.json.supported), \"processing_status\": ($(\"Apply App Reply\").item.json.processing_status), \"correlation_id\": ($(\"Apply App Reply\").item.json.correlation_id), \"created_at\": ($now.toISO()) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map(((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
         "options": {
           "timeout": 15000,
           "response": {
@@ -733,23 +733,23 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "message_id": "={{ $(\"Apply App Reply\").item.json.message_id }}",
-            "dedupe_key": "={{ $(\"Apply App Reply\").item.json.dedupe_key }}",
-            "conversation_id": "={{ $(\"Apply App Reply\").item.json.conversation_id }}",
+            "message_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.message_id)) }}",
+            "dedupe_key": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.dedupe_key)) }}",
+            "conversation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.conversation_id)) }}",
             "direction": "outbound",
-            "sender_phone": "={{ $(\"Apply App Reply\").item.json.business_display_phone_number }}",
-            "recipient_phone": "={{ $(\"Apply App Reply\").item.json.customer_phone_e164 }}",
-            "customer_phone": "={{ $(\"Apply App Reply\").item.json.customer_phone_e164 }}",
-            "message_type": "={{ $(\"Apply App Reply\").item.json.message_type }}",
-            "text": "={{ $(\"Apply App Reply\").item.json.preview }}",
-            "timestamp": "={{ $(\"Apply App Reply\").item.json.timestamp_iso }}",
+            "sender_phone": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.business_display_phone_number)) }}",
+            "recipient_phone": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.customer_phone_e164)) }}",
+            "customer_phone": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.customer_phone_e164)) }}",
+            "message_type": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.message_type)) }}",
+            "text": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.preview)) }}",
+            "timestamp": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.timestamp_iso)) }}",
             "status": "SENT",
-            "agent_id": "={{ $(\"Apply App Reply\").item.json.assigned_agent_id }}",
+            "agent_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.assigned_agent_id)) }}",
             "sent_via": "whatsapp_business_app",
-            "supported": "={{ $(\"Apply App Reply\").item.json.supported }}",
-            "processing_status": "={{ $(\"Apply App Reply\").item.json.processing_status }}",
-            "correlation_id": "={{ $(\"Apply App Reply\").item.json.correlation_id }}",
-            "created_at": "={{ $now.toISO() }}"
+            "supported": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.supported)) }}",
+            "processing_status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.processing_status)) }}",
+            "correlation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Apply App Reply\").item.json.correlation_id)) }}",
+            "created_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($now.toISO())) }}"
           },
           "schema": [
             {
@@ -968,7 +968,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Log\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Log\"); const byName = { \"event_id\": ($json.correlation_id), \"event_type\": ($json.kind), \"source\": \"meta_webhook\", \"timestamp\": ($json.received_at), \"status\": \"unhandled\", \"details\": (JSON.stringify({ reason: $json.reason, field: $json.field })) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
+        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Log\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Log\"); const byName = { \"event_id\": ($json.correlation_id), \"event_type\": ($json.kind), \"source\": \"meta_webhook\", \"timestamp\": ($json.received_at), \"status\": \"unhandled\", \"details\": (JSON.stringify({ reason: $json.reason, field: $json.field })) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map(((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
         "options": {
           "timeout": 15000,
           "response": {
@@ -1006,12 +1006,12 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "event_id": "={{ $(\"Route By Event Kind\").item.json.correlation_id }}",
-            "event_type": "={{ $(\"Route By Event Kind\").item.json.kind }}",
+            "event_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Route By Event Kind\").item.json.correlation_id)) }}",
+            "event_type": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Route By Event Kind\").item.json.kind)) }}",
             "source": "meta_webhook",
-            "timestamp": "={{ $(\"Route By Event Kind\").item.json.received_at }}",
+            "timestamp": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Route By Event Kind\").item.json.received_at)) }}",
             "status": "unhandled",
-            "details": "={{ JSON.stringify({ reason: $(\"Route By Event Kind\").item.json.reason, field: $(\"Route By Event Kind\").item.json.field }) }}"
+            "details": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)((JSON.stringify({ reason: $(\"Route By Event Kind\").item.json.reason, field: $(\"Route By Event Kind\").item.json.field }))) }}"
           },
           "schema": [
             {

@@ -643,20 +643,25 @@ These ship first, because every later phase builds on the paths they fix.
 - Still to do: `verify-archive.js` against the test spreadsheet, with and
   without a service account.
 
-**V2-06 · Customer text never becomes a formula** · S · risk low · after V2-01
+**V2-06 · Customer text never becomes a formula** · S · risk low · after V2-01 ·
+**built; offline gates pass; live check pending**
 - Found while building V2-01 (R16). Every Sheets write is `USER_ENTERED`, so
   Sheets parses a customer's message as if someone typed it.
-- Files: new `scripts/lib/sheet-safe.js` (`sheetSafe(value)`: a string that
-  starts with `=`, `+`, `-` or `@` gets a leading apostrophe, which Sheets keeps
-  as text and does not display), the Code nodes that build customer-controlled
-  fields (`last_message`, `unanswered_messages`, `customer_name`, Messages
-  `text`), tests, `validate-workflows.js`, `docs/SECURITY.md`.
+- As built: one guard, `SHEET_SAFE_JS` in `build-workflows.js`, not a
+  `scripts/lib` module, because it has to run inside n8n expressions, where
+  library code cannot be called. The build wraps **every** value of every
+  Google Sheets node and every API append row in it, rather than a chosen list
+  of customer fields, so a field added later cannot be missed. A string that
+  starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading
+  apostrophe; numbers and booleans are untouched. `docs/SECURITY.md` records
+  the threat.
 - Not a switch to `RAW`: that would change the type of every cell the system
   writes today (counts, `TRUE`/`FALSE`, phone numbers), which the dashboard
   formulas rely on.
-- Test: unit tests for `sheetSafe` (formula prefixes, Arabic text, numbers,
-  empty); a validator rule that those fields pass through `sheetSafe`; live, a
-  message `=1+1` is shown as `=1+1`, not `2`.
+- Tests: a validator rule that every written value is guarded (removing it from
+  one column fails the build); 42 tests, including a hostile message through a
+  real generated append.
+- Still to do: live, a message `=1+1` is shown as `=1+1`, not `2`.
 
 ### 7.4 Phase 1 — foundations
 

@@ -328,6 +328,49 @@ function failLoudly(node, wiredErrorOutputs) {
   return node;
 }
 
+/**
+ * Keeps a value from being read as a formula.
+ *
+ * Every write here is USER_ENTERED (the Sheets node's default in v4.7, kept
+ * by the API appends so cells keep their types), which means Sheets parses a
+ * value as if someone typed it. A customer's message that starts with `=`
+ * therefore became a live formula in the team's sheet: `=IMPORTXML(...)`,
+ * `=HYPERLINK(...)`, anything. A leading apostrophe makes Sheets store the
+ * rest as text; it is not shown, and the API reads the value back without
+ * it. `+`, `-` and `@` start formulas too, as do a leading tab or carriage
+ * return in some readers. Only strings are touched, so numbers and booleans
+ * keep their types.
+ *
+ * A JS expression, because it runs inside n8n expressions, where nothing from
+ * scripts/lib can be called.
+ */
+const SHEET_SAFE_JS = '((v) => typeof v === "string" && /^[=+\\-@\\t\\r]/.test(v) ? "\'" + v : v)';
+
+/**
+ * Put every value a Sheets node writes through SHEET_SAFE_JS.
+ *
+ * Applied at build time to every Google Sheets node that maps columns, so no
+ * write, present or future, can skip it. validate-workflows.js checks it.
+ */
+function guardSheetValues(node) {
+  const cols = node.parameters && node.parameters.columns;
+  if (!cols || !cols.value) return node;
+  for (const key of Object.keys(cols.value)) {
+    const value = cols.value[key];
+    if (typeof value !== 'string') continue;
+    if (value.charAt(0) === '=') {
+      const js = expressionToJs(value);
+      if (js.indexOf('{{') !== -1 || js.indexOf('}}') !== -1) {
+        throw new Error(node.name + ': column ' + key + ' contains {{ or }}: ' + value);
+      }
+      cols.value[key] = '={{ ' + SHEET_SAFE_JS + '(' + js + ') }}';
+    } else if (/^[=+\-@\t\r]/.test(value)) {
+      cols.value[key] = "'" + value;
+    }
+  }
+  return node;
+}
+
 /** The header of a sheet tab, read from its template — the canonical order. */
 function tabHeader(tab) {
   const file = path.join(__dirname, '..', '..', 'sheets-templates', tab + '.csv');
@@ -418,6 +461,9 @@ function rowByHeaderExpr(tab, values) {
     'if (!Array.isArray(header) || header.length === 0) throw new Error("no header row read for " + ' + tabKey + '); ' +
     'const byName = ' + byName + '; ' +
     'return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null)' +
+    // Guard before the text conversion, as the Sheets node does, so a number
+    // stays a number.
+    '.map(' + SHEET_SAFE_JS + ')' +
     '.map((v) => v === null || v === undefined ? null : (typeof v === "object" ? JSON.stringify(v) : String(v))); ' +
     '})()';
 }
@@ -4152,6 +4198,13 @@ function main() {
     // After binding, so each API append and its fallback read the same source.
     routeAppendsThroughApi(built);
 
+    // After the appends are rewritten: the API appends guard inside their row
+    // expression, and every Sheets node left (updates, fallbacks) is guarded
+    // here, so customer text can never become a formula.
+    for (const node of built.nodes) {
+      if (node.type === 'n8n-nodes-base.googleSheets') guardSheetValues(node);
+    }
+
     // Every Sheets node that maps columns explicitly needs a derived schema.
     for (const node of built.nodes) {
       if (node.type === 'n8n-nodes-base.googleSheets') withRetry(withSheetSchema(node));
@@ -4206,6 +4259,8 @@ if (require.main === module) {
 
 // For tests: the pieces that rewrite a workflow, testable without writing files.
 module.exports = {
+  SHEET_SAFE_JS,
+  guardSheetValues,
   tabHeader,
   expressionToJs,
   appendRowValues,

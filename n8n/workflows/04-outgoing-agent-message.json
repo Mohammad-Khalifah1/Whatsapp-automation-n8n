@@ -152,7 +152,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Messages\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Messages\"); const byName = { \"message_id\": ($json.message_id), \"dedupe_key\": (\"message:\" + $json.message_id), \"conversation_id\": ($json.conversation_id), \"direction\": \"outbound\", \"sender_phone\": ($env.META_BUSINESS_PHONE || $env.META_PHONE_NUMBER_ID), \"recipient_phone\": ($json.to), \"customer_phone\": ($json.to), \"message_type\": \"text\", \"text\": ($json.text), \"timestamp\": ($json.sent_at), \"status\": ($json.status), \"agent_id\": ($json.agent_id), \"created_at\": ($json.sent_at) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
+        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Messages\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Messages\"); const byName = { \"message_id\": ($json.message_id), \"dedupe_key\": (\"message:\" + $json.message_id), \"conversation_id\": ($json.conversation_id), \"direction\": \"outbound\", \"sender_phone\": ($env.META_BUSINESS_PHONE || $env.META_PHONE_NUMBER_ID), \"recipient_phone\": ($json.to), \"customer_phone\": ($json.to), \"message_type\": \"text\", \"text\": ($json.text), \"timestamp\": ($json.sent_at), \"status\": ($json.status), \"agent_id\": ($json.agent_id), \"created_at\": ($json.sent_at) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map(((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
         "options": {
           "timeout": 15000,
           "response": {
@@ -190,19 +190,19 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "message_id": "={{ $(\"Interpret Send Result\").item.json.message_id }}",
-            "dedupe_key": "={{ \"message:\" + $(\"Interpret Send Result\").item.json.message_id }}",
-            "conversation_id": "={{ $(\"Interpret Send Result\").item.json.conversation_id }}",
+            "message_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.message_id)) }}",
+            "dedupe_key": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)((\"message:\" + $(\"Interpret Send Result\").item.json.message_id)) }}",
+            "conversation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.conversation_id)) }}",
             "direction": "outbound",
-            "sender_phone": "={{ $env.META_BUSINESS_PHONE || $env.META_PHONE_NUMBER_ID }}",
-            "recipient_phone": "={{ $(\"Interpret Send Result\").item.json.to }}",
-            "customer_phone": "={{ $(\"Interpret Send Result\").item.json.to }}",
+            "sender_phone": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($env.META_BUSINESS_PHONE || $env.META_PHONE_NUMBER_ID)) }}",
+            "recipient_phone": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.to)) }}",
+            "customer_phone": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.to)) }}",
             "message_type": "text",
-            "text": "={{ $(\"Interpret Send Result\").item.json.text }}",
-            "timestamp": "={{ $(\"Interpret Send Result\").item.json.sent_at }}",
-            "status": "={{ $(\"Interpret Send Result\").item.json.status }}",
-            "agent_id": "={{ $(\"Interpret Send Result\").item.json.agent_id }}",
-            "created_at": "={{ $(\"Interpret Send Result\").item.json.sent_at }}"
+            "text": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.text)) }}",
+            "timestamp": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.sent_at)) }}",
+            "status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.status)) }}",
+            "agent_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.agent_id)) }}",
+            "created_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.sent_at)) }}"
           },
           "schema": [
             {
@@ -379,15 +379,15 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "conversation_id": "={{ $(\"Interpret Send Result\").item.json.conversation_id }}",
+            "conversation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.conversation_id)) }}",
             "status": "REPLIED",
-            "last_message": "={{ $(\"Interpret Send Result\").item.json.text }}",
-            "last_message_id": "={{ $(\"Interpret Send Result\").item.json.message_id }}",
+            "last_message": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.text)) }}",
+            "last_message_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.message_id)) }}",
             "last_message_direction": "outbound",
-            "last_agent_message_at": "={{ $(\"Interpret Send Result\").item.json.sent_at }}",
-            "last_activity_at": "={{ $(\"Interpret Send Result\").item.json.sent_at }}",
+            "last_agent_message_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.sent_at)) }}",
+            "last_activity_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.sent_at)) }}",
             "unread": "FALSE",
-            "updated_at": "={{ $(\"Interpret Send Result\").item.json.sent_at }}"
+            "updated_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.sent_at)) }}"
           },
           "matchingColumns": [
             "conversation_id"

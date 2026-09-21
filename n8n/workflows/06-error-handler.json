@@ -46,7 +46,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Log\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Log\"); const byName = { \"event_id\": ($json['event_id']), \"event_type\": ($json['event_type']), \"conversation_id\": ($json['conversation_id']), \"message_id\": ($json['message_id']), \"source\": ($json['source']), \"timestamp\": ($json['timestamp']), \"status\": ($json['status']), \"error\": ($json['error']), \"details\": ($json['details']) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
+        "jsonBody": "={{ JSON.stringify({ values: [(() => { const access = $(\"Sheets Access\").first().json; if (!access.token) throw new Error(\"no Sheets token\"); const header = (access.headers || {})[\"Log\"]; if (!Array.isArray(header) || header.length === 0) throw new Error(\"no header row read for \" + \"Log\"); const byName = { \"event_id\": ($json['event_id']), \"event_type\": ($json['event_type']), \"conversation_id\": ($json['conversation_id']), \"message_id\": ($json['message_id']), \"source\": ($json['source']), \"timestamp\": ($json['timestamp']), \"status\": ($json['status']), \"error\": ($json['error']), \"details\": ($json['details']) }; return header.map((c) => Object.prototype.hasOwnProperty.call(byName, c) ? byName[c] : null).map(((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)).map((v) => v === null || v === undefined ? null : (typeof v === \"object\" ? JSON.stringify(v) : String(v))); })()] }) }}",
         "options": {
           "timeout": 15000,
           "response": {
@@ -84,15 +84,15 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "event_id": "={{ $(\"Build Error Record\").item.json['event_id'] }}",
-            "event_type": "={{ $(\"Build Error Record\").item.json['event_type'] }}",
-            "conversation_id": "={{ $(\"Build Error Record\").item.json['conversation_id'] }}",
-            "message_id": "={{ $(\"Build Error Record\").item.json['message_id'] }}",
-            "source": "={{ $(\"Build Error Record\").item.json['source'] }}",
-            "timestamp": "={{ $(\"Build Error Record\").item.json['timestamp'] }}",
-            "status": "={{ $(\"Build Error Record\").item.json['status'] }}",
-            "error": "={{ $(\"Build Error Record\").item.json['error'] }}",
-            "details": "={{ $(\"Build Error Record\").item.json['details'] }}"
+            "event_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Build Error Record\").item.json['event_id'])) }}",
+            "event_type": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Build Error Record\").item.json['event_type'])) }}",
+            "conversation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Build Error Record\").item.json['conversation_id'])) }}",
+            "message_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Build Error Record\").item.json['message_id'])) }}",
+            "source": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Build Error Record\").item.json['source'])) }}",
+            "timestamp": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Build Error Record\").item.json['timestamp'])) }}",
+            "status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Build Error Record\").item.json['status'])) }}",
+            "error": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Build Error Record\").item.json['error'])) }}",
+            "details": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Build Error Record\").item.json['details'])) }}"
           },
           "schema": [
             {

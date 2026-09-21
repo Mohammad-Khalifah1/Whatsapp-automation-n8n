@@ -136,12 +136,12 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "conversation_id": "={{ $json.conversation_id }}",
-            "assigned_agent_id": "={{ $json.assigned_agent_id }}",
-            "assigned_agent_name": "={{ $json.assigned_agent_name }}",
-            "status": "={{ $json.status }}",
+            "conversation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_id)) }}",
+            "assigned_agent_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.assigned_agent_id)) }}",
+            "assigned_agent_name": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.assigned_agent_name)) }}",
+            "status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.status)) }}",
             "unassigned_reason": "",
-            "updated_at": "={{ $json.updated_at }}"
+            "updated_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.updated_at)) }}"
           },
           "matchingColumns": [
             "conversation_id"
@@ -249,10 +249,10 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "agent_id": "={{ $(\"Assign Waiting Queue\").item.json.assigned_agent_id }}",
-            "open_conversations": "={{ $(\"Assign Waiting Queue\").item.json.agent_open_after }}",
-            "last_assigned_at": "={{ $(\"Assign Waiting Queue\").item.json.assigned_at }}",
-            "updated_at": "={{ $(\"Assign Waiting Queue\").item.json.assigned_at }}"
+            "agent_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Assign Waiting Queue\").item.json.assigned_agent_id)) }}",
+            "open_conversations": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Assign Waiting Queue\").item.json.agent_open_after)) }}",
+            "last_assigned_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Assign Waiting Queue\").item.json.assigned_at)) }}",
+            "updated_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Assign Waiting Queue\").item.json.assigned_at)) }}"
           },
           "matchingColumns": [
             "agent_id"
