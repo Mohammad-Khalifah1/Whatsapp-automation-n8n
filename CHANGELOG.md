@@ -5,6 +5,23 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-14 — The 24-hour window rule, in one place
+
+### Added
+
+- `scripts/lib/window.js`: `windowState({ last_customer_message_at, now })`
+  says whether Meta's customer service window is open, how many whole hours
+  are left, and when it closes. It is measured from the customer's last
+  message only; a reply from the business never extends it. A missing or
+  unreadable timestamp counts as closed, so an unknown state can cost a
+  template, never a message Meta silently refuses. Nothing uses it yet: the
+  send guard (V2-20) and the sheet's window column (V2-13) will.
+- `tests/window/window.test.js` (10 tests): 23h59m open, 24h00m closed,
+  rounding, `+03:00` and `Z` read alike, missing and unreadable timestamps, a
+  clock running ahead.
+
+---
+
 ## [Unreleased] — Version 2, task V2-06 — Customer text is never a formula
 
 ### Fixed (security)

@@ -705,10 +705,11 @@ These ship first, because every later phase builds on the paths they fix.
 - Test: the checker fails if a workflow maps a derived column. A formula fixture: known timestamps give the
   expected window, hours and dates.
 
-**V2-14 · Window rule** · S · risk low
-- Files: new `scripts/lib/window.js`, tests.
-- Test: 23h59m open, 24h00m closed, missing timestamp closed, `+03:00` and `Z`
-  both parse, hours left rounds down.
+**V2-14 · Window rule** · S · risk low · **done** (pure library, no live check needed)
+- As built: `scripts/lib/window.js`, `windowState()`; an unreadable timestamp
+  is closed too, and hours left are capped at 24 against a clock running ahead.
+- Tests: 10, including 23h59m open, 24h00m closed, missing timestamp closed,
+  `+03:00` and `Z` read alike, hours left rounded down.
 
 **V2-15 · Hide on close; delete only at night** · M · risk medium · after V2-05, V2-12, V2-10 (S3)
 - Files: `build-workflows.js` (wf7, wf3, wf8), `apply-sheet-layout.js` (main
