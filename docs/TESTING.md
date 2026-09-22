@@ -7,7 +7,7 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **360 passing** |
+| 1 — Unit tests (business logic) | No | **364 passing** |
 | 2 — Workflow validation | No | **928 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
@@ -58,7 +58,7 @@ node tests/run-tests.js assignment    # one area
 No npm install, no credentials, ~15 ms.
 
 ```
-360 passed, 0 failed, 360 total
+364 passed, 0 failed, 364 total
 ```
 
 | Suite | Tests | Covers |
@@ -78,6 +78,7 @@ No npm install, no credentials, ~15 ms.
 | `window/window.test.js` | 10 | Meta's 24-hour customer service window: boundaries, rounding, offsets, a missing or unreadable timestamp counted as closed |
 | `build/sheet-safe.test.js` | 42 | Customer text is never a formula: the guard itself, every generated write checked, and a hostile message through a real generated append |
 | `window/reply-guard.test.js` | 6 | How a blocked reply is remembered, so the poll stops rewriting the same failure every minute |
+| `build/pricing-capture.test.js` | 4 | What Meta charged for a message reaches the Messages tab, from its own status webhook |
 | `build/outgoing-message.test.js` | 6 | Workflow 4: a closed window reported as its own state, and a failed send no longer marking the conversation answered |
 | `build/reply-from-sheet.test.js` | 23 | Workflow 7's generated code: every reply of a poll gets its own outcome, each paired to its request; rows with an id are written back by id, hand-typed rows claimed by row number |
 

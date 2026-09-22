@@ -1586,6 +1586,11 @@ function buildMessageProcessor() {
           message_id: '={{ $json.message_id }}',
           status: '={{ $json.status }}',
           status_updated_at: '={{ $json.timestamp_iso }}',
+          // What Meta charged for this message, from its own status webhook:
+          // the only trustworthy source for the billing figures on the
+          // dashboard. A status without a pricing block leaves both alone.
+          pricing_category: '={{ $json.pricing_category || undefined }}',
+          billable: '={{ $json.billable === null || $json.billable === undefined ? undefined : String($json.billable).toUpperCase() }}',
         },
         matchingColumns: ['message_id'],
       },

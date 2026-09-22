@@ -219,6 +219,26 @@ service messages and may change the rate card on a month's notice.
 Plus one-off setup time, and the ongoing cost of **remembering to renew the Meta
 token** if it is a 60-day one.
 
+### Who pays for what
+
+Every figure above is the **client's** cost, not yours, and the accounts are in
+their name:
+
+| Line | Paid by | Why it matters |
+|---|---|---|
+| VPS and domain | **Client**, on their own card | They keep the system if they ever stop working with you |
+| Meta's message charges (from 1 October 2026) | **Client**, billed by Meta to their WABA | It scales with their volume, so it cannot sit inside a fixed fee. At 100 conversations a day it can be several times the monthly support fee |
+| Google account holding the sheet | **Client** | Their customer data stays in their own account |
+| Installation and support | **You** | Quote it separately from the running costs above |
+
+Say this plainly before the first invoice. A client who discovers a Meta bill
+they did not expect will blame the system, not the rate card.
+
+The price this is sold at (installation, then a monthly support fee) is a
+commercial decision and deliberately not fixed in this repository: it depends on
+the client, the hand-holding involved, and what the market bears. What is fixed
+is the split above.
+
 ---
 
 ## 3. Does it have to be a VPS?

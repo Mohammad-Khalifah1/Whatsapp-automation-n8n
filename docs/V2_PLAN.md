@@ -770,20 +770,27 @@ These ship first, because every later phase builds on the paths they fix.
   it is empty.
 - Test: fixtures for each path; `first_reply_at` is never overwritten.
 
-**V2-23 · Pricing capture** · S · risk low · after V2-01
-- Files: `Messages.csv` (`pricing_category`, `billable`), wf2 "Update Message
-  Status", fixtures with a `pricing` block, schema docs.
-- Test: a status with pricing fills both fields; one without leaves them empty.
+**V2-23 · Pricing capture** · S · risk low · after V2-01 · **done** (live check folded into E18)
+- As built: `pricing_category` and `billable` in Messages, written by wf2's
+  "Update Message Status" from Meta's status webhook. A status with no pricing
+  block leaves both cells alone.
+- Tests: 4, including the real delivered-status fixture.
 
 **V2-24 · Dashboard: window and billing** · M · risk low · after V2-13, V2-22, V2-23
 - Files: `build-dashboard.js`, minimal Lists rate cells (complete in V2-32).
 - Test: a unit test parses every generated formula and checks that each
   referenced column exists; E18 against a fixture sheet.
 
-**V2-25 · Correct the pricing documents** · S · risk none
-- Files: `docs/COSTS.md`, `README.md`, `docs/CLIENT_ONBOARDING.md`.
-- Do: replace the flat $10.32 figure with the per-message model and its
-  caveat (1.2), and add the client-pays rule and the service price.
+**V2-25 · Correct the pricing documents** · S · risk none · **done**
+- As built: the headline figures in `README.md` and `COSTS.md` now say "until
+  30 September 2026" and point at the per-message change, instead of "that is
+  the whole bill". The detailed section already refused to quote an unpublished
+  rate, and still does, so the plan's $0.0091 stays an estimate until Meta
+  publishes (O3 is this task).
+- `CLIENT_ONBOARDING.md` gains a who-pays-for-what table: server, domain,
+  Google account and Meta's charges are the client's, on their own accounts, and
+  message fees are a pass-through. The service price itself stays out of the
+  repository as a commercial decision.
 
 **Milestone M1 — target before 1 October:** V2-01 to V2-06, V2-11, V2-14,
 V2-20, V2-23, V2-25, and V2-21 if the template is approved in time. The

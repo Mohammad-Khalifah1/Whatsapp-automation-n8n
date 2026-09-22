@@ -365,7 +365,9 @@
           "value": {
             "message_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.message_id)) }}",
             "status": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.status)) }}",
-            "status_updated_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.timestamp_iso)) }}"
+            "status_updated_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.timestamp_iso)) }}",
+            "pricing_category": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.pricing_category || undefined)) }}",
+            "billable": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.billable === null || $json.billable === undefined ? undefined : String($json.billable).toUpperCase())) }}"
           },
           "matchingColumns": [
             "message_id"
@@ -394,6 +396,26 @@
             {
               "id": "status_updated_at",
               "displayName": "status_updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pricing_category",
+              "displayName": "pricing_category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "billable",
+              "displayName": "billable",
               "required": false,
               "defaultMatch": false,
               "display": true,

@@ -113,6 +113,8 @@ const ENUMS = {
     direction: ['inbound', 'outbound'],
     message_type: MESSAGE_TYPES,
     sent_via: ['cloud_api', 'whatsapp_business_app', 'google_sheet'],
+    pricing_category: ['', 'service', 'utility', 'marketing', 'authentication', 'referral_conversion'],
+    billable: ['', 'TRUE', 'FALSE'],
     processing_status: ['parsed', 'unsupported', 'deferred'],
     supported: ['TRUE', 'FALSE'],
   },

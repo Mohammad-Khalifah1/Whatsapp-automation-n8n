@@ -11,10 +11,18 @@ Alternatives for every layer: **[ALTERNATIVES.md](ALTERNATIVES.md)**.
 
 | | 30 conv/day | 100 conv/day | 300 conv/day |
 |---|---|---|---|
-| **You pay, per month** | **$10.32** | **$10.32** | **$14.84** |
+| **You pay, per month, until 30 September 2026** | **$10.32** | **$10.32** | **$14.84** |
 
 That is a VPS and a domain, plus Jordanian tax. Everything else in the stack is
-genuinely free, and Meta currently charges nothing for what this system does.
+genuinely free, and Meta charges nothing for what this system does **today**.
+
+**From 1 October 2026 that last sentence stops being true.** Meta has confirmed
+it will charge per message for service messages — the replies this system sends
+— and had not published the rate when this was written. The figures above are
+then a floor, not the bill: add Meta's per-message charge on top. What that
+looks like at each volume, and what is confirmed versus reported, is in
+[From 1 October 2026](#from-1-october-2026--charging-confirmed-price-not).
+Quote it to a client as a pass-through, never as part of a fixed price.
 
 **Volume barely moves it.** Ten times the traffic costs 44% more, because the
 only thing that changes is needing a slightly larger box.

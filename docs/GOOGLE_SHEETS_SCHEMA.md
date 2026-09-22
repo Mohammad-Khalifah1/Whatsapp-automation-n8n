@@ -351,6 +351,8 @@ the deduplication store.
 | `timestamp` | ISO-8601 | When Meta says it happened |
 | `status` | enum | `RECEIVED` \| `SENT` \| `DELIVERED` \| `READ` \| `FAILED` |
 | `status_updated_at` | ISO-8601 | Last status change |
+| `pricing_category` | text | What Meta billed this message as — `service`, `utility`, `marketing`, `authentication` — taken from its own status webhook. Blank until a status arrives |
+| `billable` | TRUE/FALSE | Whether Meta charged for it. From 1 October 2026 service messages are chargeable, so this and the column above are what the billing figures are counted from — not a guess about which path a reply took |
 | `agent_id` | text | For outbound: who sent it |
 | `sent_via` | text | `cloud_api` \| `whatsapp_business_app` \| `google_sheet` |
 | `supported` | TRUE/FALSE | FALSE for message types we do not yet handle |

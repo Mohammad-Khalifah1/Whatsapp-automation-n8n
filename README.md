@@ -156,7 +156,7 @@ running deployment, not inspected in the code.
 | Area | State |
 |---|---|
 | Docker + n8n environment | **Live** — n8n 2.38.5 on a VPS, behind nginx and Let's Encrypt |
-| Core business logic | **360 unit tests passing** |
+| Core business logic | **364 unit tests passing** |
 | Webhook receiver | **Verified live** — the handshake echoes the challenge; unsigned and wrongly-signed POSTs are refused |
 | Inbound message to a sheet row | **Verified live** |
 | Automatic assignment | **Verified live** — the eligible agent with the fewest open conversations |
@@ -202,7 +202,7 @@ node scripts/setup/build-workflows.js
 node scripts/setup/import-workflows.js
 
 # 5. Run the tests
-node tests/run-tests.js                   # 360 unit tests, no credentials needed
+node tests/run-tests.js                   # 364 unit tests, no credentials needed
 node scripts/validation/validate-workflows.js
 ```
 
@@ -311,9 +311,12 @@ Full detail: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 | | 30 conv/day | 100 conv/day | 300 conv/day |
 |---|---|---|---|
-| **You pay, per month** | **$10.32** | **$10.32** | **$14.84** |
+| **You pay, per month, until 30 September 2026** | **$10.32** | **$10.32** | **$14.84** |
 
-A VPS and a domain, plus Jordanian tax. That is the whole bill.
+A VPS and a domain, plus Jordanian tax. **From 1 October 2026** Meta charges per
+service message — the replies this system sends — so add its per-message charge
+on top; the rate was not published when this was written. See
+[docs/COSTS.md](docs/COSTS.md).
 
 Everything else is genuinely free and stays free: **Meta charges nothing** for
 receiving webhooks, nothing for inbound customer messages, and nothing today for

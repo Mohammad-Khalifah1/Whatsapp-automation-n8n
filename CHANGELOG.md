@@ -5,6 +5,33 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, tasks V2-23 and V2-25 — What Meta charges, recorded and quoted honestly
+
+### Added — V2-23
+
+- **`pricing_category` and `billable` in the Messages tab**, written from
+  Meta's own status webhook. The parser already read the `pricing` block;
+  nothing wrote it down. From 1 October 2026 service messages are chargeable, so
+  the billing figures on the V2 dashboard have to come from what Meta says it
+  charged, not from a guess about which path a reply took. A status without a
+  pricing block leaves both cells as they were.
+- `tests/build/pricing-capture.test.js` (4 tests), including the real
+  delivered-status fixture.
+
+### Changed — V2-25
+
+- The headline running costs in `README.md` and `COSTS.md` said "that is the
+  whole bill" and "Meta charges nothing". True until 30 September 2026, wrong
+  the next morning. Both now carry the date and point at the per-message change;
+  the detailed section already said the rate was unpublished, and still does.
+- `CLIENT_ONBOARDING.md` gains **who pays for what**: the VPS, the domain, the
+  Google account and Meta's message charges are the client's, on accounts in
+  their name, and message fees are a pass-through that cannot sit inside a fixed
+  monthly fee. At 100 conversations a day they can be several times the support
+  fee.
+
+---
+
 ## [Unreleased] — Version 2, task V2-20 — A reply is only sent when it can arrive
 
 Meta delivers a free-form message only inside 24 hours of the **customer's**
