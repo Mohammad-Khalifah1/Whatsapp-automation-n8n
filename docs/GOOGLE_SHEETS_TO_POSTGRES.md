@@ -30,7 +30,7 @@ This is the point of the architecture.
 | Unchanged | Why |
 |---|---|
 | `scripts/lib/*.js` — all decision logic | It performs no I/O. It takes data and returns decisions |
-| All 337 unit tests | They test pure functions |
+| All 360 unit tests | They test pure functions |
 | Conversation state machine | Storage-independent |
 | Assignment algorithm and tie-breakers | Storage-independent |
 | Phone normalization | Storage-independent |

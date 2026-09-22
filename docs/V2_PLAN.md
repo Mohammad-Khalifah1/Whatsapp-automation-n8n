@@ -54,6 +54,7 @@ read or run, not assumed.
 | R16 | All data writes are `RAW` | n8n 2.38.5's Google Sheets node v4.7 defaults to `USER_ENTERED` (`cellFormatDefault`), and no node here sets it. Every write is parsed as if typed, so customer text starting with `=` becomes a formula | Found while building V2-01. New Phase 0 task V2-06 (C-18) |
 | R17 | API appends must be positional, so CSV order must equal sheet order | V2-01 places values by name against the live header row instead | Column order is cosmetic again. The fallback Sheets node still fills `''` into unmapped columns, which V2-13 must handle |
 | R18 | Workflow 7 records one outcome per reply | `Interpret Sheet Send` read `$input.first()`. With several replies in one poll, every one was sent, only the first was recorded and cleared, and the rest were sent again the next minute. **Live on main** | Found while building V2-04 and fixed there |
+| R19 | A failed send leaves the conversation untouched | Workflow 4 wrote `status = REPLIED`, cleared `unread` and copied the unsent text into `last_message` whether the send succeeded or not, so a customer still waiting looked answered. **Live on main** | Found while building V2-20 and fixed there |
 
 ---
 
@@ -731,19 +732,26 @@ These ship first, because every later phase builds on the paths they fix.
 
 ### 7.5 Phase 2 — the 24-hour window and cost (time-critical, 1 October)
 
-**V2-20 · Server-side window guard** · M · risk medium · after V2-04, V2-11, V2-14
-- Files: `build-workflows.js` (wf7, wf4), tests.
-- Do: before a free-form send, call `windowState`. When it is closed:
-  - make no API call;
-  - set `reply_status` to window-closed with a hint to use a template;
-  - keep the text;
-  - write `reply_blocked_hash` (a `crypto` hash of the text and the reason);
-  - write no Messages row.
-
-  Rows whose hash still matches are skipped. Meta error 131047 maps to the
-  same state. A failed API send keeps its Messages row, with the dedupe key
-  `failed:<conversation_id>:<time>` (C-35).
-- Test: unit tests for the decision; E5, E6, E19.
+**V2-20 · Server-side window guard** · M · risk medium · after V2-04, V2-14 ·
+**built; offline gates pass; live check pending**
+- As built in workflow 7: `windowState` is checked before sending. Closed means
+  no API call, `reply_status = WINDOW_CLOSED`, the text kept, and
+  `reply_blocked_hash` (new system column, `scripts/lib/reply-guard.js`) written
+  so later polls skip the row while the text and the reason are unchanged —
+  which also ends the old every-minute rewrite for an invalid phone or
+  over-long text (C-16). Meta's 131047 maps to the same state, with the text
+  kept. A failed send's Messages row gets its own dedupe key (C-35).
+- Workflow 4 holds no conversation row, so it cannot check before sending
+  without an extra read per call. It reports 131047 as `WINDOW_CLOSED`; the
+  pre-check waits for the inbox.
+- Also fixed (R19): workflow 4 marked a conversation `REPLIED`, cleared
+  `unread` and copied the text into `last_message` even when the send failed.
+  A failure now records only `updated_at`.
+- Labels are not wired yet (V2-12), so the status is written as its code,
+  which is what an English sheet holds today.
+- Tests: 29, including the window boundaries through the generated scan code,
+  the skip-while-unchanged behaviour, and workflow 4's two fixes.
+- Still to do: live E5, E6, E19.
 
 **V2-21 · Templates on explicit request** · M · risk medium · after V2-20; live test needs O2
 - Files: `build-workflows.js` (template body; WAHA path refuses with a clear

@@ -24,8 +24,9 @@ function code(name) {
 /** Run a Code node body the way n8n does, with the given inputs. */
 function run(name, env) {
   const items = (env.inputs || []).map((json) => ({ json }));
-  const fn = new Function('$env', '$input', '$', 'console', code(name));
+  const fn = new Function('require', '$env', '$input', '$', 'console', code(name));
   return fn(
+    (m) => require(m),
     env.$env || {},
     { all: () => items, first: () => items[0] },
     (node) => ({
@@ -35,12 +36,17 @@ function run(name, env) {
   );
 }
 
+/** An hour ago: inside Meta's 24-hour customer service window. */
+const RECENT = new Date(Date.now() - 3600000).toISOString();
+/** Two days ago: outside it. */
+const OLD = new Date(Date.now() - 48 * 3600000).toISOString();
+
 describe('Find Pending Replies (generated code)', () => {
   const rows = [
-    { row_number: 2, conversation_id: 'CONV-1-962790000001-1', customer_phone: '962790000001', reply_text: 'hello' },
-    { row_number: 3, conversation_id: '', customer_phone: '0790000002', reply_text: 'new outreach' },
-    { row_number: 4, conversation_id: '', customer_phone: '12', reply_text: 'bad number' },
-    { row_number: 5, conversation_id: 'CONV-1-962790000004-1', customer_phone: '962790000004', reply_text: '' },
+    { row_number: 2, conversation_id: 'CONV-1-962790000001-1', customer_phone: '962790000001', reply_text: 'hello', last_customer_message_at: RECENT },
+    { row_number: 3, conversation_id: '', customer_phone: '0790000002', reply_text: 'new outreach', last_customer_message_at: RECENT },
+    { row_number: 4, conversation_id: '', customer_phone: '12', reply_text: 'bad number', last_customer_message_at: RECENT },
+    { row_number: 5, conversation_id: 'CONV-1-962790000004-1', customer_phone: '962790000004', reply_text: '', last_customer_message_at: RECENT },
   ];
   const out = run('Find Pending Replies', { $env: { DEFAULT_COUNTRY_CODE: '962' }, inputs: rows })
     .map((i) => i.json);
@@ -64,6 +70,70 @@ describe('Find Pending Replies (generated code)', () => {
     assert.equal(out[2].skip, true);
     assert.equal(out[2].is_manual, true);
     assert.equal(out[2].row_number, 4);
+    assert.equal(out[2].reply_status, 'FAILED');
+    assert.ok(out[2].reply_blocked_hash, 'a blocked row remembers why');
+  });
+});
+
+describe('the 24-hour window guard (generated code)', () => {
+  const row = (extra) => Object.assign({
+    row_number: 2,
+    conversation_id: 'CONV-1-962790000001-1',
+    customer_phone: '962790000001',
+    reply_text: 'are you still interested?',
+  }, extra);
+  const scan = (r) => run('Find Pending Replies', { $env: { DEFAULT_COUNTRY_CODE: '962' }, inputs: [r] })
+    .map((i) => i.json);
+
+  it('sends when the customer wrote within 24 hours', () => {
+    const out = scan(row({ last_customer_message_at: RECENT }));
+    assert.equal(out.length, 1);
+    assert.equal(out[0].skip, false);
+  });
+
+  it('refuses to send after 24 hours, keeps the text, and says why', () => {
+    const out = scan(row({ last_customer_message_at: OLD }));
+    assert.equal(out.length, 1);
+    assert.equal(out[0].skip, true, 'no API call is made');
+    assert.equal(out[0].reply_status, 'WINDOW_CLOSED');
+    assert.includes(out[0].reply_error, 'window_closed');
+    assert.equal(out[0].reply_text, 'are you still interested?');
+  });
+
+  it('refuses a number that never wrote to us: a new row can only get a template', () => {
+    const out = scan(row({ last_customer_message_at: '' }));
+    assert.equal(out[0].reply_status, 'WINDOW_CLOSED');
+    assert.includes(out[0].reply_error, 'no_customer_message');
+  });
+
+  it('writes the refusal once, then skips the row while nothing changes', () => {
+    const first = scan(row({ last_customer_message_at: OLD }))[0];
+    const again = scan(row({ last_customer_message_at: OLD, reply_blocked_hash: first.reply_blocked_hash }));
+    assert.deepEqual(again, [], 'no write on the next poll');
+  });
+
+  it('picks the row up again when the text is edited', () => {
+    const first = scan(row({ last_customer_message_at: OLD }))[0];
+    const edited = scan(row({
+      last_customer_message_at: OLD,
+      reply_text: 'different words',
+      reply_blocked_hash: first.reply_blocked_hash,
+    }));
+    assert.equal(edited.length, 1);
+    assert.notOk(edited[0].reply_blocked_hash === first.reply_blocked_hash);
+  });
+
+  it('picks the row up again when the customer writes and the window reopens', () => {
+    const first = scan(row({ last_customer_message_at: OLD }))[0];
+    const reopened = scan(row({ last_customer_message_at: RECENT, reply_blocked_hash: first.reply_blocked_hash }));
+    assert.equal(reopened.length, 1);
+    assert.equal(reopened[0].skip, false, 'it sends now');
+  });
+
+  it('checks the number before the window, so a bad number still reads as a bad number', () => {
+    const out = scan(row({ customer_phone: '12', last_customer_message_at: OLD }));
+    assert.equal(out[0].reply_status, 'FAILED');
+    assert.includes(out[0].reply_error, 'invalid_phone');
   });
 });
 
@@ -97,9 +167,35 @@ describe('Interpret Sheet Send (generated code)', () => {
   });
 
   it('records each outcome separately', () => {
-    assert.deepEqual(out.map((i) => i.json.reply_status), ['SENT', 'SENT', 'FAILED']);
+    assert.deepEqual(out.map((i) => i.json.reply_status), ['SENT', 'SENT', 'WINDOW_CLOSED']);
     assert.equal(out[1].json.message_id, 'wamid.two');
     assert.includes(out[2].json.reply_error, '131047');
+  });
+
+  it('treats Meta refusing a closed window as the guard does: keeps the text and remembers it', () => {
+    assert.equal(out[2].json.keep_text, true);
+    assert.equal(out[2].json.reply_text, 'three');
+    assert.ok(out[2].json.reply_blocked_hash, 'the next poll will skip it');
+  });
+
+  it('clears the text and the memory on a send that went out', () => {
+    assert.equal(out[0].json.keep_text, false);
+    assert.equal(out[0].json.reply_blocked_hash, '');
+  });
+
+  it('gives a failed send its own dedupe key, instead of one shared by every failure', () => {
+    assert.equal(out[0].json.dedupe_key, 'message:wamid.one');
+    assert.includes(out[2].json.dedupe_key, 'failed:CONV-c:');
+  });
+
+  it('still reports a plain failure as FAILED', () => {
+    const plain = run('Interpret Sheet Send', {
+      $env: { WHATSAPP_CONNECTOR: 'meta' },
+      inputs: [{ error: { code: 131026, message: 'Message undeliverable' } }],
+      matching: { 'Sendable?': [requests[0]] },
+    });
+    assert.equal(plain[0].json.reply_status, 'FAILED');
+    assert.equal(plain[0].json.keep_text, false);
   });
 
   it('keeps a failed conversation exactly as it was', () => {

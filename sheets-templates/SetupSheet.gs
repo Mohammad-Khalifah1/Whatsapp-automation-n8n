@@ -40,7 +40,7 @@ var SCHEMA = {
     'business_phone_number_id', 'last_message_id',
     'last_customer_message_at', 'last_agent_message_at', 'created_at',
     'updated_at', 'closed_at', 'unassigned_reason', 'reply_error',
-    'reply_sent_at'
+    'reply_sent_at', 'reply_blocked_hash'
   ],
   Messages: [
     'status', 'direction', 'customer_phone', 'recipient_phone',

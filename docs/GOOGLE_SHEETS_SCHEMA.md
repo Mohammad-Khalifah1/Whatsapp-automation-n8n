@@ -182,7 +182,7 @@ something.
 | 12 | `first_message_at` | ISO-8601 | system | First contact. Written once, never updated — response time is measured from here. |
 | 13 | `last_activity_at` | ISO-8601 | system | Drives inactivity and archiving |
 | 14 | `reply_text` | text | **human** | **Type here to send a WhatsApp message** — see below |
-| 15 | `reply_status` | dropdown | system | `SENT` or `FAILED`, written by the system |
+| 15 | `reply_status` | dropdown | system | `SENT`, `FAILED`, or `WINDOW_CLOSED` when Meta's 24-hour window has closed. Written by the system |
 | 16 | `unread` | TRUE/FALSE | system | TRUE when the customer spoke last |
 | 17 | `wa_link` | URL | system | `https://wa.me/<e164>` |
 | 18 | `conversation_id` | text | system | `CONV-<biz>-<customer>-<epoch>` |
@@ -197,6 +197,7 @@ something.
 | 27 | `unassigned_reason` | text | system | Why nobody was assigned; blank when assigned |
 | 28 | `reply_error` | text | system | Why a reply failed |
 | 29 | `reply_sent_at` | ISO-8601 | system | When it was sent |
+| 30 | `reply_blocked_hash` | text | system | A reply that cannot be sent keeps its text; this remembers that text and the reason, so the next poll skips the row instead of rewriting the same failure every minute. Edit the text, or let the customer write again, and it is picked up |
 
 Timestamps are ISO-8601 **with an explicit UTC offset**, in the timezone set by
 `TZ` (`Asia/Amman` here), so the sheet shows the time the team actually saw.
@@ -233,6 +234,12 @@ row unreadable.
 Type a message into **`reply_text`**. Within a minute, workflow 7 sends it over
 the Cloud API, **clears the cell**, and writes the outcome into `reply_status`:
 `SENT`, or `FAILED` with the reason in `reply_error`.
+
+A reply is only sent inside Meta's 24-hour customer service window, measured
+from the **customer's** last message. Outside it, nothing is sent: the row
+reads `WINDOW_CLOSED`, **the text is kept**, and reaching that customer needs
+an approved template. A row typed by hand for a number that never wrote to you
+has no open window either.
 
 **`reply_text` being non-empty is the instruction to send.** Nothing else needs
 setting. `reply_status` is an *outcome*, not a command — an earlier version

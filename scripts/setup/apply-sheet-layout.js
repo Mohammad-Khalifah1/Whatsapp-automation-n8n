@@ -96,14 +96,14 @@ const MESSAGE_TYPES = ['text', 'image', 'audio', 'video', 'document', 'sticker',
 const ENUMS = {
   Conversations: {
     status: ['WAITING_FOR_AGENT', 'UNANSWERED', 'REPLIED', 'WAITING_FOR_CUSTOMER', 'CLOSED', 'ARCHIVED'],
-    reply_status: ['', 'SENT', 'FAILED'],
+    reply_status: ['', 'SENT', 'FAILED', 'WINDOW_CLOSED'],
     last_message_direction: ['inbound', 'outbound'],
     last_message_type: MESSAGE_TYPES,
     unread: ['TRUE', 'FALSE'],
   },
   Archive: {
     status: ['WAITING_FOR_AGENT', 'UNANSWERED', 'REPLIED', 'WAITING_FOR_CUSTOMER', 'CLOSED', 'ARCHIVED'],
-    reply_status: ['', 'SENT', 'FAILED'],
+    reply_status: ['', 'SENT', 'FAILED', 'WINDOW_CLOSED'],
     last_message_direction: ['inbound', 'outbound'],
     last_message_type: MESSAGE_TYPES,
     unread: ['TRUE', 'FALSE'],
@@ -167,9 +167,10 @@ const WIDTHS = {
 const HIDE_COLUMNS = {
   Conversations: ['conversation_id', 'assigned_agent_id', 'business_phone_number_id',
     'last_message_id', 'last_customer_message_at', 'last_agent_message_at',
-    'created_at', 'updated_at', 'closed_at', 'unassigned_reason', 'reply_sent_at'],
+    'created_at', 'updated_at', 'closed_at', 'unassigned_reason', 'reply_sent_at',
+    'reply_blocked_hash'],
   Archive: ['conversation_id', 'assigned_agent_id', 'business_phone_number_id',
-    'last_message_id', 'created_at', 'updated_at', 'unassigned_reason'],
+    'last_message_id', 'created_at', 'updated_at', 'unassigned_reason', 'reply_blocked_hash'],
   Messages: ['dedupe_key', 'correlation_id', 'raw_event_reference', 'conversation_id'],
 };
 

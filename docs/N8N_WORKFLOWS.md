@@ -310,14 +310,14 @@ This is stated rather than pretended away.
 |---|---|
 | **Input** | The `Conversations` tab |
 | **Output** | A sent WhatsApp message; `Messages` row with `sent_via = google_sheet` |
-| **Selects** | Rows where `reply_text` is non-empty. Nothing else is a guard (see *Idempotency*) |
+| **Selects** | Rows where `reply_text` is non-empty, and the 24-hour window is open. Nothing else is a guard (see *Idempotency*) |
 
 ### Flow
 
 ```
 Every Minute
    └─> Read Conversations
-        └─> Find Pending Replies        (validate phone + length)
+        └─> Find Pending Replies        (phone, length, 24-hour window)
              └─> Sendable?
                   ├─ yes ─> Send Reply Via Cloud API
                   │           └─> Interpret Sheet Send      (every reply of the poll)
@@ -354,6 +354,22 @@ Every reply sent in one poll gets its own outcome. Until V2-04 only the first
 did: the others were sent, kept their text, and were sent again the next
 minute.
 
+### The 24-hour window
+
+Meta only delivers a free-form message inside 24 hours of the **customer's**
+last message; a reply from the business never extends that. Workflow 7 checks
+it before sending (`scripts/lib/window.js`), so a reply that cannot arrive is
+never sent: the row reads `WINDOW_CLOSED`, the text stays where the person
+typed it, and `reply_error` says why. A row typed by hand for a number that
+never wrote to you has no open window either, so reaching a new contact needs
+an approved template.
+
+A blocked reply keeps its text, which would make the next poll rewrite the same
+failure a minute later, for as long as it sits there. So the row remembers a
+short hash of that text and that reason (`reply_blocked_hash`) and is skipped
+while both are unchanged. Edit the text, or let the customer write again, and it
+is picked up at once.
+
 ### Which row the outcome is written to
 
 A row that has a `conversation_id` is written back **by that id**. A row
@@ -369,6 +385,8 @@ Conversations.
 |---|---|
 | Unnormalizable phone | `reply_status = FAILED`, never sent — strict normalization refuses ambiguous numbers |
 | Text over 4096 chars | `FAILED` before any API call |
+| **24-hour window closed** | `reply_status = WINDOW_CLOSED`, **no API call**, and the text is kept. Reaching that customer needs an approved template |
+| Meta refuses a closed window (131047) | The same: `WINDOW_CLOSED`, text kept, remembered so the next poll does not try again |
 | Meta API error | 3 retries with backoff, then `FAILED` with the Meta error code |
 | Sheets read fails | `continueRegularOutput`; the next tick retries |
 

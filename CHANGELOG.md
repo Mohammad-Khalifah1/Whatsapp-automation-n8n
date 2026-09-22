@@ -5,6 +5,55 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-20 — A reply is only sent when it can arrive
+
+Meta delivers a free-form message only inside 24 hours of the **customer's**
+last message. From 1 October 2026 a service message is also billed. Until now
+the system sent anyway and recorded Meta's refusal as `FAILED` with a code —
+after clearing the cell, so the text was gone too.
+
+### Added
+
+- **The window is checked before sending** (`scripts/lib/window.js`, wired into
+  workflow 7). Outside it nothing is sent: the row reads `WINDOW_CLOSED`, the
+  text is **kept**, and `reply_error` says why. A row typed by hand for a number
+  that never wrote to us has no open window either, so reaching a new contact
+  needs an approved template (V2-21).
+- **Meta refusing a closed window (131047) is treated the same way**: text kept,
+  `WINDOW_CLOSED` recorded, and remembered so the next poll does not try again.
+- **`reply_blocked_hash`**, a new system column. A blocked reply keeps its text,
+  which used to make the poll rewrite the same failure every minute for as long
+  as it sat there. The row now remembers that text and that reason and is
+  skipped while both are unchanged. Editing the text, or the customer writing
+  again, picks it up at once.
+- A failed send's Messages row gets its own `dedupe_key`
+  (`failed:<conversation_id>:<time>`); every failure used to share the key
+  `message:`.
+
+### Changed
+
+- `reply_status` can now be `WINDOW_CLOSED` as well as `SENT` and `FAILED`; the
+  dropdown and the schema document list it.
+- Workflow 4 (the send API) reports a 131047 refusal as `WINDOW_CLOSED` too. It
+  holds no conversation row, so it cannot check the window before sending
+  without an extra read per call; that waits for the inbox.
+
+### Fixed, found while wiring this
+
+- **A failed send marked the conversation answered.** Workflow 4 updated the
+  conversation the same way whether the send went out or not: `status` became
+  `REPLIED`, `unread` was cleared, and the text that never left was copied into
+  `last_message`. A customer still waiting looked answered, in the sheet and on
+  the dashboard. Now a failure records only that an attempt was made
+  (`updated_at`), and leaves every other cell as it was.
+
+### Not yet verified
+
+- Live: a reply typed against a conversation older than 24 hours is not sent and
+  keeps its text.
+
+---
+
 ## [Unreleased] — Version 2, task V2-11 — A label layer for an Arabic sheet
 
 ### Added

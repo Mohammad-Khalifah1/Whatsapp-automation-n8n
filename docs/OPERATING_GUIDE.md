@@ -71,10 +71,10 @@ Add a row, fill in `customer_phone` and `reply_text`, leave everything else
 blank. The message goes out the same way and the row becomes a real conversation.
 
 Meta's 24-hour rule applies: a free-form message only reaches someone who wrote
-to you within the last 24 hours. Outside that window Meta rejects it and the row
-reads `FAILED` with error `131047`. Reaching an older contact needs an approved
-template, which this system does not send — see
-[CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
+to you within the last 24 hours. A number that never wrote to you has no open
+window at all, so a hand-typed row to a new contact is **not** sent: the row
+reads `WINDOW_CLOSED` and keeps your text. Reaching that person needs an
+approved template — see [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
 
 ### What you see afterwards
 
@@ -82,7 +82,8 @@ template, which this system does not send — see
 |---|---|
 | *(blank)* with text present | Queued — will send within a minute |
 | `SENT` | Accepted by the Cloud API; `reply_text` cleared |
-| `FAILED` | Not sent. `reply_error` says why; the row is otherwise untouched |
+| `FAILED` | Not sent — a number that cannot be dialled, or text over the limit. `reply_error` says why; your text is kept |
+| `WINDOW_CLOSED` | Not sent: more than 24 hours since that customer last wrote, so Meta would refuse it. **Your text is kept.** Reaching them needs an approved template |
 
 Nothing is ever sent twice: the cell is emptied the moment the message goes out,
 so text sitting in `reply_text` always means "not sent yet".
