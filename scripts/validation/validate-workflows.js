@@ -269,6 +269,67 @@ function validateWorkflow(file) {
       String(node.parameters.jsonBody || '').indexOf('$("Sheets Access")') !== -1);
   }
 
+  // --- everything is joined to something that exists ---
+  // These are the joins a generated file can get wrong without anything
+  // failing until a customer's message hits them: an expression that names a
+  // node that was renamed, one that reads a node which has not run yet, and a
+  // write to a column the tab does not have — which Google accepts and drops.
+  const csvColumns = (tab) => {
+    const file = path.join(ROOT, 'sheets-templates', tab + '.csv');
+    if (!fs.existsSync(file)) return null;
+    return fs.readFileSync(file, 'utf8').split(/\r?\n/)[0].split(',').map((c) => c.trim()).filter(Boolean);
+  };
+  const targetsOf = (name) => (((wf.connections[name] || {}).main) || [])
+    .reduce((all, output) => all.concat((output || []).map((t) => t.node)), []);
+  const runsAfter = (name) => {
+    const seen = new Set();
+    const stack = targetsOf(name).slice();
+    while (stack.length > 0) {
+      const next = stack.pop();
+      if (seen.has(next)) continue;
+      seen.add(next);
+      stack.push.apply(stack, targetsOf(next));
+    }
+    return seen;
+  };
+
+  for (const node of wf.nodes) {
+    if (node.type === 'n8n-nodes-base.stickyNote') continue;
+    const text = JSON.stringify(node.parameters || {});
+    const referenced = new Set();
+    const pattern = /\$\(\s*\\?["']([^"'\\]+)\\?["']\s*\)/g;
+    let hit = pattern.exec(text);
+    while (hit !== null) { referenced.add(hit[1]); hit = pattern.exec(text); }
+
+    const later = runsAfter(node.name);
+    for (const ref of referenced) {
+      check('reads a node that exists: ' + node.name + ' -> ' + ref, nameSet.has(ref));
+      check('reads a node that has already run: ' + node.name + ' -> ' + ref, !later.has(ref));
+    }
+
+    const params = node.parameters || {};
+    const tab = (params.sheetName || {}).value;
+    if (node.type === 'n8n-nodes-base.googleSheets' && typeof tab === 'string' && tab.indexOf('{{') === -1) {
+      const columns = csvColumns(tab);
+      check('writes to a tab that exists: ' + node.name, !!columns, tab);
+      if (columns) {
+        const unknown = Object.keys((params.columns || {}).value || {})
+          .filter((c) => c !== 'row_number' && columns.indexOf(c) === -1);
+        check('writes only columns ' + tab + ' has: ' + node.name, unknown.length === 0, unknown.join(', '));
+      }
+    }
+
+    if (typeof params.url === 'string') {
+      const urlTabs = /(?:values\/|ranges=)([^!]+)!/g;
+      let found = urlTabs.exec(params.url);
+      while (found !== null) {
+        const named = decodeURIComponent(found[1]);
+        check('calls the API for a tab that exists: ' + node.name, !!csvColumns(named), named);
+        found = urlTabs.exec(params.url);
+      }
+    }
+  }
+
   // --- customer text never becomes a formula ---
   // Every write is USER_ENTERED, so Sheets parses a value the way it parses
   // what a person types: a message starting with `=` became a live formula.

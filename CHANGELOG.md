@@ -5,6 +5,34 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2 — Everything is joined to something that exists
+
+The workflows are generated, so a typo does not fail a compiler: it fails at
+three in the morning, on a real customer's message. Nine tasks of rewiring have
+gone in, so the joins themselves are now checked, by the validator and by
+tests, both reading the generated files.
+
+### Added
+
+- Every `$("Some Node")` in an expression must name a node that is really in
+  that workflow **and one that has already run**. A renamed node, or a
+  reference to a node further down the graph, is caught at build time.
+- Every Google Sheets node must name a tab that exists and write only columns
+  that tab really has. Google accepts a write to a column that does not exist,
+  and silently drops it, which is how a field can look written and be gone.
+- Every Sheets API URL must name a real tab; every Execute Workflow call must
+  name a workflow in this repository; every node must be reachable from a
+  trigger.
+- `tests/build/wiring.test.js` (66 checks over the nine files), and the same
+  rules in `validate-workflows.js` so the build gate enforces them.
+
+Each rule was proven by breaking a generated file on purpose: a renamed
+reference, a reference to a later node, an invented column, an invented tab, a
+disconnected node and a call to a workflow that is not ours. All six were
+caught by the tests, and the four that apply were caught by the validator.
+
+---
+
 ## [Unreleased] — Version 2, task V2-21 — Approved templates, sent only on purpose
 
 Outside the 24-hour window a free-form reply is refused (V2-20). What reaches
