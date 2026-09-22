@@ -771,12 +771,17 @@ These ship first, because every later phase builds on the paths they fix.
   through the generated scan code.
 - Still to do: a real send (E7, E8), which needs an approved template (O2).
 
-**V2-22 · Reply method and first reply** · S · risk low · after V2-12
-- Files: `build-workflows.js` (wf2 echo → `APP`, wf7 → `SHEET` or `TEMPLATE`,
-  wf4 → `API`), CSV templates, schema docs.
-- Do: every outbound path sets `last_reply_via`, and sets `first_reply_at` if
-  it is empty.
-- Test: fixtures for each path; `first_reply_at` is never overwritten.
+**V2-22 · Reply method and first reply** · S · risk low · **built; offline gates pass**
+- As built: `last_reply_via` (`APP`, `SHEET`, `TEMPLATE`, `API`) and
+  `first_reply_at`, both written by the shared `buildAgentMessageUpdate` for
+  the app path and by workflow 7 for sheet and template sends, so the paths
+  cannot drift. A failed send changes neither.
+- The send API sets only `last_reply_via`: it holds no conversation row, so it
+  cannot know whether this is the first reply, and leaves that cell alone
+  rather than guessing. The inbox will close that.
+- It did not wait for V2-12: the values are codes, which is what an English
+  sheet holds today, and the label layer converts them when it is wired.
+- Tests: 9, including that a later reply never moves `first_reply_at`.
 
 **V2-23 · Pricing capture** · S · risk low · after V2-01 · **done** (live check folded into E18)
 - As built: `pricing_category` and `billable` in Messages, written by wf2's

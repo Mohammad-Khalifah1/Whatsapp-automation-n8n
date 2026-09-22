@@ -359,6 +359,17 @@ function buildAgentMessageUpdate(existing, message, opts) {
     updated_at: nowIso,
   };
 
+  // How this customer was answered: from the WhatsApp Business app, the
+  // sheet, a paid template, or the API. Free and paid paths cost very
+  // different amounts, so the sheet has to be able to tell them apart.
+  if (options.via) update.last_reply_via = options.via;
+
+  // When this conversation was first answered, set once and never moved:
+  // it is what a first-response time is measured to.
+  if (!current.first_reply_at) {
+    update.first_reply_at = message.timestamp_iso || nowIso;
+  }
+
   if (current.status === STATUS.CLOSED) {
     update.closed_at = '';
   }

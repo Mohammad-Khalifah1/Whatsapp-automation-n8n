@@ -151,6 +151,8 @@ already colour-coded:
 | **Blue `reply_text` cell** | A reply is queued to send |
 | **Red `reply_status`** | A reply failed |
 
+`last_reply_via` says how each customer was last answered — from the app, the sheet, a paid template, or the API — and `first_reply_at` (hidden) records when they were first answered, which is what response-time figures are measured to.
+
 You can see the state of the whole desk without reading a single word.
 
 ### Recommended filter views

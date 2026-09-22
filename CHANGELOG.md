@@ -5,6 +5,27 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-22 — How each customer was answered, and how fast
+
+### Added
+
+- **`last_reply_via`**: how this customer was last answered — `APP` (the
+  WhatsApp Business app), `SHEET`, `TEMPLATE` (paid) or `API`. The three paths
+  cost very different amounts, and the sheet could not tell them apart; the
+  billing section of the V2 dashboard needs to.
+- **`first_reply_at`**: when a conversation was **first** answered, set once by
+  whichever path answered it and never moved afterwards. It is what a
+  first-response time is measured to, and what "we lost this one because we were
+  slow" will be counted from. The send API cannot set it: it holds no
+  conversation row, so it leaves the cell alone rather than guessing.
+- Both are written by the shared `buildAgentMessageUpdate`, so the app path and
+  the sheet path cannot drift apart, and by workflow 7 for sheet and template
+  sends. A send that failed changes neither.
+- `tests/conversations/reply-path.test.js` (5) and 4 more through workflow 7's
+  generated code.
+
+---
+
 ## [Unreleased] — Version 2 — Everything is joined to something that exists
 
 The workflows are generated, so a typo does not fail a compiler: it fails at

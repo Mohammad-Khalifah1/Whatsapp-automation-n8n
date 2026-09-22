@@ -387,6 +387,7 @@
             "last_agent_message_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.ok ? $(\"Interpret Send Result\").item.json.sent_at : undefined)) }}",
             "last_activity_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.ok ? $(\"Interpret Send Result\").item.json.sent_at : undefined)) }}",
             "unread": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.ok ? 'FALSE' : undefined)) }}",
+            "last_reply_via": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.ok ? 'API' : undefined)) }}",
             "updated_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($(\"Interpret Send Result\").item.json.sent_at)) }}"
           },
           "matchingColumns": [
@@ -466,6 +467,16 @@
             {
               "id": "unread",
               "displayName": "unread",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "last_reply_via",
+              "displayName": "last_reply_via",
               "required": false,
               "defaultMatch": false,
               "display": true,

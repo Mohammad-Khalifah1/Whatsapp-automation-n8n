@@ -1691,7 +1691,7 @@ function buildMessageProcessor() {
         '  preview: echo.preview,',
         '  text: echo.text,',
         '  timestamp_iso: echo.timestamp_iso,',
-        '}, { now_iso: nowIso });',
+        "}, { now_iso: nowIso, via: 'APP' });",
         '',
         'console.log(JSON.stringify({',
         "  event: 'echo_applied',",
@@ -1751,6 +1751,10 @@ function buildMessageProcessor() {
           last_message_id: '={{ $json.conversation_update.last_message_id }}',
           last_message_direction: 'outbound',
           last_agent_message_at: '={{ $json.conversation_update.last_agent_message_at }}',
+          // Set by buildAgentMessageUpdate; undefined (so the cell is left
+          // alone) when this conversation was already answered once.
+          last_reply_via: '={{ $json.conversation_update.last_reply_via }}',
+          first_reply_at: '={{ $json.conversation_update.first_reply_at }}',
           last_activity_at: '={{ $json.conversation_update.last_activity_at }}',
           unread: 'FALSE',
           updated_at: '={{ $json.conversation_update.updated_at }}',
@@ -2747,6 +2751,7 @@ function buildOutgoingMessage() {
           last_agent_message_at: '={{ $json.ok ? $json.sent_at : undefined }}',
           last_activity_at: '={{ $json.ok ? $json.sent_at : undefined }}',
           unread: "={{ $json.ok ? 'FALSE' : undefined }}",
+          last_reply_via: "={{ $json.ok ? 'API' : undefined }}",
           updated_at: '={{ $json.sent_at }}',
         },
         matchingColumns: ['conversation_id'],
@@ -3520,6 +3525,9 @@ function buildReplyFromSheet() {
         "    new_last_message_direction: ok ? 'outbound' : (row.last_message_direction || ''),",
         "    new_last_agent_message_at: ok ? nowIso : (row.last_agent_message_at || ''),",
         "    new_unread: ok ? 'FALSE' : (row.unread || ''),",
+        "    new_last_reply_via: ok ? (request.is_template ? 'TEMPLATE' : 'SHEET') : (row.last_reply_via || ''),",
+        '    // Set once, on the first reply that actually went out.',
+        "    new_first_reply_at: ok ? (row.first_reply_at || nowIso) : (row.first_reply_at || ''),",
         '  } });',
         '}',
         'return results;',
@@ -3576,6 +3584,8 @@ function buildReplyFromSheet() {
     last_agent_message_at: '={{ $json.new_last_agent_message_at }}',
     last_activity_at: '={{ $json.sent_at }}',
     unread: '={{ $json.new_unread }}',
+    last_reply_via: '={{ $json.new_last_reply_via }}',
+    first_reply_at: '={{ $json.new_first_reply_at }}',
     updated_at: '={{ $json.sent_at }}',
   };
   const outcomeWrite = (name, id, position, byRowNumber) => ({

@@ -184,20 +184,22 @@ something.
 | 14 | `reply_text` | text | **human** | **Type here to send a WhatsApp message** — see below |
 | 15 | `reply_status` | dropdown | system | `SENT`, `FAILED`, or `WINDOW_CLOSED` when Meta's 24-hour window has closed. Written by the system |
 | 16 | `unread` | TRUE/FALSE | system | TRUE when the customer spoke last |
-| 17 | `wa_link` | URL | system | `https://wa.me/<e164>` |
-| 18 | `conversation_id` | text | system | `CONV-<biz>-<customer>-<epoch>` |
-| 19 | `assigned_agent_id` | text | system | Blank while `WAITING_FOR_AGENT` |
-| 20 | `business_phone_number_id` | text | system | Which of your numbers received it |
-| 21 | `last_message_id` | text | system | `wamid...` |
-| 22 | `last_customer_message_at` | ISO-8601 | system | |
-| 23 | `last_agent_message_at` | ISO-8601 | system | Blank until a reply is sent |
-| 24 | `created_at` | ISO-8601 | system | |
-| 25 | `updated_at` | ISO-8601 | system | |
-| 26 | `closed_at` | ISO-8601 | system | Blank unless `CLOSED`; cleared on reopen |
-| 27 | `unassigned_reason` | text | system | Why nobody was assigned; blank when assigned |
-| 28 | `reply_error` | text | system | Why a reply failed |
-| 29 | `reply_sent_at` | ISO-8601 | system | When it was sent |
-| 30 | `reply_blocked_hash` | text | system | A reply that cannot be sent keeps its text; this remembers that text and the reason, so the next poll skips the row instead of rewriting the same failure every minute. Edit the text, or let the customer write again, and it is picked up |
+| 17 | `last_reply_via` | dropdown | system | How this customer was last answered: `APP` (WhatsApp Business app), `SHEET`, `TEMPLATE` (paid) or `API`. Free and paid paths cost very different amounts |
+| 18 | `wa_link` | URL | system | `https://wa.me/<e164>` |
+| 19 | `conversation_id` | text | system | `CONV-<biz>-<customer>-<epoch>` |
+| 20 | `assigned_agent_id` | text | system | Blank while `WAITING_FOR_AGENT` |
+| 21 | `business_phone_number_id` | text | system | Which of your numbers received it |
+| 22 | `last_message_id` | text | system | `wamid...` |
+| 23 | `last_customer_message_at` | ISO-8601 | system | |
+| 24 | `last_agent_message_at` | ISO-8601 | system | Blank until a reply is sent |
+| 25 | `created_at` | ISO-8601 | system | |
+| 26 | `updated_at` | ISO-8601 | system | |
+| 27 | `closed_at` | ISO-8601 | system | Blank unless `CLOSED`; cleared on reopen |
+| 28 | `unassigned_reason` | text | system | Why nobody was assigned; blank when assigned |
+| 29 | `reply_error` | text | system | Why a reply failed |
+| 30 | `reply_sent_at` | ISO-8601 | system | When it was sent |
+| 31 | `first_reply_at` | ISO-8601 | system | When this conversation was **first** answered. Set once and never moved: it is what a first-response time is measured to. The send API cannot set it, because it holds no conversation row |
+| 32 | `reply_blocked_hash` | text | system | A reply that cannot be sent keeps its text; this remembers that text and the reason, so the next poll skips the row instead of rewriting the same failure every minute. Edit the text, or let the customer write again, and it is picked up |
 
 Timestamps are ISO-8601 **with an explicit UTC offset**, in the timezone set by
 `TZ` (`Asia/Amman` here), so the sheet shows the time the team actually saw.

@@ -326,3 +326,38 @@ describe('a template is recorded as a template', () => {
     assert.equal(plain.message_type, 'text');
   });
 });
+
+describe('the sheet records how it answered', () => {
+  const interpret = (request, response) => run('Interpret Sheet Send', {
+    $env: { WHATSAPP_CONNECTOR: 'meta' },
+    inputs: [response],
+    matching: { 'Sendable?': [request] },
+  })[0].json;
+  const base = { conversation_id: 'CONV-a', to: '962790000001', text: 'hi', agent_id: 'A1' };
+  const OK = { messages: [{ id: 'wamid.1' }] };
+
+  it('a reply typed in the sheet', () => {
+    const out = interpret(Object.assign({}, base, { source_row: {} }), OK);
+    assert.equal(out.new_last_reply_via, 'SHEET');
+  });
+
+  it('a paid template', () => {
+    const out = interpret(Object.assign({}, base, { is_template: true, template_name: 't', source_row: {} }), OK);
+    assert.equal(out.new_last_reply_via, 'TEMPLATE');
+  });
+
+  it('sets the first-reply time once, and never moves it', () => {
+    const first = interpret(Object.assign({}, base, { source_row: {} }), OK);
+    assert.ok(first.new_first_reply_at, 'set on the first reply');
+    const later = interpret(
+      Object.assign({}, base, { source_row: { first_reply_at: '2026-09-20T09:00:00.000+03:00' } }), OK);
+    assert.equal(later.new_first_reply_at, '2026-09-20T09:00:00.000+03:00');
+  });
+
+  it('a failed send changes neither', () => {
+    const row = { last_reply_via: 'APP', first_reply_at: '2026-09-20T09:00:00.000+03:00' };
+    const out = interpret(Object.assign({}, base, { source_row: row }), { error: { code: 131026, message: 'x' } });
+    assert.equal(out.new_last_reply_via, 'APP');
+    assert.equal(out.new_first_reply_at, '2026-09-20T09:00:00.000+03:00');
+  });
+});
