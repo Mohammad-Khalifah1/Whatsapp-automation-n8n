@@ -5,6 +5,45 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-21 — Approved templates, sent only on purpose
+
+Outside the 24-hour window a free-form reply is refused (V2-20). What reaches
+that customer is an approved template — and a template is billed, so nothing
+sends one on its own.
+
+### Added
+
+- **A marker in the reply cell.** `[TEMPLATE] followup_general`, or
+  `[قالب] followup_general` from an Arabic keyboard. Workflow 7 sends it as a
+  Cloud API template message, and it is allowed outside the window, which is
+  the whole point.
+- **An allow-list, `WHATSAPP_TEMPLATES` in .env**: the templates Meta approved,
+  their language, and the columns that fill `{{1}}`, `{{2}}` … A name that is
+  not on it, a marker with no name, a template whose parameter cell is empty,
+  or a template on the WAHA connector is refused **before any call**, and the
+  row says which. Meta refuses an empty parameter anyway; this says which cell
+  to fill instead.
+- Templates are recorded in Messages with `sent_via = template` and
+  `message_type = template`, so a paid template can be told apart from a free
+  reply when the billing figures are counted.
+- `scripts/lib/templates.js` and `tests/window/templates.test.js` (14 tests),
+  plus 10 more through the generated workflow.
+
+### Fixed, found while adding the setting
+
+- **The production files still told operators to serialise the queue.**
+  `.env.prod.example` set `N8N_CONCURRENCY_PRODUCTION_LIMIT=1` ("leave at 1"),
+  `docker-compose.prod.yml` defaulted to `1`, and `check-env.js` suggested it.
+  That is the setting 0.6.0 measured dropping webhooks under load: a burst got
+  HTTP 200 and produced no row at all. All three now say `-1`, with the reason.
+
+### Not yet verified
+
+- A real template send. It needs a template approved by Meta (task O2) and the
+  local stack.
+
+---
+
 ## [Unreleased] — Version 2, tasks V2-23 and V2-25 — What Meta charges, recorded and quoted honestly
 
 ### Added — V2-23

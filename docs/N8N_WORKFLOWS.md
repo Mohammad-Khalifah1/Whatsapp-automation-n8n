@@ -370,6 +370,27 @@ short hash of that text and that reason (`reply_blocked_hash`) and is skipped
 while both are unchanged. Edit the text, or let the customer write again, and it
 is picked up at once.
 
+### Sending an approved template
+
+A template is the only thing that reaches a customer outside the window, and it
+costs money, so nothing sends one on its own. A person types the marker into
+the reply cell:
+
+```
+[TEMPLATE] followup_general
+[قالب] followup_general
+```
+
+The name must be in `WHATSAPP_TEMPLATES` in `.env`, which lists the templates
+Meta approved, their language, and the columns that fill `{{1}}`, `{{2}}` … So
+a typo, a template that was never approved, or an empty parameter cell is
+refused **before** any call is made, and the row says which. A template on the
+WAHA connector is refused too: it has none.
+
+The send goes to the Cloud API as a `template` message, and is recorded in
+Messages with `sent_via = template` and `message_type = template`, so the
+billing figures can separate a paid template from a free reply.
+
 ### Which row the outcome is written to
 
 A row that has a `conversation_id` is written back **by that id**. A row

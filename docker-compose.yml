@@ -111,6 +111,11 @@ services:
       # in .env breaks `docker compose config` outright.
       - GOOGLE_SERVICE_ACCOUNT_EMAIL=${GOOGLE_SERVICE_ACCOUNT_EMAIL}
       - GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
+      # Templates a person may send from the sheet with "[TEMPLATE] name".
+      # Only names listed here are sent, so a typo cannot cost money, and
+      # a template Meta has not approved cannot be reached. JSON on ONE line:
+      # [{"name":"followup_general","language":"ar","category":"utility","params":["customer_name"]}]
+      - WHATSAPP_TEMPLATES=${WHATSAPP_TEMPLATES}
       - CONVERSATION_INACTIVITY_HOURS=${CONVERSATION_INACTIVITY_HOURS:-24}
       - DEFAULT_COUNTRY_CODE=${DEFAULT_COUNTRY_CODE:-962}
       - ASSIGNMENT_STRATEGY=${ASSIGNMENT_STRATEGY:-LEAST_OPEN_CONVERSATIONS}

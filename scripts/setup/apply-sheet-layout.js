@@ -91,7 +91,7 @@ const TABS = [
  * that was never meant for it.
  */
 const MESSAGE_TYPES = ['text', 'image', 'audio', 'video', 'document', 'sticker',
-  'location', 'contacts', 'interactive', 'button', 'reaction'];
+  'location', 'contacts', 'interactive', 'button', 'reaction', 'template'];
 
 const ENUMS = {
   Conversations: {
@@ -112,7 +112,7 @@ const ENUMS = {
     status: ['RECEIVED', 'SENT', 'DELIVERED', 'READ', 'FAILED'],
     direction: ['inbound', 'outbound'],
     message_type: MESSAGE_TYPES,
-    sent_via: ['cloud_api', 'whatsapp_business_app', 'google_sheet'],
+    sent_via: ['cloud_api', 'whatsapp_business_app', 'google_sheet', 'template'],
     pricing_category: ['', 'service', 'utility', 'marketing', 'authentication', 'referral_conversion'],
     billable: ['', 'TRUE', 'FALSE'],
     processing_status: ['parsed', 'unsupported', 'deferred'],

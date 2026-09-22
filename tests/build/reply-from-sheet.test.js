@@ -231,3 +231,98 @@ describe('workflow 7 wiring', () => {
     assert.includes(value.customer_phone, '($json.customer_phone)');
   });
 });
+
+const CATALOG = JSON.stringify([
+  { name: 'followup_general', language: 'ar', category: 'utility', params: ['customer_name'] },
+]);
+
+describe('templates (generated code)', () => {
+  const row = (extra) => Object.assign({
+    row_number: 2,
+    conversation_id: 'CONV-1-962790000001-1',
+    customer_phone: '962790000001',
+    customer_name: 'أحمد',
+    last_customer_message_at: OLD,          // the window is closed
+  }, extra);
+  const scan = (r, env) => run('Find Pending Replies', {
+    $env: Object.assign({ DEFAULT_COUNTRY_CODE: '962', WHATSAPP_TEMPLATES: CATALOG, WHATSAPP_CONNECTOR: 'meta' }, env),
+    inputs: [r],
+  }).map((i) => i.json);
+
+  it('sends an approved template even though the window is closed', () => {
+    const out = scan(row({ reply_text: '[TEMPLATE] followup_general' }));
+    assert.equal(out.length, 1);
+    assert.equal(out[0].skip, false);
+    assert.equal(out[0].is_template, true);
+    assert.equal(out[0].template_name, 'followup_general');
+  });
+
+  it('builds the body Meta expects, with the parameter from the row', () => {
+    const body = scan(row({ reply_text: '[TEMPLATE] followup_general' }))[0].template_body;
+    assert.equal(body.type, 'template');
+    assert.equal(body.template.name, 'followup_general');
+    assert.deepEqual(body.template.components[0].parameters, [{ type: 'text', text: 'أحمد' }]);
+  });
+
+  it('accepts the Arabic marker from a phone keyboard', () => {
+    assert.equal(scan(row({ reply_text: '[قالب] followup_general' }))[0].is_template, true);
+  });
+
+  it('refuses a name that is not in the allow-list, before spending anything', () => {
+    const out = scan(row({ reply_text: '[TEMPLATE] made_up' }));
+    assert.equal(out[0].skip, true);
+    assert.includes(out[0].reply_error, 'unknown_template:made_up');
+  });
+
+  it('refuses when no templates are configured', () => {
+    const out = scan(row({ reply_text: '[TEMPLATE] followup_general' }), { WHATSAPP_TEMPLATES: '' });
+    assert.equal(out[0].skip, true);
+    assert.includes(out[0].reply_error, 'no_templates_configured');
+  });
+
+  it('names the empty cell instead of sending a template Meta would refuse', () => {
+    const out = scan(row({ reply_text: '[TEMPLATE] followup_general', customer_name: '' }));
+    assert.equal(out[0].skip, true);
+    assert.includes(out[0].reply_error, 'template_needs:customer_name');
+  });
+
+  it('refuses a template on the WAHA connector, which has none', () => {
+    const out = scan(row({ reply_text: '[TEMPLATE] followup_general' }), { WHATSAPP_CONNECTOR: 'waha' });
+    assert.equal(out[0].skip, true);
+    assert.includes(out[0].reply_error, 'templates_need_cloud_api');
+  });
+
+  it('leaves an ordinary reply alone', () => {
+    const out = scan(row({ reply_text: 'hello', last_customer_message_at: RECENT }));
+    assert.equal(out[0].is_template, false);
+    assert.equal(out[0].template_body, null);
+  });
+});
+
+describe('a template is recorded as a template', () => {
+  const out = run('Interpret Sheet Send', {
+    $env: { WHATSAPP_CONNECTOR: 'meta' },
+    inputs: [{ messages: [{ id: 'wamid.t' }] }],
+    matching: { 'Sendable?': [{
+      conversation_id: 'CONV-t', is_manual: false, row_number: 2, to: '962790000001',
+      text: '[TEMPLATE] followup_general', is_template: true, template_name: 'followup_general',
+      agent_id: 'sheet', source_row: {},
+    }] },
+  })[0].json;
+
+  it('says how it was sent, and what kind of message it was', () => {
+    assert.equal(out.sent_via, 'template');
+    assert.equal(out.message_type, 'template');
+    assert.equal(out.template_name, 'followup_general');
+  });
+
+  it('an ordinary reply still reads as a sheet reply', () => {
+    const plain = run('Interpret Sheet Send', {
+      $env: { WHATSAPP_CONNECTOR: 'meta' },
+      inputs: [{ messages: [{ id: 'wamid.p' }] }],
+      matching: { 'Sendable?': [{ conversation_id: 'CONV-p', text: 'hi', source_row: {} }] },
+    })[0].json;
+    assert.equal(plain.sent_via, 'google_sheet');
+    assert.equal(plain.message_type, 'text');
+  });
+});

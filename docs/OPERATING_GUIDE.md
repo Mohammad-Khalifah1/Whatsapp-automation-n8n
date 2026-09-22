@@ -76,6 +76,25 @@ window at all, so a hand-typed row to a new contact is **not** sent: the row
 reads `WINDOW_CLOSED` and keeps your text. Reaching that person needs an
 approved template — see [CLIENT_ONBOARDING.md](CLIENT_ONBOARDING.md).
 
+### Reaching someone after 24 hours: a template
+
+Outside the window a free-form reply is refused, and the row says
+`WINDOW_CLOSED`. What reaches that customer is an **approved template**. Type
+its marker into `reply_text`:
+
+```
+[TEMPLATE] followup_general
+```
+
+`[قالب] followup_general` does the same, for an Arabic keyboard.
+
+- Only names in the allow-list are sent, so a typo costs nothing.
+- **A template is billed by Meta**, unlike a reply inside the window.
+- If the template needs the customer's name and that cell is empty, nothing is
+  sent and the row names the cell to fill.
+- The list of templates a business has, and their names, is set once in `.env`
+  after Meta approves them.
+
 ### What you see afterwards
 
 | `reply_status` | Meaning |

@@ -113,6 +113,11 @@ services:
       # The key is ONE line, quoted, with literal \n escapes.
       - GOOGLE_SERVICE_ACCOUNT_EMAIL=${GOOGLE_SERVICE_ACCOUNT_EMAIL}
       - GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=${GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY}
+      # Templates a person may send from the sheet with "[TEMPLATE] name".
+      # Only names listed here are sent, so a typo cannot cost money, and
+      # a template Meta has not approved cannot be reached. JSON on ONE line:
+      # [{"name":"followup_general","language":"ar","category":"utility","params":["customer_name"]}]
+      - WHATSAPP_TEMPLATES=${WHATSAPP_TEMPLATES}
       - CONVERSATION_INACTIVITY_HOURS=${CONVERSATION_INACTIVITY_HOURS:-24}
       - DEFAULT_COUNTRY_CODE=${DEFAULT_COUNTRY_CODE:-962}
       - ASSIGNMENT_STRATEGY=${ASSIGNMENT_STRATEGY:-LEAST_OPEN_CONVERSATIONS}
@@ -120,9 +125,11 @@ services:
       - ARCHIVE_AFTER_DAYS=${ARCHIVE_AFTER_DAYS:-30}
       - ARCHIVE_BATCH_SIZE=${ARCHIVE_BATCH_SIZE:-200}
 
-      # Serializes agent assignment. Google Sheets has no atomic
-      # compare-and-set, so parallel executions can double-assign an agent.
-      - N8N_CONCURRENCY_PRODUCTION_LIMIT=${N8N_CONCURRENCY_PRODUCTION_LIMIT:-1}
+      # -1 = no limit. NEVER 1: a limit of 1 discarded the overflow instead of
+      # queueing it, so a burst of webhooks was acknowledged and written
+      # nowhere. The assignment races are repaired instead (live load count,
+      # nightly duplicate fold). See docs/ASSIGNMENT_ALGORITHM.md.
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=${N8N_CONCURRENCY_PRODUCTION_LIMIT:--1}
 
     volumes:
       - n8n_data:/home/node/.n8n

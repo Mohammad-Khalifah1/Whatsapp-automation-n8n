@@ -3197,7 +3197,7 @@ function buildReplyFromSheet() {
       'Find Pending Replies',
       'find-pending',
       [-140, 0],
-      ['phone.js', 'window.js', 'reply-guard.js'],
+      ['phone.js', 'window.js', 'reply-guard.js', 'templates.js'],
       [
         '// Accept a row with only a phone number and reply_text. Someone typing',
         '// a new row by hand to message a customer is a legitimate use, and',
@@ -3225,15 +3225,43 @@ function buildReplyFromSheet() {
         '  // their message silently dropped.',
         '',
         '  // Why this reply cannot go out, if it cannot. Checked in order:',
-        '  // a number we cannot dial, text Meta will refuse, then the 24-hour',
-        '  // customer service window.',
+        '  // a number we cannot dial, text Meta will refuse, then either the',
+        '  // template allow-list or the 24-hour customer service window.',
         '  let blocked = null;',
+        '  let template = null;',
+        '  let templateBody = null;',
+        '',
+        '  // "[TEMPLATE] name", or "[قالب] name" from a phone keyboard: the',
+        '  // deliberate, paid way to reach someone outside the window. Nothing',
+        '  // sends one on its own.',
+        '  const marker = parseTemplateMarker(text);',
         '',
         '  // Strict normalization: never message a number we had to guess.',
         '  const phone = normalizePhoneStrict(row.customer_phone, { defaultCountryCode });',
         "  if (!phone.ok) blocked = { reason: 'invalid_phone:' + (phone.reason || 'unknown'), status: 'FAILED' };",
         "  else if (text.length > 4096) blocked = { reason: 'text_too_long:' + text.length, status: 'FAILED' };",
-        '  else {',
+        '  else if (marker.isTemplate) {',
+        "    const connector = String($env.WHATSAPP_CONNECTOR || 'meta').trim().toLowerCase();",
+        '    const catalog = parseTemplateCatalog($env.WHATSAPP_TEMPLATES);',
+        "    if (connector === 'waha') {",
+        "      blocked = { reason: 'templates_need_cloud_api', status: 'FAILED' };",
+        '    } else if (!marker.name) {',
+        "      blocked = { reason: 'template_name_missing', status: 'FAILED' };",
+        '    } else if (!catalog.ok) {',
+        "      blocked = { reason: catalog.reason, status: 'FAILED' };",
+        '    } else if (!catalog.templates[marker.name]) {',
+        "      // Only a name Meta approved, spelled the way .env spells it.",
+        "      blocked = { reason: 'unknown_template:' + marker.name, status: 'FAILED' };",
+        '    } else {',
+        '      template = catalog.templates[marker.name];',
+        '      const built = buildTemplateMessage(phone.e164, template, row);',
+        '      if (!built.ok) {',
+        "        blocked = { reason: 'template_needs:' + built.missing.join(','), status: 'FAILED' };",
+        '      } else {',
+        '        templateBody = built.body;',
+        '      }',
+        '    }',
+        '  } else {',
         '    // Meta only delivers a free-form message inside 24 hours of the',
         "    // CUSTOMER's last message. Outside it the send is refused (131047),",
         '    // and only an approved template reaches them. Refusing here means',
@@ -3271,6 +3299,12 @@ function buildReplyFromSheet() {
         '',
         '  pending.push({ json: {',
         '    conversation_id: convId,',
+        '    // A template send: a different Meta endpoint body, and it is',
+        '    // allowed outside the 24-hour window, which is the whole point.',
+        '    is_template: !!template,',
+        '    template_name: template ? template.name : null,',
+        '    template_category: template ? template.category : null,',
+        '    template_body: templateBody,',
         '    // A row that already has an id is written back BY that id: a row',
         '    // number goes stale the moment anything above it moves. Only a',
         '    // hand-typed row, which has no id until this write gives it one, is',
@@ -3347,7 +3381,7 @@ function buildReplyFromSheet() {
         retry: { retry: { maxTries: 3, waitBetweenTries: 2000 } },
       },
     },
-    id: 'sheet-send',
+    id: 'sheet-send-text',
     name: 'Send Reply Via Cloud API',
     type: 'n8n-nodes-base.httpRequest',
     typeVersion: NODE_VERSION.httpRequest,
@@ -3356,11 +3390,68 @@ function buildReplyFromSheet() {
     notes: 'Uses the "Meta WhatsApp Token" credential. The token is never stored in this node.',
   });
 
+  // A template is a different body to a different shape of endpoint, and it
+  // is the one send allowed outside the 24-hour window. The body was built
+  // and checked in Find Pending Replies, so this node only posts it.
+  nodes.push({
+    parameters: {
+      conditions: {
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+        conditions: [
+          {
+            id: 'is-template',
+            leftValue: '={{ $json.is_template }}',
+            rightValue: true,
+            operator: { type: 'boolean', operation: 'true', singleValue: true },
+          },
+        ],
+        combinator: 'and',
+      },
+      options: {},
+    },
+    id: 'if-template',
+    name: 'Template?',
+    type: 'n8n-nodes-base.if',
+    typeVersion: NODE_VERSION.if,
+    position: [340, -260],
+  });
+
+  nodes.push({
+    parameters: {
+      method: 'POST',
+      // Cloud API only. WAHA has no approved templates, and Find Pending
+      // Replies refuses a marker when the connector is WAHA.
+      url: '=https://graph.facebook.com/{{ $env.META_GRAPH_API_VERSION }}/{{ $env.META_PHONE_NUMBER_ID }}/messages',
+      sendHeaders: true,
+      headerParameters: {
+        parameters: [
+          { name: 'Authorization', value: '=Bearer {{ $env.META_ACCESS_TOKEN }}' },
+          { name: 'Content-Type', value: 'application/json' },
+        ],
+      },
+      sendBody: true,
+      specifyBody: 'json',
+      jsonBody: '={{ JSON.stringify($json.template_body) }}',
+      options: {
+        timeout: 15000,
+        response: { response: { neverError: true, responseFormat: 'json' } },
+        retry: { retry: { maxTries: 3, waitBetweenTries: 2000 } },
+      },
+    },
+    id: 'sheet-send-template',
+    name: 'Send Template Via Cloud API',
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: NODE_VERSION.httpRequest,
+    position: [580, -300],
+    onError: 'continueRegularOutput',
+    notes: 'An approved template, by name from WHATSAPP_TEMPLATES. This one costs money, so only a marker a person typed gets here.',
+  });
+
   nodes.push(
     codeNode(
       'Interpret Sheet Send',
       'interpret-sheet-send',
-      [580, -120],
+      [820, -120],
       ['reply-guard.js'],
       [
         '// EVERY reply sent this minute, not just the first. Reading only',
@@ -3401,6 +3492,11 @@ function buildReplyFromSheet() {
         '  results.push({ pairedItem: { item: i }, json: {',
         '    conversation_id: request.conversation_id,',
         '    is_manual: !!request.is_manual,',
+        '    // A template is recorded as what it was: which one, and that it',
+        '    // was a paid template rather than a free-form reply.',
+        "    sent_via: request.is_template ? 'template' : 'google_sheet',",
+        "    message_type: request.is_template ? 'template' : 'text',",
+        '    template_name: request.template_name || null,',
         '    keep_text: windowClosed,',
         '    reply_text: request.text,',
         '    reply_blocked_hash: windowClosed ? blockedHash(request.text, blockedReason) : \'\',',
@@ -3530,12 +3626,12 @@ function buildReplyFromSheet() {
           sender_phone: '={{ $env.META_BUSINESS_PHONE || $env.META_PHONE_NUMBER_ID }}',
           recipient_phone: "={{ $('Interpret Sheet Send').item.json.to }}",
           customer_phone: "={{ $('Interpret Sheet Send').item.json.to }}",
-          message_type: 'text',
+          message_type: "={{ $('Interpret Sheet Send').item.json.message_type }}",
           text: "={{ $('Interpret Sheet Send').item.json.text }}",
           timestamp: "={{ $('Interpret Sheet Send').item.json.sent_at }}",
           status: "={{ $('Interpret Sheet Send').item.json.reply_status }}",
           agent_id: "={{ $('Interpret Sheet Send').item.json.agent_id }}",
-          sent_via: 'google_sheet',
+          sent_via: "={{ $('Interpret Sheet Send').item.json.sent_via }}",
           created_at: "={{ $('Interpret Sheet Send').item.json.sent_at }}",
         },
       },
@@ -3631,10 +3727,17 @@ function buildReplyFromSheet() {
   connections['Find Pending Replies'] = { main: [[{ node: 'Sendable?', type: 'main', index: 0 }]] };
   connections['Sendable?'] = {
     main: [
-      [{ node: 'Send Reply Via Cloud API', type: 'main', index: 0 }],
+      [{ node: 'Template?', type: 'main', index: 0 }],
       [{ node: 'Invalid Row Had An Id?', type: 'main', index: 0 }],
     ],
   };
+  connections['Template?'] = {
+    main: [
+      [{ node: 'Send Template Via Cloud API', type: 'main', index: 0 }],
+      [{ node: 'Send Reply Via Cloud API', type: 'main', index: 0 }],
+    ],
+  };
+  connections['Send Template Via Cloud API'] = { main: [[{ node: 'Interpret Sheet Send', type: 'main', index: 0 }]] };
   connections['Invalid Row Had An Id?'] = {
     main: [
       [{ node: 'Mark Invalid Reply', type: 'main', index: 0 }],

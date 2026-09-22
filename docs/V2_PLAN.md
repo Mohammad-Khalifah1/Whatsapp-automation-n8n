@@ -55,6 +55,7 @@ read or run, not assumed.
 | R17 | API appends must be positional, so CSV order must equal sheet order | V2-01 places values by name against the live header row instead | Column order is cosmetic again. The fallback Sheets node still fills `''` into unmapped columns, which V2-13 must handle |
 | R18 | Workflow 7 records one outcome per reply | `Interpret Sheet Send` read `$input.first()`. With several replies in one poll, every one was sent, only the first was recorded and cleared, and the rest were sent again the next minute. **Live on main** | Found while building V2-04 and fixed there |
 | R19 | A failed send leaves the conversation untouched | Workflow 4 wrote `status = REPLIED`, cleared `unread` and copied the unsent text into `last_message` whether the send succeeded or not, so a customer still waiting looked answered. **Live on main** | Found while building V2-20 and fixed there |
+| R20 | The production files recommend no concurrency limit | `.env.prod.example` said "leave at 1", `docker-compose.prod.yml` defaulted to `1`, and `check-env.js` suggested it — the setting 0.6.0 measured dropping webhooks under load. **Live on main** | Found while adding `WHATSAPP_TEMPLATES` in V2-21 and fixed there |
 
 ---
 
@@ -753,15 +754,22 @@ These ship first, because every later phase builds on the paths they fix.
   the skip-while-unchanged behaviour, and workflow 4's two fixes.
 - Still to do: live E5, E6, E19.
 
-**V2-21 · Templates on explicit request** · M · risk medium · after V2-20; live test needs O2
-- Files: `build-workflows.js` (template body; WAHA path refuses with a clear
-  error), a marker parser in `scripts/lib/`, `check-env.js`
-  (`WHATSAPP_TEMPLATES`: JSON with name, language, category and parameters).
-- Do: `[TEMPLATE] name` or `[قالب] name` is looked up in the allow-list and
-  sent as a Cloud API template, with body parameters filled from the row. An
-  unknown name fails as invalid with no API call.
-- Test: parser (spacing, case, the Arabic alias, extra text), body builder,
-  allow-list; E7, E8.
+**V2-21 · Templates on explicit request** · M · risk medium ·
+**built; offline gates pass; live send needs O2**
+- As built: `scripts/lib/templates.js` reads the marker, checks the name
+  against `WHATSAPP_TEMPLATES` and builds the Cloud API body; workflow 7 sends
+  it through its own node, which is allowed outside the window. Refused before
+  any call: an unknown name, a marker with no name, no allow-list configured,
+  an empty parameter cell (named, so the person knows which to fill), and any
+  template on the WAHA connector. Recorded with `sent_via = template`.
+- The setting is plumbed through both compose files, both env examples and
+  `check-env.js` (C-31).
+- Also fixed (R20): `.env.prod.example` and `docker-compose.prod.yml` still set
+  `N8N_CONCURRENCY_PRODUCTION_LIMIT=1`, the setting 0.6.0 measured dropping
+  webhooks under load.
+- Tests: 24, including the marker, the allow-list, the body, and the refusals
+  through the generated scan code.
+- Still to do: a real send (E7, E8), which needs an approved template (O2).
 
 **V2-22 · Reply method and first reply** · S · risk low · after V2-12
 - Files: `build-workflows.js` (wf2 echo → `APP`, wf7 → `SHEET` or `TEMPLATE`,

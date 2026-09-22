@@ -60,6 +60,7 @@ const GROUPS = [
     required: false,
     vars: [
       { key: 'GOOGLE_SHEET_ID', required: true, note: 'from the spreadsheet URL' },
+      { key: 'WHATSAPP_TEMPLATES', required: false, note: 'JSON allow-list; without it no template can be sent from the sheet' },
       { key: 'GOOGLE_SERVICE_ACCOUNT_EMAIL', required: false, note: 'strongly recommended: without it appends fall back to the Sheets node and can collide' },
       { key: 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', required: false, note: 'strongly recommended: without it appends fall back to the Sheets node and can collide' },
     ],
@@ -72,7 +73,7 @@ const GROUPS = [
       { key: 'DEFAULT_COUNTRY_CODE', required: false, note: 'default 962 (Jordan)' },
       { key: 'ASSIGNMENT_STRATEGY', required: false, note: 'default LEAST_OPEN_CONVERSATIONS' },
       { key: 'REOPEN_CLOSED_CONVERSATIONS', required: false, note: 'default true' },
-      { key: 'N8N_CONCURRENCY_PRODUCTION_LIMIT', required: false, note: 'set to 1 to serialize assignment' },
+      { key: 'N8N_CONCURRENCY_PRODUCTION_LIMIT', required: false, note: 'use -1; a limit of 1 drops webhooks under load' },
     ],
   },
 ];
