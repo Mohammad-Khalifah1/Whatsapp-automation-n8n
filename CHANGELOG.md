@@ -5,6 +5,28 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-46 — The agent name and the agent id say the same thing
+
+### Fixed
+
+- **Handing a conversation over left the sheet and the system disagreeing.**
+  A person hands work over by picking a different name in
+  `assigned_agent_name`. The hidden `assigned_agent_id` did not follow, and the
+  id is what live load counting, "who is full" and every per-agent figure key
+  on. A conversation could show as Sara's while still counting against Ahmad's
+  capacity, indefinitely. Workflow 7 now compares the two against the Agents tab
+  on each poll and repairs whichever is stale:
+  - a name that belongs to another agent wins — that is a hand-over;
+  - a cleared name is written back from the id;
+  - a name nobody has any more, on a row whose id is known, is refreshed — that
+    is an agent renamed in the Agents tab.
+  A name that matches no agent on a row with no id is **left alone**: guessing
+  there would hand a customer to whoever is nearby in the list. Nothing is
+  written when the two already agree, so a quiet minute costs one read.
+- `tests/build/agent-reference.test.js` (11 tests) on the generated code.
+
+---
+
 ## [Unreleased] — Version 2, task V2-22 — How each customer was answered, and how fast
 
 ### Added

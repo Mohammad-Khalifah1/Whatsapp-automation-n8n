@@ -7,8 +7,8 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **463 passing** |
-| 2 — Workflow validation | No | **1212 checks passing** |
+| 1 — Unit tests (business logic) | No | **475 passing** |
+| 2 — Workflow validation | No | **1233 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
 | 4 — **End-to-end against the live deployment** | Yes (both) | **26 checks passing** |
@@ -58,7 +58,7 @@ node tests/run-tests.js assignment    # one area
 No npm install, no credentials, ~15 ms.
 
 ```
-463 passed, 0 failed, 463 total
+475 passed, 0 failed, 475 total
 ```
 
 | Suite | Tests | Covers |
@@ -78,6 +78,7 @@ No npm install, no credentials, ~15 ms.
 | `labels/labels.test.js` | 10 | Codes inside, labels at the boundary: every status labelled, every code round-trips in every language, no repeated label, unknown values refused instead of guessed |
 | `window/window.test.js` | 10 | Meta's 24-hour customer service window: boundaries, rounding, offsets, a missing or unreadable timestamp counted as closed |
 | `build/sheet-safe.test.js` | 42 | Customer text is never a formula: the guard itself, every generated write checked, and a hostile message through a real generated append |
+| `build/agent-reference.test.js` | 11 | The agent name and the agent id kept in step: a hand-over, a cleared name, a renamed agent, and the cases where guessing would be wrong |
 | `build/wiring.test.js` | 66 | Everything is joined to something that exists: every `$("Node")` names a real node that has already run, every Sheets write names a tab and columns that exist, every API call names a real tab, every workflow call is one of ours, every node is reachable from a trigger |
 | `window/templates.test.js` | 14 | Approved templates: the marker a person types, the allow-list, and the Cloud API body, including a parameter cell left empty |
 | `window/reply-guard.test.js` | 6 | How a blocked reply is remembered, so the poll stops rewriting the same failure every minute |
@@ -96,7 +97,7 @@ inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
 node scripts/validation/validate-workflows.js
 ```
 
-1212 checks across the 9 workflows:
+1233 checks across the 9 workflows:
 
 - every Code node body **parses as JavaScript** (`vm.Script` compile)
 - no leftover `module.exports` or relative `require()` from inlining

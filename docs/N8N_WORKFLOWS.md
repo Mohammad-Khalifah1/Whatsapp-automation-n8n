@@ -354,6 +354,16 @@ Every reply sent in one poll gets its own outcome. Until V2-04 only the first
 did: the others were sent, kept their text, and were sent again the next
 minute.
 
+### Keeping the agent name and the agent id in step
+
+The name is what a person reads, filters and hands a conversation over with;
+the id is what the load count and the dashboard use. Each poll compares the
+two against the Agents tab and repairs whichever is stale: the name wins when
+someone hands a conversation over, the id wins when a name was cleared or an
+agent was renamed. A name that matches no agent, on a row with no id, is left
+alone — guessing there would hand a customer to whoever is nearby in the list.
+Nothing is written when they already agree.
+
 ### The 24-hour window
 
 Meta only delivers a free-form message inside 24 hours of the **customer's**

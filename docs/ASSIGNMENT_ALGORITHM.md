@@ -224,7 +224,15 @@ Expired locks are reclaimable so a crashed execution cannot deadlock the queue.
 | Someone edits the sheet by hand mid-assignment | **No** | Inherent to a shared spreadsheet |
 | Counter drift over time | **Partially** | Recomputable — see below |
 
-### Recovering from counter drift
+### Handing a conversation over
+
+Pick a different name in `assigned_agent_name`. Within a minute workflow 7
+writes `assigned_agent_id` to match, so live load counting (which keys on the
+id) counts that conversation against the new owner. Before that the two could
+disagree indefinitely: the sheet showed one agent, capacity was charged to
+another.
+
+## Recovering from counter drift
 
 Because `open_conversations` is a denormalized counter, it can drift. The true
 value is always derivable:

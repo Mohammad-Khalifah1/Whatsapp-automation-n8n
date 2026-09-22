@@ -117,6 +117,12 @@ The system does **not** reassign a conversation on its own once it has an owner.
 Follow-up messages from the same customer stay with the same agent; only the
 status returns to `UNANSWERED` so it reappears in the queue.
 
+Within a minute the hidden `assigned_agent_id` follows the name you picked, so
+the load count, "who is full" and every per-agent view agree with what the
+sheet shows. It works the other way too: rename someone in the **Agents** tab
+and their open conversations pick up the new name. A name that belongs to
+nobody is left alone rather than guessed at.
+
 ### Archiving
 
 Set `status` to `ARCHIVED` (or select rows and use *Archive selected rows* in

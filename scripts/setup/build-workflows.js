@@ -3695,6 +3695,112 @@ function buildReplyFromSheet() {
   nodes.push(invalidWrite('Mark Invalid Reply', 'mark-invalid', [580, 80], false));
   nodes.push(invalidWrite('Claim Row And Mark Invalid', 'claim-invalid', [580, 240], true));
 
+  // ---- keep the agent id and the agent name saying the same thing --------
+  //
+  // Handing a conversation over is done by picking a different name in the
+  // sheet. The name is what a person sees and filters by; the id is what the
+  // load count and the dashboard use. Changing one left the other stale, so a
+  // conversation could be shown as Sara's while still counting against Ahmad.
+  nodes.push({
+    parameters: {
+      authentication: 'serviceAccount',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Agents', mode: 'name' },
+      options: { returnAllMatches: true },
+    },
+    id: 'reply-read-agents',
+    name: 'Read Agents',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [-380, -200],
+    alwaysOutputData: true,
+    onError: 'continueRegularOutput',
+  });
+
+  nodes.push(
+    codeNode(
+      'Find Renamed Agents',
+      'find-renamed-agents',
+      [-140, -200],
+      [],
+      [
+        'const rows = $input.all().map((i) => i.json).filter((r) => r && r.conversation_id);',
+        "const agents = $('Read Agents').all().map((i) => i.json).filter((a) => a && a.agent_id);",
+        '',
+        'const byName = {};',
+        'const byId = {};',
+        'for (const agent of agents) {',
+        "  const name = String(agent.name || '').trim();",
+        '  if (name) byName[name.toLowerCase()] = agent;',
+        "  byId[String(agent.agent_id || '').trim()] = agent;",
+        '}',
+        '',
+        'const fixes = [];',
+        'for (const row of rows) {',
+        "  const name = String(row.assigned_agent_name || '').trim();",
+        "  const id = String(row.assigned_agent_id || '').trim();",
+        '  const namedAgent = name ? byName[name.toLowerCase()] : null;',
+        '  const heldAgent = id ? byId[id] : null;',
+        '',
+        '  let fix = null;',
+        '  if (namedAgent && String(namedAgent.agent_id) !== id) {',
+        '    // Someone handed the conversation over by picking a name.',
+        '    fix = { assigned_agent_id: namedAgent.agent_id, assigned_agent_name: namedAgent.name };',
+        '  } else if (!name && heldAgent) {',
+        '    // The name was cleared; the conversation still has an owner.',
+        '    fix = { assigned_agent_id: id, assigned_agent_name: heldAgent.name };',
+        '  } else if (name && !namedAgent && heldAgent) {',
+        '    // A name nobody has any more: the agent was renamed in the Agents tab.',
+        '    fix = { assigned_agent_id: id, assigned_agent_name: heldAgent.name };',
+        '  }',
+        '  // A name nobody has and no id is left alone: there is nothing to',
+        '  // reconcile it against, and guessing would assign a customer to',
+        '  // whoever happens to be nearby in the list.',
+        '  if (!fix) continue;',
+        '',
+        '  fixes.push({ json: {',
+        '    conversation_id: row.conversation_id,',
+        '    assigned_agent_id: fix.assigned_agent_id,',
+        '    assigned_agent_name: fix.assigned_agent_name,',
+        '    updated_at: localIso(),',
+        '  } });',
+        '}',
+        '',
+        'if (fixes.length > 0) {',
+        "  console.log(JSON.stringify({ event: 'agent_reference_reconciled', count: fixes.length }));",
+        '}',
+        'return fixes;',
+      ].join('\n')
+    )
+  );
+
+  nodes.push({
+    parameters: {
+      operation: 'update',
+      authentication: 'serviceAccount',
+      documentId: { __rl: true, value: '={{ $env.GOOGLE_SHEET_ID }}', mode: 'id' },
+      sheetName: { __rl: true, value: 'Conversations', mode: 'name' },
+      columns: {
+        mappingMode: 'defineBelow',
+        value: {
+          conversation_id: '={{ $json.conversation_id }}',
+          assigned_agent_id: '={{ $json.assigned_agent_id }}',
+          assigned_agent_name: '={{ $json.assigned_agent_name }}',
+          updated_at: '={{ $json.updated_at }}',
+        },
+        matchingColumns: ['conversation_id'],
+      },
+      options: {},
+    },
+    id: 'fix-agent-reference',
+    name: 'Fix Agent Reference',
+    type: 'n8n-nodes-base.googleSheets',
+    typeVersion: NODE_VERSION.googleSheets,
+    position: [100, -200],
+    onError: 'continueRegularOutput',
+    notes: 'Only runs for a row where the name and the id disagree, so a quiet minute writes nothing.',
+  });
+
   nodes.push(
     stickyNote(
       [
@@ -3732,8 +3838,20 @@ function buildReplyFromSheet() {
     )
   );
 
-  connections['Every Minute'] = { main: [[{ node: 'Read Conversations', type: 'main', index: 0 }]] };
-  connections['Read Conversations'] = { main: [[{ node: 'Find Pending Replies', type: 'main', index: 0 }]] };
+  connections['Every Minute'] = {
+    main: [[
+      { node: 'Read Agents', type: 'main', index: 0 },
+      { node: 'Read Conversations', type: 'main', index: 0 },
+    ]],
+  };
+  connections['Read Agents'] = { main: [[]] };
+  connections['Read Conversations'] = {
+    main: [[
+      { node: 'Find Renamed Agents', type: 'main', index: 0 },
+      { node: 'Find Pending Replies', type: 'main', index: 0 },
+    ]],
+  };
+  connections['Find Renamed Agents'] = { main: [[{ node: 'Fix Agent Reference', type: 'main', index: 0 }]] };
   connections['Find Pending Replies'] = { main: [[{ node: 'Sendable?', type: 'main', index: 0 }]] };
   connections['Sendable?'] = {
     main: [

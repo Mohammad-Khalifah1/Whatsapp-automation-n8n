@@ -1304,6 +1304,149 @@
     },
     {
       "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Agents",
+          "mode": "name"
+        },
+        "options": {
+          "returnAllMatches": true
+        }
+      },
+      "id": "reply-read-agents",
+      "name": "Read Agents",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -380,
+        -200
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ==========================================================================\n// GENERATED — DO NOT EDIT THIS BLOCK INSIDE n8n.\n// Source of truth: scripts/lib/time.js\n// Rebuild with: node scripts/setup/build-workflows.js\n// ==========================================================================\n\n// ----- scripts/lib/time.js -----\n/**\n * Timestamps, in the timezone the business actually works in.\n *\n * CANONICAL SOURCE. Unit-tested (tests/conversations/time.test.js) and injected\n * into n8n Code nodes by scripts/setup/build-workflows.js.\n *\n * `new Date().toISOString()` always renders UTC. For a team in Amman that put\n * 15:57 in the sheet for a message that arrived at 18:57, while n8n's own\n * expression timestamps (`$now.toISO()`, which honours GENERIC_TIMEZONE) wrote\n * 18:57+03:00 in the next column. Two clocks in one spreadsheet.\n *\n * This renders the SAME instant with the running process's UTC offset, so the\n * value reads as local time and is still a valid ISO-8601 instant that\n * Date.parse and Google Sheets both understand. The container sets TZ, so the\n * offset is the business timezone.\n *\n * Lexicographic comparison stays meaningful because every timestamp the system\n * writes now carries the same offset - which is what the Dashboard's date\n * formulas compare against.\n */\n\n\nfunction pad(value, width) {\n  const s = String(Math.abs(value));\n  return s.length >= (width || 2) ? s : '0'.repeat((width || 2) - s.length) + s;\n}\n\n/**\n * ISO-8601 with the local UTC offset, e.g. '2026-09-11T18:57:24.000+03:00'.\n * Falls back to 'Z' when the process is genuinely running on UTC.\n *\n * @param {Date|string|number} [when]  Defaults to now. Invalid input -> now.\n * @returns {string}\n */\nfunction localIso(when) {\n  let d;\n  if (when === undefined || when === null || when === '') {\n    d = new Date();\n  } else {\n    d = when instanceof Date ? when : new Date(when);\n    if (isNaN(d.getTime())) d = new Date();\n  }\n\n  const offsetMinutes = -d.getTimezoneOffset();\n  const sign = offsetMinutes >= 0 ? '+' : '-';\n  const zone = offsetMinutes === 0\n    ? 'Z'\n    : sign + pad(Math.floor(Math.abs(offsetMinutes) / 60)) + ':' + pad(Math.abs(offsetMinutes) % 60);\n\n  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +\n    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()) +\n    '.' + pad(d.getMilliseconds(), 3) + zone;\n}\n\n// ===================== end generated block ================================\n\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.conversation_id);\nconst agents = $('Read Agents').all().map((i) => i.json).filter((a) => a && a.agent_id);\n\nconst byName = {};\nconst byId = {};\nfor (const agent of agents) {\n  const name = String(agent.name || '').trim();\n  if (name) byName[name.toLowerCase()] = agent;\n  byId[String(agent.agent_id || '').trim()] = agent;\n}\n\nconst fixes = [];\nfor (const row of rows) {\n  const name = String(row.assigned_agent_name || '').trim();\n  const id = String(row.assigned_agent_id || '').trim();\n  const namedAgent = name ? byName[name.toLowerCase()] : null;\n  const heldAgent = id ? byId[id] : null;\n\n  let fix = null;\n  if (namedAgent && String(namedAgent.agent_id) !== id) {\n    // Someone handed the conversation over by picking a name.\n    fix = { assigned_agent_id: namedAgent.agent_id, assigned_agent_name: namedAgent.name };\n  } else if (!name && heldAgent) {\n    // The name was cleared; the conversation still has an owner.\n    fix = { assigned_agent_id: id, assigned_agent_name: heldAgent.name };\n  } else if (name && !namedAgent && heldAgent) {\n    // A name nobody has any more: the agent was renamed in the Agents tab.\n    fix = { assigned_agent_id: id, assigned_agent_name: heldAgent.name };\n  }\n  // A name nobody has and no id is left alone: there is nothing to\n  // reconcile it against, and guessing would assign a customer to\n  // whoever happens to be nearby in the list.\n  if (!fix) continue;\n\n  fixes.push({ json: {\n    conversation_id: row.conversation_id,\n    assigned_agent_id: fix.assigned_agent_id,\n    assigned_agent_name: fix.assigned_agent_name,\n    updated_at: localIso(),\n  } });\n}\n\nif (fixes.length > 0) {\n  console.log(JSON.stringify({ event: 'agent_reference_reconciled', count: fixes.length }));\n}\nreturn fixes;"
+      },
+      "id": "find-renamed-agents",
+      "name": "Find Renamed Agents",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -140,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEET_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Conversations",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "conversation_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.conversation_id)) }}",
+            "assigned_agent_id": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.assigned_agent_id)) }}",
+            "assigned_agent_name": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.assigned_agent_name)) }}",
+            "updated_at": "={{ ((v) => typeof v === \"string\" && /^[=+\\-@\\t\\r]/.test(v) ? \"'\" + v : v)(($json.updated_at)) }}"
+          },
+          "matchingColumns": [
+            "conversation_id"
+          ],
+          "schema": [
+            {
+              "id": "conversation_id",
+              "displayName": "conversation_id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "assigned_agent_id",
+              "displayName": "assigned_agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "assigned_agent_name",
+              "displayName": "assigned_agent_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "id": "fix-agent-reference",
+      "name": "Fix Agent Reference",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        100,
+        -200
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Only runs for a row where the name and the id disagree, so a quiet minute writes nothing.",
+      "credentials": {
+        "googleApi": {
+          "id": "googleSheetsWaSupport",
+          "name": "Google Sheets - WhatsApp Support"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
         "content": "## Workflow 7 — Reply From The Sheet\n\nType a message into the **reply_text** column of a conversation row.\nWithin a minute it is sent to that customer over the Cloud API and\nthe cell is cleared.\n\n### Why this matters\nIt gives non-technical staff a working reply channel with no app to\ninstall and no training — and unlike replying from a personal phone,\nevery message IS tracked.\n\n### Guard against double-sending\nText in reply_text IS the instruction to send, and clearing the cell\nis the interlock: every reply sent in a poll has its cell cleared,\nevery one, not only the first. reply_status is an outcome, never a\nguard.\n\n### Which row gets the outcome\nA row with a conversation_id is written back by that id. Only a\nhand-typed row, which has none yet, is written by row number, and\nthat write gives it its id (\"Claim Row\" nodes).\n\n### On failure\nAn invalid value (bad phone, too long) keeps reply_text so the\nauthor can fix it. A send Meta refused clears the cell and\nrecords why in reply_error.",
         "height": 420,
         "width": 620,
@@ -1506,6 +1649,11 @@
             "index": 0
           },
           {
+            "node": "Read Agents",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Read Conversations",
             "type": "main",
             "index": 0
@@ -1513,11 +1661,32 @@
         ]
       ]
     },
+    "Read Agents": {
+      "main": [
+        []
+      ]
+    },
     "Read Conversations": {
       "main": [
         [
           {
+            "node": "Find Renamed Agents",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Find Pending Replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Renamed Agents": {
+      "main": [
+        [
+          {
+            "node": "Fix Agent Reference",
             "type": "main",
             "index": 0
           }

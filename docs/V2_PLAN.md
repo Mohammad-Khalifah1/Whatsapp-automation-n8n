@@ -890,11 +890,16 @@ Starts after S1, S2, S3 and S7 are answered.
 **V2-45 · Duplicates visible during the day** · S · risk low · after V2-36
 - A dashboard count of open rows sharing a phone and business number.
 
-**V2-46 · Reassignment by name** · S · risk low · after V2-12
-- The minute poll reads Agents. Where `assigned_agent_name` names a different
-  agent than `assigned_agent_id`, it rewrites the id (keyed by
-  `conversation_id`). A human choice overrides capacity.
-- Test: E22.
+**V2-46 · Reassignment by name** · S · risk low · **built; offline gates pass**
+- As built: the minute poll reads Agents and repairs whichever of the two is
+  stale — the name wins on a hand-over, the id wins when a name was cleared or
+  an agent was renamed. A name nobody has, on a row with no id, is left alone.
+  A human choice overrides capacity, as before. Nothing is written when they
+  agree, so a quiet minute costs one extra read.
+- It did not wait for V2-12: it compares ids and names, not labels.
+- Tests: 11 on the generated code, including every case where guessing would
+  be wrong.
+- Still to do: live E22.
 
 **V2-47 · Morning follow-up list (optional)** · S · risk low · after V2-44
 - An n8n schedule at `FOLLOWUP_DIGEST_HOUR` sends each agent their due list
