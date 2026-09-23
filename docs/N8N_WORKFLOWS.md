@@ -526,6 +526,45 @@ docker compose restart n8n     # required for changes to take effect
 
 ---
 
+## The language the sheet is kept in
+
+A cell holds a word a person reads. `status` on an Arabic sheet says
+`مغلقة`, not `CLOSED`. No workflow ever compares that word.
+
+`scripts/lib/labels.js` converts at the two boundaries, and only there:
+
+| Where | What happens |
+|---|---|
+| Every read of a Conversations row | `normalizeConversationRow(row)` turns labels into codes |
+| Every Code node that builds what is written | `conversationRowToSheet(row, lang)` or `toLabel(field, code, lang)` turns codes back into labels |
+
+The read points are `Apply App Reply` (2), `Decide Create Or Update` and
+`Select Agent` (3), `Assign Waiting Queue` (5), `Find Pending Replies` (7)
+and `Select Archivable` (8). The write points are `Apply App Reply` (2),
+`Build Conversation Row` (3), `Interpret Send Result` (4), `Assign Waiting
+Queue` (5) and `Interpret Sheet Send` (7). The validator checks all of them,
+and checks that no labelled column is written as a literal.
+
+Reading accepts a code or a label in any language, so a sheet part-way
+through a change of language still reads correctly, and a value in neither
+is left exactly as it was found.
+
+Two consequences worth knowing:
+
+- **A Sheets lookup cannot filter on a status.** The node compares the text
+  in the cell, so `lookupValue: WAITING_FOR_AGENT` matches nothing on an
+  Arabic sheet. Workflow 5 reads the rows and filters on the normalised
+  value instead — at no extra cost, since the node fetches the tab and
+  filters in memory either way.
+- **Messages, Log and the API answers stay in codes.** They are read by
+  machines, not by people: workflow 4 answers `SENT`/`FAILED` to the app
+  whatever the sheet is set to, and only the Conversations columns a person
+  reads are labelled.
+
+Set with `SHEET_LANGUAGE` ([ENVIRONMENT.md](ENVIRONMENT.md#sheet_language)).
+
+---
+
 ## Conventions
 
 | Convention | Rationale |

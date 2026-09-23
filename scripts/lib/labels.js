@@ -127,6 +127,49 @@ function toCode(field, value) {
   return null;
 }
 
+/** The columns of a conversation row that hold a labelled value. */
+const LABELLED_COLUMNS = {
+  status: 'status',
+  stage: 'stage',
+  outcome: 'outcome',
+  reply_status: 'reply_status',
+  last_reply_via: 'via',
+  last_message_direction: 'direction',
+};
+
+/**
+ * A row as the logic wants it: labels turned back into codes.
+ *
+ * Called the moment a row is read, so nothing downstream ever compares an
+ * Arabic string. `countOpenConversationsByAgent`, for one, asks whether a
+ * status is open: against a labelled sheet every agent would read as having
+ * no open conversations at all, and capacity would stop meaning anything.
+ *
+ * A value it does not recognise is left exactly as it was rather than blanked:
+ * an unexpected status is something to look at, not something to lose.
+ */
+function normalizeConversationRow(row) {
+  if (!row || typeof row !== 'object') return row;
+  const out = Object.assign({}, row);
+  for (const column of Object.keys(LABELLED_COLUMNS)) {
+    if (out[column] === undefined || out[column] === null || out[column] === '') continue;
+    const code = toCode(LABELLED_COLUMNS[column], out[column]);
+    if (code !== null) out[column] = code;
+  }
+  return out;
+}
+
+/** The same row as the sheet wants it: codes turned into labels. */
+function conversationRowToSheet(row, lang) {
+  if (!row || typeof row !== 'object') return row;
+  const out = Object.assign({}, row);
+  for (const column of Object.keys(LABELLED_COLUMNS)) {
+    if (out[column] === undefined || out[column] === null || out[column] === '') continue;
+    out[column] = toLabel(LABELLED_COLUMNS[column], out[column], lang);
+  }
+  return out;
+}
+
 /** The title of a tab in a language. An unknown key is a bug, so it throws. */
 function tabName(key, lang) {
   const tab = TABS[key];
@@ -134,4 +177,8 @@ function tabName(key, lang) {
   return tab[lang || 'en'] || tab.en;
 }
 
-module.exports = { LANGUAGES, ARABIC, TABS, codes, toLabel, toCode, tabName };
+module.exports = {
+  LANGUAGES, ARABIC, TABS, LABELLED_COLUMNS,
+  codes, toLabel, toCode, tabName,
+  normalizeConversationRow, conversationRowToSheet,
+};

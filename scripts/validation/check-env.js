@@ -61,6 +61,7 @@ const GROUPS = [
     vars: [
       { key: 'GOOGLE_SHEET_ID', required: true, note: 'from the spreadsheet URL' },
       { key: 'WHATSAPP_TEMPLATES', required: false, note: 'JSON allow-list; without it no template can be sent from the sheet' },
+      { key: 'SHEET_LANGUAGE', required: false, note: "default en; 'ar' writes Arabic words in the sheet, the logic is unchanged", validate: (v) => ['en', 'ar'].indexOf(v.trim().toLowerCase()) !== -1 ? null : "expected 'en' or 'ar'" },
       { key: 'GOOGLE_SERVICE_ACCOUNT_EMAIL', required: false, note: 'strongly recommended: without it appends fall back to the Sheets node and can collide' },
       { key: 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', required: false, note: 'strongly recommended: without it appends fall back to the Sheets node and can collide' },
     ],

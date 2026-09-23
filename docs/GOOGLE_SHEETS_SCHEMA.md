@@ -286,6 +286,16 @@ cannot drift apart.
 
 "Open" is not a status; it is `status != CLOSED`.
 
+These are the codes, which is what an English sheet holds and what the
+workflows compare. With `SHEET_LANGUAGE=ar` the same column holds the
+Arabic label instead — `بانتظار موظف`, `بانتظار الرد`, `تم الرد`, `معلّقة`,
+`مغلقة` — and so do `stage`, `outcome`, `reply_status`, `last_reply_via` and
+`last_message_direction`. Nothing else changes: the conversion happens as a
+row is read and as it is written
+([N8N_WORKFLOWS.md](N8N_WORKFLOWS.md#the-language-the-sheet-is-kept-in)).
+Either spelling is accepted on read, so a sheet can be changed over while
+people are working in it.
+
 ### Recommended filter views
 
 Create these once (*Data → Create a filter view*) and managers can switch

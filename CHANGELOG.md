@@ -5,6 +5,53 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-12 — The sheet speaks Arabic, the logic does not
+
+### Added
+
+- **`SHEET_LANGUAGE`** (`en` by default, or `ar`). It changes the words in
+  `status`, `stage`, `outcome`, `reply_status`, `last_reply_via` and
+  `last_message_direction`, and changes nothing else. Passed to n8n by both
+  compose files, listed in both env examples, reported by `check-env.js` and
+  documented in `ENVIRONMENT.md`.
+- Every Conversations read now calls `normalizeConversationRow`, and every
+  Code node that builds what is written converts back with
+  `conversationRowToSheet` or `toLabel`. The workflows compare codes only, so
+  the language of the sheet cannot reach a decision.
+- Reading accepts either language whatever the setting is, so a sheet can be
+  changed over while people are working in it, and a value in neither is left
+  exactly as it was found rather than blanked.
+
+### Fixed
+
+- **The unassigned queue would never have been retried on an Arabic sheet.**
+  Workflow 5 looked the queue up with `lookupValue: WAITING_FOR_AGENT`, and a
+  Sheets lookup compares the text in the cell. It now reads the rows and
+  filters on the normalised status, which costs no extra read: the node
+  fetches the tab and filters in memory either way.
+- **A failed send would have written English codes into an Arabic sheet.**
+  Workflow 7 rewrites the columns it does not mean to change from the row it
+  read, so once reads were normalised those columns had to be converted back.
+- **A row copied into the Archive would have arrived in English.** Workflow 8's
+  read is normalised too, so the copy converts back: the Archive is read by the
+  same people as Conversations.
+- One hard-coded `outbound` in workflow 2 and `REPLIED`/`outbound`/`API` in
+  workflow 4 came from the node parameters, not from the code, and would have
+  been the only English words in their columns.
+
+### Tests
+
+- `tests/labels/sheet-language.test.js` (22 tests) runs the generated Code
+  nodes of workflows 2, 3, 5, 7 and 8 twice — the same rows written in
+  English and in Arabic — and checks the decisions match: the same agent
+  chosen against the same live load, the same conversation answered, the same
+  rows archived, the same reply sent.
+- `tests/labels/labels.test.js` grew to 16 with whole-row conversion both ways.
+- Four validator rules, each proven by breaking a generated file: no
+  Conversations lookup by a literal status, no labelled column written as a
+  literal, every read normalises, every write labels.
+
+---
 ## [Unreleased] — Version 2, task V2-46 — The agent name and the agent id say the same thing
 
 ### Fixed

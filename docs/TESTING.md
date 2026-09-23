@@ -7,8 +7,8 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **475 passing** |
-| 2 — Workflow validation | No | **1233 checks passing** |
+| 1 — Unit tests (business logic) | No | **503 passing** |
+| 2 — Workflow validation | No | **1282 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
 | 4 — **End-to-end against the live deployment** | Yes (both) | **26 checks passing** |
@@ -58,7 +58,7 @@ node tests/run-tests.js assignment    # one area
 No npm install, no credentials, ~15 ms.
 
 ```
-475 passed, 0 failed, 475 total
+503 passed, 0 failed, 503 total
 ```
 
 | Suite | Tests | Covers |
@@ -75,7 +75,8 @@ No npm install, no credentials, ~15 ms.
 | `build/archive-workflow.test.js` | 9 | Workflow 8's generated code through a whole run, including a misplaced delete and an empty second read |
 | `build/apps-script-rules.test.js` | 5 | The Apps Script files parse, and never delete, move or insert rows |
 | `conversations/reply-path.test.js` | 5 | How a customer was answered (app, sheet, paid template, API), and a first-reply time set once and never moved |
-| `labels/labels.test.js` | 10 | Codes inside, labels at the boundary: every status labelled, every code round-trips in every language, no repeated label, unknown values refused instead of guessed |
+| `labels/labels.test.js` | 16 | Codes inside, labels at the boundary: every status labelled, every code round-trips in every language, no repeated label, unknown values refused instead of guessed, and a whole row converted both ways |
+| `labels/sheet-language.test.js` | 22 | The same decisions on an Arabic sheet as on an English one: the generated nodes of workflows 2, 3, 5, 7 and 8 run twice, on the same rows written in each language |
 | `window/window.test.js` | 10 | Meta's 24-hour customer service window: boundaries, rounding, offsets, a missing or unreadable timestamp counted as closed |
 | `build/sheet-safe.test.js` | 42 | Customer text is never a formula: the guard itself, every generated write checked, and a hostile message through a real generated append |
 | `build/agent-reference.test.js` | 11 | The agent name and the agent id kept in step: a hand-over, a cleared name, a renamed agent, and the cases where guessing would be wrong |
@@ -97,7 +98,7 @@ inlines these exact files into Code nodes, so there is no tested-vs-shipped gap.
 node scripts/validation/validate-workflows.js
 ```
 
-1233 checks across the 9 workflows:
+1282 checks across the 9 workflows:
 
 - every Code node body **parses as JavaScript** (`vm.Script` compile)
 - no leftover `module.exports` or relative `require()` from inlining
@@ -108,6 +109,13 @@ node scripts/validation/validate-workflows.js
 - every Sheets node writes to a tab that exists, and to columns that tab
   really has: Google accepts a column that does not exist and drops the value
 - every Sheets API URL names a real tab
+- Conversations is never looked up by a literal status, and no labelled column
+  is written as a literal: on a sheet kept in another language a lookup for
+  `WAITING_FOR_AGENT` matches nothing, and a literal write leaves one English
+  word in an Arabic column
+- every Code node that reads a Conversations row calls `normalizeConversationRow`,
+  and every Code node that builds what is written converts back with
+  `conversationRowToSheet` or `toLabel`
 - node names and ids are unique
 - every `typeVersion` is one the installed n8n supports
 - no Sheets-node append except as the fallback of an API append; every API

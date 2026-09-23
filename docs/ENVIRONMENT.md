@@ -188,6 +188,28 @@ too.
 **The spreadsheet must be shared with the service account email as an Editor.**
 This is the single most common cause of 403 errors.
 
+### `SHEET_LANGUAGE`
+
+Default `en`. The language the **sheet** is written in — `en` or `ar`.
+
+The workflows never compare the words in a cell. They compare codes
+(`UNANSWERED`, `CLOSED`, `inbound`), and `scripts/lib/labels.js` converts at
+the boundary: every row read from Conversations is turned back into codes
+before a decision is made, and every value written out is turned into the
+label for this language. So `ar` changes what a person reads in `status`,
+`stage`, `outcome`, `reply_status`, `last_reply_via` and
+`last_message_direction`, and changes nothing about how a conversation is
+assigned, closed or replied to.
+
+Reading accepts either language whatever this is set to, so a sheet that has
+just been switched — and still holds a mix of English and Arabic values —
+keeps working while people go through it. A value in neither language is
+left exactly as it was found rather than blanked.
+
+Set it before the sheet is filled in. Changing it later relabels only the
+rows written after the change; the older rows keep the words they were
+written with, and are still read correctly.
+
 ---
 
 ## Business logic

@@ -250,6 +250,6 @@ Worth stating explicitly, because it is the payoff for how the MVP was built:
 - Assignment algorithm — unchanged
 - Phone normalization — unchanged
 - Idempotency — unchanged
-- All 475 unit tests — still valid
+- All 503 unit tests — still valid
 
 The inbox is an additional consumer of the same core, not a replacement for it.

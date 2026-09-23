@@ -686,17 +686,34 @@ These ship first, because every later phase builds on the paths they fix.
 - Tests: 10, including a round trip of every code in every language, every
   state-machine status labelled, no repeated label within a field.
 
-**V2-12 · Normalise on read, label on write** · M · risk medium · after V2-11
-- Files: `conversation.js`, `build-workflows.js`, `validate-workflows.js`, tests.
-- Do: `normalizeConversationRow(row)` runs right after every Conversations read
-  in workflows 3, 5, 7 and 8. The Code nodes that build `write_row` or result
-  fields convert codes to labels at the end. Literal values inside Sheets nodes
-  (such as `reply_status: 'FAILED'`) come from a generator helper that emits a
-  language-aware expression, never a raw string.
-- Test: the conversation and assignment suites run with English and Arabic
-  fixtures and must decide identically (E20). Validator rules: every Code node
-  consuming a Conversations read calls the normaliser; no raw status literal in
-  a Sheets node.
+**V2-12 · Normalise on read, label on write** · M · risk medium · **built; offline gates pass; live check pending**
+- As built: `normalizeConversationRow(row)` runs on every Conversations read —
+  `Apply App Reply` (2), `Decide Create Or Update` and `Select Agent` (3),
+  `Assign Waiting Queue` (5), `Find Pending Replies` (7), `Select Archivable`
+  (8) — and the Code nodes that build what is written convert back with
+  `conversationRowToSheet(row, lang)` or `toLabel(field, code, lang)`:
+  `Apply App Reply` (2), `Build Conversation Row` (3), `Interpret Send Result`
+  (4), `Assign Waiting Queue` (5), `Interpret Sheet Send` (7). No Sheets node
+  holds a status literal any more; `SHEET_LANGUAGE` (default `en`) is plumbed
+  through both compose files, both env examples, `check-env.js` and
+  `ENVIRONMENT.md`.
+- Two things the audit had not listed, found while wiring it and fixed here:
+  workflow 5 looked the queue up with `lookupValue: 'WAITING_FOR_AGENT'`, which
+  matches nothing on an Arabic sheet (the node compares the cell's text), so the
+  queue would never be retried; and workflow 7 rewrites the columns it does not
+  mean to change from the row it read, which would have written codes back into
+  an Arabic sheet on every failed send.
+- Messages, Log and workflow 4's answer to the app stay in codes: they are read
+  by machines, not by people.
+- The Archive is a tab people read, so a row copied into it is converted back
+  as well; Messages, Log and the API answers are not.
+- Tests: `tests/labels/sheet-language.test.js` (22) runs the generated nodes of
+  workflows 2, 3, 5, 7 and 8 twice, on the same rows written in each language,
+  and checks the decisions match (E20); `tests/labels/labels.test.js` grew to 16
+  with whole-row conversion. Validator: four new rules (a Conversations lookup
+  by a literal status, a labelled column written as a literal, a read that does
+  not normalise, a write that does not label), each proven by breaking a
+  generated file.
 
 **V2-13 · Derived columns and write safety** · M · risk medium · after V2-10 (S2)
 - Files: CSV templates, `SetupSheet.gs` schema (`DERIVED_COLUMNS`),

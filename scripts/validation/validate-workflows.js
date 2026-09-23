@@ -354,6 +354,79 @@ function validateWorkflow(file) {
     }
   }
 
+  // --- the sheet's words stay in the sheet ---
+  // A cell holds a label a person reads ("مغلقة"); the workflows compare
+  // codes ("CLOSED"). scripts/lib/labels.js converts at both ends. A read
+  // that forgets to normalise reads every status as unknown: nothing looks
+  // closed, every agent looks idle, and the queue is never retried. A write
+  // that forgets to label leaves one English word in an Arabic column.
+  const LABELLED_COLUMNS = ['status', 'stage', 'outcome', 'reply_status',
+    'last_reply_via', 'last_message_direction'];
+
+  for (const node of wf.nodes) {
+    if (!node.type || node.type.indexOf('googleSheets') === -1) continue;
+    const params = node.parameters || {};
+    if ((params.sheetName || {}).value !== 'Conversations') continue;
+
+    // A lookup compares the text in the cell, so a code written here finds
+    // nothing at all on a sheet kept in another language. Read the rows and
+    // let the Code node filter on the normalised value instead.
+    const literalFilters = (((params.filtersUI || {}).values) || []).filter((v) =>
+      LABELLED_COLUMNS.indexOf(v.lookupColumn) !== -1 &&
+      typeof v.lookupValue === 'string' && v.lookupValue.charAt(0) !== '=');
+    check('Conversations is not looked up by a literal status: ' + node.name,
+      literalFilters.length === 0,
+      'literal: ' + literalFilters.map((v) => v.lookupColumn + '=' + v.lookupValue).join(', '));
+
+    const value = (params.columns || {}).value || {};
+    const literalWrites = Object.keys(value).filter((column) =>
+      LABELLED_COLUMNS.indexOf(column) !== -1 &&
+      typeof value[column] === 'string' && value[column] !== '' &&
+      value[column].charAt(0) !== '=');
+    check('a labelled column is written from the code, not as a literal: ' + node.name,
+      literalWrites.length === 0,
+      'literal: ' + literalWrites.map((c) => c + '=' + value[c]).join(', '));
+  }
+
+  // Every Code node that reads a Conversations row turns it back into codes,
+  // and every Code node that builds what is written turns codes into labels.
+  const READS_ROWS = {
+    '02-message-processor.json': ['Apply App Reply'],
+    '03-conversation-assignment.json': ['Decide Create Or Update', 'Select Agent'],
+    '05-unassigned-queue-retry.json': ['Assign Waiting Queue'],
+    '07-reply-from-sheet.json': ['Find Pending Replies'],
+    '08-archive-conversations.json': ['Select Archivable'],
+  };
+  const WRITES_LABELS = {
+    '02-message-processor.json': ['Apply App Reply'],
+    '03-conversation-assignment.json': ['Build Conversation Row'],
+    '04-outgoing-agent-message.json': ['Interpret Send Result'],
+    '05-unassigned-queue-retry.json': ['Assign Waiting Queue'],
+    '07-reply-from-sheet.json': ['Find Pending Replies', 'Interpret Sheet Send'],
+    '08-archive-conversations.json': ['Select Archivable'],
+  };
+  // The node's OWN lines only. The inlined copy of labels.js mentions every
+  // one of these functions, so a body searched whole always matches and the
+  // check would pass for a node that never calls them.
+  const bodyOf = (name) => {
+    const node = byName.get(name);
+    if (!node || !node.parameters || typeof node.parameters.jsCode !== 'string') return null;
+    const parts = node.parameters.jsCode.split('end generated block');
+    return parts[parts.length - 1];
+  };
+  for (const name of READS_ROWS[file] || []) {
+    const body = bodyOf(name);
+    check('rows read by ' + name + ' are turned back into codes',
+      body !== null && body.indexOf('normalizeConversationRow(') !== -1,
+      'call normalizeConversationRow on every Conversations row it reads');
+  }
+  for (const name of WRITES_LABELS[file] || []) {
+    const body = bodyOf(name);
+    check('what ' + name + ' writes is turned into labels',
+      body !== null &&
+        (body.indexOf('conversationRowToSheet(') !== -1 || body.indexOf('toLabel(') !== -1),
+      'convert codes with conversationRowToSheet or toLabel before writing');
+  }
   // --- nothing moves rows during the day ---
   // n8n's update reads the key column, then writes to the row index it found.
   // A sort or a row move in between sends that write to another customer's
