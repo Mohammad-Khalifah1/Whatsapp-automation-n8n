@@ -5,6 +5,28 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-40 — A case code people can say out loud
+
+### Added
+
+- **`case_code`** on every new conversation: `C-` plus the last six base-36
+  digits of the creation time, for example `C-3F9K2A`. The conversation id is
+  fifty characters of phone numbers and epoch millis — the right key for the
+  system and the wrong thing to read down a phone or write on a delivery note.
+- It is **display only**. The six digits repeat every 25 days, so it is unique
+  by luck rather than by contract, and nothing is ever looked up by it:
+  `conversation_id` stays the only key. A sequential number would need an
+  atomic counter, which Google Sheets does not have — two executions would read
+  the same last number and both take it.
+- The column is in the Conversations and Archive templates, in the Apps Script
+  schema, and in every generated write (the column maps are read from the CSV
+  header, so nothing had to be listed twice). A code passed in is kept, so a
+  case restored from the Archive keeps the one people already know.
+- A row created before this change keeps an empty `case_code`: an update writes
+  back what the row already holds. The migration backfills.
+- 7 tests in `tests/conversations/conversation.test.js`.
+
+---
 ## [Unreleased] — Version 2, task V2-12 — The sheet speaks Arabic, the logic does not
 
 ### Added

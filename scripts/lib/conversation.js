@@ -186,6 +186,33 @@ function nextStatus(currentStatus, event, ctx) {
 }
 
 /**
+ * A short code a person can say out loud: C-3F9K2A.
+ *
+ * The conversation id is 50 characters of phone numbers and epoch millis. It
+ * is the right key for the system and the wrong thing to read down a phone or
+ * write on a delivery note, so every case also carries a code that fits in a
+ * sentence.
+ *
+ * The last six base-36 digits of the creation time. That is DISPLAY ONLY and
+ * unique by luck, not by contract: the six digits repeat every 25 days, so two
+ * cases created 25 days apart in the same millisecond would share one. Nothing
+ * is ever looked up by it — conversation_id remains the only key — and the
+ * alternative, a sequential number, cannot be minted safely without an atomic
+ * counter that Google Sheets does not have. Two executions would read the same
+ * last number and both take it.
+ *
+ * @param {number|string} [when]  Epoch millis or a parseable date. Default now.
+ * @returns {string}
+ */
+function caseCode(when) {
+  const ms = when === undefined || when === null || when === ''
+    ? Date.now()
+    : (typeof when === 'number' ? when : Date.parse(when));
+  const safe = isFinite(ms) ? Math.abs(Math.floor(ms)) : Date.now();
+  return 'C-' + safe.toString(36).toUpperCase().slice(-6);
+}
+
+/**
  * Build the full Conversations row for a brand-new conversation.
  * Field names match docs/GOOGLE_SHEETS_SCHEMA.md exactly (snake_case).
  */
@@ -198,6 +225,8 @@ function buildNewConversationRow(input) {
 
   return {
     // --- business-facing, kept first so the sheet reads left to right ---
+    // What a person calls this case out loud. Display only; see caseCode.
+    case_code: i.case_code || caseCode(Date.parse(nowIso)),
     customer_name: i.customer_name || '',
     customer_phone: i.customer_phone || '',
     assigned_agent_name: i.assigned_agent_name || '',
@@ -442,6 +471,7 @@ function countOpenConversationsByAgent(rows) {
 
 module.exports = {
   appendUnanswered,
+  caseCode,
   STATUS,
   OPEN_STATUSES,
   EVENT,

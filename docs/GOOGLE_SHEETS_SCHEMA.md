@@ -200,6 +200,7 @@ something.
 | 30 | `reply_sent_at` | ISO-8601 | system | When it was sent |
 | 31 | `first_reply_at` | ISO-8601 | system | When this conversation was **first** answered. Set once and never moved: it is what a first-response time is measured to. The send API cannot set it, because it holds no conversation row |
 | 32 | `reply_blocked_hash` | text | system | A reply that cannot be sent keeps its text; this remembers that text and the reason, so the next poll skips the row instead of rewriting the same failure every minute. Edit the text, or let the customer write again, and it is picked up |
+| 33 | `case_code` | text | system | A short code for this case a person can say out loud, `C-3F9K2A`: the last six base-36 digits of the creation time. **Display only** — nothing is ever looked up by it, and it is unique by luck rather than by contract (the six digits repeat every 25 days). `conversation_id` stays the only key |
 
 Timestamps are ISO-8601 **with an explicit UTC offset**, in the timezone set by
 `TZ` (`Asia/Amman` here), so the sheet shows the time the team actually saw.

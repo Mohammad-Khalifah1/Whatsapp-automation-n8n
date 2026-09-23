@@ -162,6 +162,7 @@ const WIDTHS = {
   direction: 110, recipient_phone: 140, sender_phone: 140, message_type: 130,
   sent_via: 150, processing_status: 145, supported: 100, status_updated_at: 165,
   created_at: 165,
+  case_code: 110,
   conversation_id: 200, timestamp: 165, details: 300, error: 240,
   event_type: 180, source: 160,
 };

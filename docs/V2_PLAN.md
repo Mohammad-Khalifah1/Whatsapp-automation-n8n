@@ -877,9 +877,22 @@ Starts after S1, S2, S3 and S7 are answered.
 
 ### 7.7 Phase 4 — the case lifecycle
 
-**V2-40 · Case code** · S · risk low · after V2-12
-- `C-` plus the last six base-36 digits of the creation time in milliseconds,
-  minted in `buildNewConversationRow`. Display-only, not unique by contract.
+**V2-40 · Case code** · S · risk low · **built; offline gates pass; live check pending**
+- As built: `caseCode(when)` in `conversation.js` — `C-` plus the last six
+  base-36 digits of the creation time — and `buildNewConversationRow` puts it
+  in `case_code`, which is now a column in the Conversations and Archive
+  templates, in the Apps Script schema, and in every generated write (the
+  column maps are read from the CSV header). A code passed in is kept, so a
+  restored case keeps the one people already know.
+- Display only, and said so in the schema doc: the six digits repeat every 25
+  days, so it is unique by luck, not by contract. Nothing is ever looked up by
+  it; `conversation_id` stays the only key. A sequential number would need an
+  atomic counter Google Sheets does not have (C-12).
+- A row created before this task has an empty `case_code` and keeps it: an
+  update writes back what the row already holds. The migration (V2-50)
+  backfills.
+- Tests: 7 in `tests/conversations/conversation.test.js`, including a code kept
+  when given and an unreadable time answered with a code rather than a throw.
 
 **V2-41 · Stage and outcome** · S · risk low · after V2-32
 - Stage dropdown. Outcome: a human override, or derived at archive time (4.4).

@@ -7,7 +7,7 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **503 passing** |
+| 1 — Unit tests (business logic) | No | **510 passing** |
 | 2 — Workflow validation | No | **1282 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
@@ -58,7 +58,7 @@ node tests/run-tests.js assignment    # one area
 No npm install, no credentials, ~15 ms.
 
 ```
-503 passed, 0 failed, 503 total
+510 passed, 0 failed, 510 total
 ```
 
 | Suite | Tests | Covers |
@@ -68,7 +68,7 @@ No npm install, no credentials, ~15 ms.
 | `webhook/parser.test.js` | 36 | Real Meta payloads, malformed input, all message types, Coexistence echoes |
 | `webhook/security.test.js` | 22 | Handshake, HMAC, redaction |
 | `webhook/idempotency.test.js` | 29 | Dedupe keys, status ladder, locks |
-| `conversations/conversation.test.js` | 39 | State machine, identity, row building, inactivity |
+| `conversations/conversation.test.js` | 46 | State machine, identity, row building, the case code, inactivity |
 | `build/append-via-api.test.js` | 30 | The build's rewrite of every Sheets append into an `INSERT_ROWS` API append with a fallback; values placed by column name; the body of every generated append evaluates to one full row |
 | `build/access-branch.test.js` | 10 | The generated `Sign Sheets Token Request` and `Sheets Access` code, run with stand-ins for n8n: signing, token and header caching, a refused token, a missing column |
 | `archive/rows.test.js` | 17 | The archive's delete plan: rows found by id in a fresh read, bottom-up batch, and the check afterwards that restores a row only when a delete clearly landed on it |

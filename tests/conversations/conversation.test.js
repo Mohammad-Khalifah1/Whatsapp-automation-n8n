@@ -14,6 +14,7 @@ const {
   generateConversationId,
   nextStatus,
   buildNewConversationRow,
+  caseCode,
   buildCustomerMessageUpdate,
   buildAgentMessageUpdate,
   isInactivityCloseEligible,
@@ -203,6 +204,41 @@ describe('row building — new conversation', () => {
 
   it('defaults to WAITING_FOR_AGENT when no status is supplied', () => {
     assert.equal(buildNewConversationRow({}).status, STATUS.WAITING_FOR_AGENT);
+  });
+});
+
+describe('the case code — something a person can say out loud', () => {
+  it('is C- and six characters, short enough to read down a phone', () => {
+    assert.ok(/^C-[0-9A-Z]{6}$/.test(caseCode(1788969600000)), caseCode(1788969600000));
+  });
+
+  it('comes from the creation time, so the same case always reads the same', () => {
+    assert.equal(caseCode(1788969600000), caseCode(1788969600000));
+    assert.equal(caseCode('2026-09-10T10:00:00.000Z'), caseCode(Date.parse('2026-09-10T10:00:00.000Z')));
+  });
+
+  it('differs between cases created moments apart', () => {
+    assert.notOk(caseCode(1788969600000) === caseCode(1788969600001));
+  });
+
+  it("is on every new row, matching that row's own created_at", () => {
+    const fresh = buildNewConversationRow({ customer_phone: '962790000001', now_iso: '2026-09-10T10:00:00.000Z' });
+    assert.equal(fresh.case_code, caseCode(Date.parse('2026-09-10T10:00:00.000Z')));
+  });
+
+  it('keeps a code it is given, so a restored case keeps the one people know', () => {
+    assert.equal(buildNewConversationRow({ case_code: 'C-OLD123' }).case_code, 'C-OLD123');
+  });
+
+  it('is never the conversation id, which stays the only key', () => {
+    const fresh = buildNewConversationRow({ customer_phone: '962790000001' });
+    assert.notOk(fresh.case_code === fresh.conversation_id);
+    assert.ok(fresh.conversation_id.indexOf('CONV-') === 0);
+  });
+
+  it('answers with a code rather than throwing on something unreadable', () => {
+    assert.ok(/^C-[0-9A-Z]{6}$/.test(caseCode('not a date')));
+    assert.ok(/^C-[0-9A-Z]{6}$/.test(caseCode(null)));
   });
 });
 
