@@ -5,6 +5,39 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-12 (continued) — The tools that write to the sheet speak its language too
+
+### Fixed
+
+- **On an Arabic sheet the dropdowns would have rejected every value n8n
+  writes.** `apply-sheet-layout.js` listed English codes, so data validation
+  would flag each Arabic cell the system wrote, and the conditional formats,
+  keyed on the same codes, would colour nothing. The lists, the colours and the
+  values named in the tab notes now come from `scripts/lib/labels.js` — the
+  same table the workflows use — so a dropdown cannot offer a value the system
+  never writes, or miss one it does. Colours stay keyed by code, because a
+  colour means the same thing in every language.
+- **The dashboard would have reported a quiet week for a desk that is on
+  fire.** Every figure is a formula counting status and direction text, and
+  they all compared English codes. They now count **every** spelling of a
+  value, so a sheet part-way through a change of language — which holds both —
+  is still counted correctly, and the open count excludes a closed case written
+  either way.
+- **"Oldest unanswered" was always 0.** It used `MINIFS` over `first_message_at`,
+  which is ISO-8601 text; `MINIFS` ignores text. It is now the first of the
+  sorted matching timestamps, which is a real answer — every timestamp carries
+  the same offset, so sorting them as text sorts them as instants.
+
+### Changed
+
+- Both scripts now read the service-account key when they first need it rather
+  than when they are loaded, and run only when they are the program being run,
+  so their lists and formulas can be tested without a key or a spreadsheet.
+- `tests/labels/sheet-tools.test.js` (13 tests).
+- `sheets-templates/SheetTools.gs`, the optional in-sheet menu, is still English
+  only. Nothing depends on it, and it is recorded as C-37 against V2-37.
+
+---
 ## [Unreleased] — Version 2, task V2-10 — The spikes, on a throwaway spreadsheet
 
 ### Added

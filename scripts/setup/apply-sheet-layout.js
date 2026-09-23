@@ -38,6 +38,8 @@ const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
 
+const { codes, toLabel, toCode, LABELLED_COLUMNS } = require('../lib/labels');
+
 const ROOT = path.join(__dirname, '..', '..');
 const DRY = process.argv.indexOf('--dry-run') !== -1;
 
@@ -62,8 +64,11 @@ const ENV = Object.assign({}, readEnvFile(path.join(ROOT, '.env')), process.env)
 const SHEET = ENV.GOOGLE_SHEET_ID;
 const SA_FILE = ENV.GOOGLE_SERVICE_ACCOUNT_FILE || path.join(ROOT, 'SHEETKEYS.TXT');
 
-if (!SHEET) { console.error('GOOGLE_SHEET_ID is not set in .env'); process.exit(2); }
-if (!fs.existsSync(SA_FILE)) { console.error('Service account file not found: ' + SA_FILE); process.exit(2); }
+// The language this sheet is kept in. The dropdowns, the colours and the
+// notes have to agree with what n8n writes: an English list on an Arabic
+// sheet flags every value the system writes as invalid, and colours nothing.
+const LANG = String(ENV.SHEET_LANGUAGE || 'en').trim().toLowerCase();
+
 
 const header = (f) => fs.readFileSync(path.join(ROOT, 'sheets-templates', f), 'utf8')
   .split(/\r?\n/)[0].split(',').map((s) => s.trim()).filter(Boolean);
@@ -93,19 +98,48 @@ const TABS = [
 const MESSAGE_TYPES = ['text', 'image', 'audio', 'video', 'document', 'sticker',
   'location', 'contacts', 'interactive', 'button', 'reaction', 'template'];
 
+/**
+ * The values of a labelled field, written the way this sheet writes them.
+ *
+ * The list comes from scripts/lib/labels.js, the same place the workflows
+ * take it from, so a dropdown cannot offer a value the system never writes -
+ * or miss one it does.
+ *
+ * @param {string} field   status, reply_status, direction, via
+ * @param {boolean} blank  Allow an empty cell as well (a column not yet filled).
+ * @param {string} [lang]  Defaults to the language this sheet is kept in.
+ */
+function labelled(field, blank, lang) {
+  const values = codes(field).map((code) => toLabel(field, code, lang || LANG));
+  return blank ? [''].concat(values) : values;
+}
+
+/**
+ * The code behind a value in a dropdown, for looking its colour up.
+ *
+ * Colours are keyed by code, because a colour means the same thing in every
+ * language. A column that holds no labelled value (Messages.status, which is
+ * a delivery state) answers with the value itself.
+ */
+function colourKey(column, value) {
+  const field = LABELLED_COLUMNS[column];
+  if (!field) return value;
+  return toCode(field, value) || value;
+}
+
 const ENUMS = {
   Conversations: {
-    status: ['WAITING_FOR_AGENT', 'UNANSWERED', 'REPLIED', 'WAITING_FOR_CUSTOMER', 'CLOSED', 'ARCHIVED'],
-    reply_status: ['', 'SENT', 'FAILED', 'WINDOW_CLOSED'],
-    last_message_direction: ['inbound', 'outbound'],
+    status: labelled('status'),
+    reply_status: labelled('reply_status', true),
+    last_message_direction: labelled('direction'),
     last_message_type: MESSAGE_TYPES,
     unread: ['TRUE', 'FALSE'],
-    last_reply_via: ['', 'APP', 'SHEET', 'TEMPLATE', 'API'],
+    last_reply_via: labelled('via', true),
   },
   Archive: {
-    status: ['WAITING_FOR_AGENT', 'UNANSWERED', 'REPLIED', 'WAITING_FOR_CUSTOMER', 'CLOSED', 'ARCHIVED'],
-    reply_status: ['', 'SENT', 'FAILED', 'WINDOW_CLOSED'],
-    last_message_direction: ['inbound', 'outbound'],
+    status: labelled('status'),
+    reply_status: labelled('reply_status', true),
+    last_message_direction: labelled('direction'),
     last_message_type: MESSAGE_TYPES,
     unread: ['TRUE', 'FALSE'],
   },
@@ -206,11 +240,12 @@ const NOTES = {
     'CONVERSATIONS - this is where you work. One row per customer.',
     '',
     'To reply: type into reply_text. Within a minute it is sent to',
-    'customer_phone, reply_status becomes SENT, and reply_text clears. FAILED',
+    'customer_phone, reply_status becomes ' + toLabel('reply_status', 'SENT', LANG) +
+      ', and reply_text clears. ' + toLabel('reply_status', 'FAILED', LANG),
     'means it did not go out, and reply_error says why.',
     'To message a NEW number: add a row, fill customer_phone and reply_text.',
     'To hand a conversation over: pick a name in assigned_agent_name.',
-    'To archive: set status to ARCHIVED - the row moves to Archive within a',
+    'To archive: set status to ' + toLabel('status', 'ARCHIVED', LANG) + ' - the row moves to Archive within a',
     'minute, and nothing is deleted.',
     '',
     'unanswered_messages is everything the customer has said that nobody has',
@@ -229,7 +264,7 @@ const NOTES = {
     'One row per CUSTOMER, newest activity at the top. last_message is the',
     'latest thing they said, not the only thing - every message ever sent or',
     'received is kept in the Messages tab.',
-    'A row leaves this tab in exactly one way: you set status to ARCHIVED, or',
+    'A row leaves this tab in exactly one way: you set status to ' + toLabel('status', 'ARCHIVED', LANG) + ', or',
     'the nightly sweep moves a long-closed conversation. Nothing else deletes.',
   ],
   Agents: [
@@ -247,7 +282,7 @@ const NOTES = {
   Archive: [
     'ARCHIVE - closed and archived conversations, kept out of the way.',
     '',
-    'Rows arrive here two ways: you set status to ARCHIVED in Conversations, or',
+    'Rows arrive here two ways: you set status to ' + toLabel('status', 'ARCHIVED', LANG) + ' in Conversations, or',
     'the nightly sweep moves conversations closed for longer than the retention',
     'window. archived_at records when it happened.',
     'Nothing is deleted - the row is copied here first, then removed from',
@@ -291,7 +326,13 @@ const NOTES = {
 
 // ------------------------------------------------------------------- api ---
 
-const sa = JSON.parse(fs.readFileSync(SA_FILE, 'utf8'));
+// Read when it is first needed, not when the file is loaded: the lists above
+// are exported for the tests, and a test machine has no service-account key.
+let saCache = null;
+function serviceAccount() {
+  if (!saCache) saCache = JSON.parse(fs.readFileSync(SA_FILE, 'utf8'));
+  return saCache;
+}
 const b64url = (o) => Buffer.from(typeof o === 'string' ? o : JSON.stringify(o)).toString('base64url');
 
 function httpsJson(options, body) {
@@ -315,10 +356,10 @@ async function auth() {
   if (token) return token;
   const now = Math.floor(Date.now() / 1000);
   const unsigned = b64url({ alg: 'RS256', typ: 'JWT' }) + '.' + b64url({
-    iss: sa.client_email, scope: 'https://www.googleapis.com/auth/spreadsheets',
+    iss: serviceAccount().client_email, scope: 'https://www.googleapis.com/auth/spreadsheets',
     aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600,
   });
-  const sig = crypto.createSign('RSA-SHA256').update(unsigned).sign(sa.private_key).toString('base64url');
+  const sig = crypto.createSign('RSA-SHA256').update(unsigned).sign(serviceAccount().private_key).toString('base64url');
   const body = 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=' + unsigned + '.' + sig;
   const res = await httpsJson({
     hostname: 'oauth2.googleapis.com', path: '/token', method: 'POST',
@@ -356,7 +397,14 @@ function columnLetter(i) {
 
 // ------------------------------------------------------------------ main ---
 
+/** Nothing runs without a sheet to run against and a key to sign with. */
+function requireConfig() {
+  if (!SHEET) { console.error('GOOGLE_SHEET_ID is not set in .env'); process.exit(2); }
+  if (!fs.existsSync(SA_FILE)) { console.error('Service account file not found: ' + SA_FILE); process.exit(2); }
+}
+
 async function main() {
+  requireConfig();
   console.log('Applying the declared layout to the spreadsheet' + (DRY ? ' (dry run)' : '') + '\n');
 
   let meta = await api('GET', '?fields=sheets.properties');
@@ -561,12 +609,13 @@ async function main() {
       const c = cols.indexOf(name);
       if (c === -1) continue;
       for (const value of tabEnums[name]) {
-        if (!value || !COLORS[value]) continue;
+        const key = colourKey(name, value);
+        if (!value || !COLORS[key]) continue;
         colourReqs.push({ addConditionalFormatRule: { index: index, rule: {
           ranges: [{ sheetId, startRowIndex: 1, endRowIndex: endRow, startColumnIndex: c, endColumnIndex: c + 1 }],
           booleanRule: {
             condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: value }] },
-            format: { backgroundColor: rgb(COLORS[value]) } } } } });
+            format: { backgroundColor: rgb(COLORS[key]) } } } } });
         index += 1;
       }
     }
@@ -577,7 +626,8 @@ async function main() {
         ranges: [{ sheetId, startRowIndex: 1, endRowIndex: endRow, startColumnIndex: 0, endColumnIndex: cols.length }],
         booleanRule: {
           condition: { type: 'CUSTOM_FORMULA', values: [{
-            userEnteredValue: '=$' + columnLetter(statusCol) + '2="WAITING_FOR_AGENT"' }] },
+            userEnteredValue: '=$' + columnLetter(statusCol) + '2="' +
+              toLabel('status', 'WAITING_FOR_AGENT', LANG) + '"' }] },
           format: { backgroundColor: rgb([0.99, 0.93, 0.93]) } } } } });
       index += 1;
     }
@@ -632,4 +682,10 @@ async function main() {
   console.log('  done.');
 }
 
-main().catch((e) => { console.error('\nfailed: ' + e.message); process.exit(1); });
+// The lists and the colour lookup are exported so the tests can check them in
+// both languages without touching a live spreadsheet.
+module.exports = { ENUMS, COLORS, labelled, colourKey };
+
+if (require.main === module) {
+  main().catch((e) => { console.error('\nfailed: ' + e.message); process.exit(1); });
+}

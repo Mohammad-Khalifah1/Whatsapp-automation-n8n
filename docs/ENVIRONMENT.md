@@ -210,6 +210,18 @@ Set it before the sheet is filled in. Changing it later relabels only the
 rows written after the change; the older rows keep the words they were
 written with, and are still read correctly.
 
+The two tools that write to the sheet follow this setting too:
+`scripts/setup/apply-sheet-layout.js` builds the dropdowns, the colours and the
+values it names in the tab notes from the same table, and
+`scripts/setup/build-dashboard.js` counts every spelling of a status, so a
+sheet part-way through a change of language is still counted correctly. Re-run
+both after changing it.
+
+`sheets-templates/SheetTools.gs`, the optional in-sheet menu, is still English
+only. Nothing depends on it — the Node tools own the setup — but a sheet that
+has it installed will show an English status list next to Arabic cells until
+that script is rewritten.
+
 ---
 
 ## Business logic

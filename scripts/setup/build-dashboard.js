@@ -28,6 +28,8 @@ const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
 
+const { LANGUAGES, toLabel } = require('../lib/labels');
+
 const ROOT = path.join(__dirname, '..', '..');
 
 function readEnvFile(file) {
@@ -49,7 +51,6 @@ const ENV = Object.assign({}, readEnvFile(path.join(ROOT, '.env')), process.env)
 const SHEET = ENV.GOOGLE_SHEET_ID;
 const SA_FILE = ENV.GOOGLE_SERVICE_ACCOUNT_FILE || path.join(ROOT, 'SHEETKEYS.TXT');
 
-if (!SHEET) { console.error('GOOGLE_SHEET_ID is not set in .env'); process.exit(2); }
 
 const header = (f) => fs.readFileSync(path.join(ROOT, 'sheets-templates', f), 'utf8')
   .split(/\r?\n/)[0].split(',').map((s) => s.trim()).filter(Boolean);
@@ -58,6 +59,39 @@ const CONV = header('Conversations.csv');
 const ARCH = header('Archive.csv');
 const MSGS = header('Messages.csv');
 const AGENTS = header('Agents.csv');
+
+/**
+ * Every spelling one value can have in the sheet.
+ *
+ * A dashboard is read by the people who decide whether anyone is waiting, so
+ * it has to count a status whichever language the sheet is kept in - and
+ * during a change of language the sheet holds both. Counting one of them is
+ * worse than counting nothing: it looks like a quiet week.
+ */
+function labelVariants(field, code) {
+  const out = [];
+  for (const lang of LANGUAGES) {
+    const label = toLabel(field, code, lang);
+    if (out.indexOf(label) === -1) out.push(label);
+  }
+  return out;
+}
+
+/** COUNTIFS over every spelling of one value, with any extra criteria. */
+function countLabelled(range, field, code, extra) {
+  return labelVariants(field, code)
+    .map((v) => 'COUNTIFS(' + range + ',"' + v + '"' + (extra ? ',' + extra : '') + ')')
+    .join('+');
+}
+
+/** Criteria excluding every spelling of a value, for one COUNTIFS. */
+function excluding(range, field, codes) {
+  const parts = [];
+  for (const code of codes) {
+    for (const v of labelVariants(field, code)) parts.push(range + ',"<>' + v + '"');
+  }
+  return parts;
+}
 
 /** 0-based column index to its spreadsheet letter. */
 function letter(i) {
@@ -75,7 +109,13 @@ function col(tab, columns, name) {
 
 // ------------------------------------------------------------------- api ---
 
-const sa = JSON.parse(fs.readFileSync(SA_FILE, 'utf8'));
+// Read when it is first needed: the formula helpers above are exported for
+// the tests, and a test machine has no service-account key.
+let saCache = null;
+function serviceAccount() {
+  if (!saCache) saCache = JSON.parse(fs.readFileSync(SA_FILE, 'utf8'));
+  return saCache;
+}
 const b64url = (o) => Buffer.from(typeof o === 'string' ? o : JSON.stringify(o)).toString('base64url');
 
 function httpsJson(options, body) {
@@ -99,10 +139,10 @@ async function auth() {
   if (token) return token;
   const now = Math.floor(Date.now() / 1000);
   const unsigned = b64url({ alg: 'RS256', typ: 'JWT' }) + '.' + b64url({
-    iss: sa.client_email, scope: 'https://www.googleapis.com/auth/spreadsheets',
+    iss: serviceAccount().client_email, scope: 'https://www.googleapis.com/auth/spreadsheets',
     aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600,
   });
-  const sig = crypto.createSign('RSA-SHA256').update(unsigned).sign(sa.private_key).toString('base64url');
+  const sig = crypto.createSign('RSA-SHA256').update(unsigned).sign(serviceAccount().private_key).toString('base64url');
   const body = 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=' + unsigned + '.' + sig;
   const res = await httpsJson({
     hostname: 'oauth2.googleapis.com', path: '/token', method: 'POST',
@@ -133,7 +173,7 @@ const rgb = (a) => ({ red: a[0], green: a[1], blue: a[2] });
 
 // ------------------------------------------------------------------ main ---
 
-(async () => {
+async function main() {
   // Column references, by name.
   const C_AGENT = col('Conversations', CONV, 'assigned_agent_name');
   const C_STATUS = col('Conversations', CONV, 'status');
@@ -149,7 +189,11 @@ const rgb = (a) => ({ red: a[0], green: a[1], blue: a[2] });
   const M_SUPPORTED = col('Messages', MSGS, 'supported');
 
   // "Open" means a conversation someone still owes a reply on.
-  const OPEN = C_STATUS + ',"<>CLOSED",' + C_STATUS + ',"<>ARCHIVED",' + C_STATUS + ',"<>"';
+  // Open means: somebody still owes this customer a reply. Every spelling of
+  // closed and archived is excluded, so a sheet part-way through a change of
+  // language cannot make the team look busier than it is.
+  const OPEN = excluding(C_STATUS, 'status', ['CLOSED', 'ARCHIVED'])
+    .concat([C_STATUS + ',"<>"']).join(',');
 
   const agentsRead = await api('GET', '/values/' + encodeURIComponent('Agents!A1:Z200'));
   const agentRows = (agentsRead.values || []).slice(1)
@@ -164,24 +208,30 @@ const rgb = (a) => ({ red: a[0], green: a[1], blue: a[2] });
 
   push('RIGHT NOW', '', '', '', '', '', '', '');
   push('Open conversations', '=COUNTIFS(' + OPEN + ')',
-       'Waiting for a reply', '=COUNTIF(' + C_STATUS + ',"UNANSWERED")',
-       'Nobody assigned', '=COUNTIF(' + C_STATUS + ',"WAITING_FOR_AGENT")',
-       'Answered', '=COUNTIF(' + C_STATUS + ',"REPLIED")');
+       'Waiting for a reply', '=' + countLabelled(C_STATUS, 'status', 'UNANSWERED'),
+       'Nobody assigned', '=' + countLabelled(C_STATUS, 'status', 'WAITING_FOR_AGENT'),
+       'Answered', '=' + countLabelled(C_STATUS, 'status', 'REPLIED'));
   push('Customers in the sheet', '=COUNTA(' + C_PHONE + ')-1',
-       'Customer spoke last', '=COUNTIF(' + C_DIR + ',"inbound")',
-       'We spoke last', '=COUNTIF(' + C_DIR + ',"outbound")',
+       'Customer spoke last', '=' + countLabelled(C_DIR, 'direction', 'inbound'),
+       'We spoke last', '=' + countLabelled(C_DIR, 'direction', 'outbound'),
        'Archived (all time)', '=COUNTA(' + A_PHONE + ')-1');
   push('', '', '', '', '', '', '', '');
 
   push('RESPONSE TIME', '', '', '', '', '', '', '');
   // first_message_at is local ISO-8601 with an offset, and TEXT(NOW()) renders
   // local time in the same shape, so this string comparison is a real one.
+  const olderThan = (expr) => C_FIRST + ',"<"&TEXT(' + expr + ',"yyyy-mm-ddThh:mm:ss")';
+  // The oldest one still waiting. A text minimum, not MINIFS: the timestamps
+  // are ISO-8601 text, which MINIFS ignores and reports as 0. Every timestamp
+  // carries the same offset, so sorting them as text sorts them as instants.
+  const unansweredIs = labelVariants('status', 'UNANSWERED')
+    .map((v) => '(' + C_STATUS + '="' + v + '")').join('+');
   push('Waiting over 1 hour',
-       '=COUNTIFS(' + C_STATUS + ',"UNANSWERED",' + C_FIRST + ',"<"&TEXT(NOW()-1/24,"yyyy-mm-ddThh:mm:ss"))',
+       '=' + countLabelled(C_STATUS, 'status', 'UNANSWERED', olderThan('NOW()-1/24')),
        'Waiting over 24 hours',
-       '=COUNTIFS(' + C_STATUS + ',"UNANSWERED",' + C_FIRST + ',"<"&TEXT(NOW()-1,"yyyy-mm-ddThh:mm:ss"))',
+       '=' + countLabelled(C_STATUS, 'status', 'UNANSWERED', olderThan('NOW()-1')),
        'Oldest unanswered',
-       '=IFERROR(MINIFS(' + C_FIRST + ',' + C_STATUS + ',"UNANSWERED"),"none")', '', '');
+       '=IFERROR(INDEX(SORT(FILTER(' + C_FIRST + ',' + unansweredIs + ')),1),"none")', '', '');
   push('', '', '', '', '', '', '', '');
 
   push('PER AGENT', '', '', '', '', '', '', '');
@@ -196,8 +246,8 @@ const rgb = (a) => ({ red: a[0], green: a[1], blue: a[2] });
     push(
       name,
       '=' + openForAgent,
-      '=COUNTIFS(' + C_AGENT + ',"' + name + '",' + C_STATUS + ',"UNANSWERED")',
-      '=COUNTIFS(' + C_AGENT + ',"' + name + '",' + C_STATUS + ',"REPLIED")',
+      '=' + countLabelled(C_STATUS, 'status', 'UNANSWERED', C_AGENT + ',"' + name + '"'),
+      '=' + countLabelled(C_STATUS, 'status', 'REPLIED', C_AGENT + ',"' + name + '"'),
       '=COUNTIFS(' + M_AGENT + ',"' + id + '",' + M_DIR + ',"outbound")',
       '=COUNTIF(' + A_AGENT + ',"' + name + '")',
       String(max),
@@ -299,4 +349,13 @@ const rgb = (a) => ({ red: a[0], green: a[1], blue: a[2] });
 
   console.log('  Dashboard rebuilt: ' + rows.length + ' rows, ' + agentRows.length + ' agents');
   console.log('  Every figure is a live formula. Column letters derived from sheets-templates/.');
-})().catch((e) => { console.error('  failed: ' + e.message); process.exit(1); });
+}
+
+// The formula helpers are exported so the tests can read what this builds in
+// both languages, without a spreadsheet or a key.
+module.exports = { labelVariants, countLabelled, excluding, col, letter };
+
+if (require.main === module) {
+  if (!SHEET) { console.error('GOOGLE_SHEET_ID is not set in .env'); process.exit(2); }
+  main().catch((e) => { console.error('  failed: ' + e.message); process.exit(1); });
+}

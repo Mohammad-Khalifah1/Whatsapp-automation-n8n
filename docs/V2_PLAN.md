@@ -485,6 +485,8 @@ System tab displays, so a stale paste is visible.
 | C-33 | `onEdit` stamping vs protection | protected system block | The stamp fails for the agent | n8n stamps `closed_at` | V2-15 |
 | C-34 | Prototype contradiction | F9 deletes from the archive; rule 4 forbids it | — | Keep archive rows; mark `restored_at` | V2-42 |
 | C-35 | Failed sends write Messages rows with an empty id | wf7 "Record Sent Reply" (`dedupe_key` = `message:`) | Colliding dedupe keys | No Messages row for a blocked send; a failed send gets `failed:<conversation_id>:<time>` | V2-20 |
+| C-36 | The tools that write to the sheet compared English codes | `apply-sheet-layout.js` dropdowns and colours; `build-dashboard.js` formulas | On an Arabic sheet the dropdowns reject every value n8n writes, nothing is coloured, and the dashboard reports a quiet week for a desk that is on fire | Both now build their values from `labels.js`; the dashboard counts every spelling, so a sheet part-way through a change of language is still counted correctly. **Fixed with V2-12** | V2-12 |
+| C-37 | `SheetTools.gs` still compares English codes | the optional in-sheet menu: status list, colours, "mark ARCHIVED", `recalculateAgentLoad` | On an Arabic sheet the menu offers English statuses and counts nobody as loaded. Nothing depends on it — the Node tools own setup — but it is installed on some sheets | The one Apps Script project is rewritten runtime-only, with its values generated from `labels.js` | V2-37 |
 
 ---
 
@@ -724,6 +726,11 @@ These ship first, because every later phase builds on the paths they fix.
   by machines, not by people.
 - The Archive is a tab people read, so a row copied into it is converted back
   as well; Messages, Log and the API answers are not.
+- The two tools that write to the sheet followed (C-36): `apply-sheet-layout.js`
+  builds its dropdowns, colours and the values it names in the tab notes from
+  `labels.js`, and `build-dashboard.js` counts **every** spelling of a status,
+  so a sheet part-way through a change of language is still counted correctly.
+  `SheetTools.gs`, the optional in-sheet menu, is still English (C-37, V2-37).
 - Tests: `tests/labels/sheet-language.test.js` (22) runs the generated nodes of
   workflows 2, 3, 5, 7 and 8 twice, on the same rows written in each language,
   and checks the decisions match (E20); `tests/labels/labels.test.js` grew to 16
