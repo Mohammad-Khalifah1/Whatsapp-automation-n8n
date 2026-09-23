@@ -5,6 +5,35 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2, task V2-10 — The spikes, on a throwaway spreadsheet
+
+### Added
+
+- **`scripts/testing/spike-v2.js`**. Phase 3 of the V2 plan waits on questions
+  about how Google Sheets behaves, each with a fallback design, and choosing the
+  fallback costs far less before the work is done than after it.
+- It answers two by itself. **S2**: it seeds a bounded `ARRAYFORMULA`, appends
+  a row through the API with `null` in the derived column exactly as workflow 3
+  does, and reports whether the row landed directly below the last one, whether
+  the formula extended over it, and whether the formula survived. **S3**: it
+  sets the basic filter the team works in, writes a closing status through the
+  API and reads `hiddenByFilter` back to see whether the filter re-applied, then
+  adds a sorting filter view and re-reads the rows to see whether the underlying
+  order moved — the thing that would send every in-flight write to another
+  customer.
+- For **S1**, **S4**, **S5** and **S7** it prepares the fixtures — two header
+  rows with row 1 hidden, a protected block with the service account as editor —
+  and prints what to look at. It finishes by printing section 6.2 of the plan,
+  filled in and ready to paste.
+- It **refuses to run against `GOOGLE_SHEET_ID`**: the spikes delete tabs, set
+  filters and protect ranges, and on the live sheet that is between confusing
+  and destructive. It writes only to `SPIKE_*` tabs, and leaves them until
+  `--clean` removes them, because half the answers come from looking at them.
+- `tests/spikes/spike-v2.test.js` (21 tests) runs every verdict against recorded
+  API responses, including each shape that means the fallback — so the answer
+  the tool prints is not itself an experiment.
+
+---
 ## [Unreleased] — Version 2, task V2-40 — A case code people can say out loud
 
 ### Added

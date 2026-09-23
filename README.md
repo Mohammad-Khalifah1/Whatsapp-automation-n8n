@@ -156,7 +156,7 @@ running deployment, not inspected in the code.
 | Area | State |
 |---|---|
 | Docker + n8n environment | **Live** — n8n 2.38.5 on a VPS, behind nginx and Let's Encrypt |
-| Core business logic | **510 unit tests passing** |
+| Core business logic | **531 unit tests passing** |
 | Webhook receiver | **Verified live** — the handshake echoes the challenge; unsigned and wrongly-signed POSTs are refused |
 | Inbound message to a sheet row | **Verified live** |
 | Automatic assignment | **Verified live** — the eligible agent with the fewest open conversations |
@@ -202,7 +202,7 @@ node scripts/setup/build-workflows.js
 node scripts/setup/import-workflows.js
 
 # 5. Run the tests
-node tests/run-tests.js                   # 510 unit tests, no credentials needed
+node tests/run-tests.js                   # 531 unit tests, no credentials needed
 node scripts/validation/validate-workflows.js
 ```
 

@@ -7,7 +7,7 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **510 passing** |
+| 1 — Unit tests (business logic) | No | **531 passing** |
 | 2 — Workflow validation | No | **1282 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
@@ -58,7 +58,7 @@ node tests/run-tests.js assignment    # one area
 No npm install, no credentials, ~15 ms.
 
 ```
-510 passed, 0 failed, 510 total
+531 passed, 0 failed, 531 total
 ```
 
 | Suite | Tests | Covers |
@@ -76,6 +76,7 @@ No npm install, no credentials, ~15 ms.
 | `build/apps-script-rules.test.js` | 5 | The Apps Script files parse, and never delete, move or insert rows |
 | `conversations/reply-path.test.js` | 5 | How a customer was answered (app, sheet, paid template, API), and a first-reply time set once and never moved |
 | `labels/labels.test.js` | 16 | Codes inside, labels at the boundary: every status labelled, every code round-trips in every language, no repeated label, unknown values refused instead of guessed, and a whole row converted both ways |
+| `spikes/spike-v2.test.js` | 21 | The spike tool verdicts, against recorded API responses: where an append landed, whether a filter re-hid an edited row, whether a filter view sort moved the real rows, and the refusal to run on the live sheet |
 | `labels/sheet-language.test.js` | 22 | The same decisions on an Arabic sheet as on an English one: the generated nodes of workflows 2, 3, 5, 7 and 8 run twice, on the same rows written in each language |
 | `window/window.test.js` | 10 | Meta's 24-hour customer service window: boundaries, rounding, offsets, a missing or unreadable timestamp counted as closed |
 | `build/sheet-safe.test.js` | 42 | Customer text is never a formula: the guard itself, every generated write checked, and a hostile message through a real generated append |
@@ -250,6 +251,45 @@ by serialising — a concurrency limit of 1 was measured dropping webhooks under
 load. Instead load is counted live from the rows, so an uneven assignment
 corrects itself on the next one; the real fix is PostgreSQL. Documented in
 [ASSIGNMENT_ALGORITHM.md](ASSIGNMENT_ALGORITHM.md#concurrency-and-race-conditions).
+
+---
+
+## The V2 spikes have their own run
+
+```
+node scripts/testing/spike-v2.js --spreadsheet <throwaway id>
+node scripts/testing/spike-v2.js --create          # the automatic spikes only
+node scripts/testing/spike-v2.js --spreadsheet <id> --clean
+```
+
+Phase 3 of [V2_PLAN.md](V2_PLAN.md) waits on questions about how Google Sheets
+behaves, each with a fallback design. Choosing the fallback costs far less
+before the work is done than after it, so the questions are answered first.
+
+The tool answers two of them by itself:
+
+- **S2** — it seeds a tab with a bounded `ARRAYFORMULA`, appends a row through
+  the API with `null` in the derived column exactly as workflow 3 does, and
+  reports whether the row landed directly below the last one, whether the
+  formula extended over it, and whether the formula itself survived.
+- **S3** — it sets the basic filter the team works in, writes `CLOSED` into a
+  row through the API, and reads `hiddenByFilter` back to see whether the
+  filter re-applied. Then it adds a filter view that sorts descending and
+  re-reads the rows through the plain values API, to see whether the sort moved
+  the underlying order — the thing that would put every in-flight write on
+  another customer.
+
+For **S1**, **S4**, **S5** and **S7** it prepares the fixtures — two header
+rows with row 1 hidden, a protected block with the service account as editor —
+and prints what to look at. S6 needs a real conversation started from a
+Click-to-WhatsApp ad.
+
+It refuses to run against `GOOGLE_SHEET_ID`. Every tab it makes is named
+`SPIKE_*`, it writes nowhere else, and the tabs stay until `--clean` removes
+them, because half the answers come from looking at them.
+
+The answers, with the date and the evidence, go into section 6.2 of
+[V2_PLAN.md](V2_PLAN.md) — the tool prints that table ready to paste.
 
 ---
 

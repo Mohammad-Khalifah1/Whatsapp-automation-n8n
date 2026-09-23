@@ -524,6 +524,10 @@ System tab displays, so a stale paste is visible.
 S1 to S7 are answered before Phase 3 starts. S8 is an observation task (O6).
 The results are written back into this table with the date and the evidence.
 
+`node scripts/testing/spike-v2.js --spreadsheet <throwaway id>` answers S2 and
+S3, prepares the fixtures for S1, S4, S5 and S7, and prints the rows to paste
+here ([TESTING.md](TESTING.md#the-v2-spikes-have-their-own-run)).
+
 ---
 
 ## 7. Implementation tasks
@@ -667,10 +671,23 @@ These ship first, because every later phase builds on the paths they fix.
 
 ### 7.4 Phase 1 — foundations
 
-**V2-10 · Spikes S1–S7** · M · risk none
-- Files: new `scripts/testing/spike-v2.js` (documented in `TESTING.md`), a
-  temporary n8n workflow (not committed), and results written into
-  [6.2](#62-spikes-v2-10-on-a-throwaway-spreadsheet).
+**V2-10 · Spikes S1–S7** · M · risk none · **tool built; waiting on a throwaway spreadsheet**
+- As built: `scripts/testing/spike-v2.js`, documented in `TESTING.md`. It
+  answers **S2** and **S3** by itself — it seeds a bounded `ARRAYFORMULA`,
+  appends through the API with `null` in the derived column exactly as workflow
+  3 does, and reports where the row landed; it sets the basic filter, writes a
+  closing status through the API and reads `hiddenByFilter` back, then adds a
+  sorting filter view and re-reads the rows to see whether the real order
+  moved. For **S1**, **S4**, **S5** and **S7** it prepares the fixtures (two
+  header rows with row 1 hidden; a protected block with the service account as
+  editor) and prints what to look at. It refuses to run against
+  `GOOGLE_SHEET_ID`, writes only to `SPIKE_*` tabs, and prints the 6.2 table
+  ready to paste.
+- Tests: `tests/spikes/spike-v2.test.js` (21) runs each verdict against
+  recorded API responses, including every shape that means the fallback.
+- To run: share a throwaway spreadsheet with the service account, then
+  `node scripts/testing/spike-v2.js --spreadsheet <id>`. S6 needs a real
+  conversation started from a Click-to-WhatsApp ad.
 - Gate: Phase 3 waits for S1, S2, S3 and S7. Each "no" switches the affected
   tasks to their fallback first.
 
