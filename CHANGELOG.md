@@ -5,6 +5,29 @@ executed and observed.
 
 ---
 
+## [Unreleased] — Version 2 — The live scripts read the sheet as the workflows do
+
+### Fixed
+
+- `verify-live.js`, `verify-archive.js`, `scenario-multi-agent.js` and
+  `show-sheet.js` open the same spreadsheet as n8n and compared its cells
+  against English codes. On a sheet kept in another language every one of those
+  checks fails — a false alarm about a system that is working — and
+  `show-sheet` would report every conversation as open. They now compare
+  `toCode(field, cell)`, exactly as the workflows do.
+- The two scripts that set a status while testing wrote the code itself, which
+  the column's own validation rejects on an Arabic sheet. They now write the
+  label for the configured language.
+- `verify-live.js` also checks the new case code on the row it creates.
+
+### Added
+
+- `tests/labels/live-scripts.test.js` (12 tests) keeps the rule: these scripts
+  cannot be run without the live deployment, so the rule is checked in their
+  source, the way the Apps Script rules are — a cell is never compared to a
+  word, and a status is never written as a code.
+
+---
 ## [Unreleased] — Version 2, task V2-12 (continued) — The tools that write to the sheet speak its language too
 
 ### Fixed

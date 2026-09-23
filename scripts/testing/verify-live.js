@@ -40,6 +40,8 @@ const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
 
+const { toCode, toLabel } = require('../lib/labels');
+
 const ROOT = path.join(__dirname, '..', '..');
 
 // ---------------------------------------------------------------- config ---
@@ -73,6 +75,9 @@ const SHEET = ENV.GOOGLE_SHEET_ID;
 const APP_SECRET = ENV.META_APP_SECRET;
 const VERIFY_TOKEN = ENV.WEBHOOK_VERIFY_TOKEN;
 const PHONE_NUMBER_ID = ENV.META_PHONE_NUMBER_ID;
+// The language this sheet is kept in, so the script reads and writes it the
+// same way the workflows do (scripts/lib/labels.js).
+const LANG = String(ENV.SHEET_LANGUAGE || 'en').trim().toLowerCase();
 
 const SA_FILE = ENV.GOOGLE_SERVICE_ACCOUNT_FILE ||
   path.join(ROOT, 'SHEETKEYS.TXT');
@@ -334,7 +339,9 @@ async function main() {
 
   if (conv) {
     record('the conversation is waiting for a reply',
-      conv.status === 'UNANSWERED' || conv.status === 'WAITING_FOR_AGENT',
+      // The sheet may be kept in another language, so compare the code the
+      // label stands for, exactly as the workflows do.
+      ['UNANSWERED', 'WAITING_FOR_AGENT'].indexOf(toCode('status', conv.status)) !== -1,
       'status = ' + (conv.status || '(empty)'));
     record('the conversation is assigned to an agent', !!conv.assigned_agent_name,
       'assigned_agent_name is empty — check Agents has an active, available row');
@@ -342,6 +349,9 @@ async function main() {
       'customer_name = ' + conv.customer_name);
     record('first contact time is recorded', !!conv.first_message_at,
       'first_message_at is empty');
+    record('the case has a code a person can say out loud',
+      /^C-[0-9A-Z]{6}$/.test(String(conv.case_code || '')),
+      'case_code = ' + (conv.case_code || '(empty)'));
   }
 
   // The Messages row is written after the conversation row, so give the same
@@ -383,7 +393,7 @@ async function main() {
     record('the same agent keeps the conversation', conv2.assigned_agent_name === agentFirst,
       agentFirst + ' -> ' + conv2.assigned_agent_name);
     record('a new customer message returns the status to UNANSWERED',
-      conv2.status === 'UNANSWERED', 'status = ' + conv2.status);
+      toCode('status', conv2.status) === 'UNANSWERED', 'status = ' + conv2.status);
   }
 
   // --- 8: replying from the sheet ------------------------------------------
@@ -404,11 +414,11 @@ async function main() {
       // The synthetic number is not a real WhatsApp user, so Meta refuses it.
       // FAILED-with-a-reason is the correct result and proves the whole path.
       record('the outcome is written back to the same row',
-        replied.reply_status === 'SENT' || replied.reply_status === 'FAILED',
+        ['SENT', 'FAILED'].indexOf(toCode('reply_status', replied.reply_status)) !== -1,
         'reply_status = ' + replied.reply_status);
       record('reply_text is cleared so the text is not sent twice',
         replied.reply_text === '', 'reply_text = ' + replied.reply_text);
-      if (replied.reply_status === 'FAILED') {
+      if (toCode('reply_status', replied.reply_status) === 'FAILED') {
         record('a failure records why', !!replied.reply_error,
           'reply_error is empty');
       }
@@ -448,7 +458,7 @@ async function main() {
       return r && r.reply_status ? r : null;
     });
     record('a hand-typed row sends a real WhatsApp message',
-      !!sent && sent.reply_status === 'SENT',
+      !!sent && toCode('reply_status', sent.reply_status) === 'SENT',
       sent ? 'reply_status = ' + sent.reply_status + ' ' + (sent.reply_error || '') : 'no outcome after 150s');
   }
 
@@ -457,7 +467,10 @@ async function main() {
   const beforeArchive = await readTab('Conversations');
   const toArchive = beforeArchive.rows.find((r) => r.customer_phone === TEST_PHONE);
   if (toArchive) {
-    await writeCell('Conversations', toArchive._row, beforeArchive.header, 'status', 'ARCHIVED');
+    // Written in the sheet's own words: an English code in an Arabic column
+    // is understood by the workflows but fails the column's own validation.
+    await writeCell('Conversations', toArchive._row, beforeArchive.header, 'status',
+      toLabel('status', 'ARCHIVED', LANG));
     const moved = await waitFor('archive move', 150, async () => {
       const conversations = await readTab('Conversations');
       const archive = await readTab('Archive');

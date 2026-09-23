@@ -22,6 +22,8 @@ const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
 
+const { toCode } = require('../lib/labels');
+
 const ROOT = path.join(__dirname, '..', '..');
 
 function readEnvFile(file) {
@@ -142,8 +144,11 @@ async function main() {
 
     // The two questions that get asked most, answered without a second command.
     const conv = await readTab('Conversations');
-    const open = conv.rows.filter((r) => r.status && r.status !== 'CLOSED' && r.status !== 'ARCHIVED');
-    const waiting = open.filter((r) => r.status === 'UNANSWERED');
+    // Compared as codes: the sheet may hold the labels of another language.
+    const statusOf = (r) => toCode('status', r.status);
+    const open = conv.rows.filter((r) => r.status &&
+      statusOf(r) !== 'CLOSED' && statusOf(r) !== 'ARCHIVED');
+    const waiting = open.filter((r) => statusOf(r) === 'UNANSWERED');
     const unassigned = open.filter((r) => !r.assigned_agent_name);
     console.log('\n  ' + open.length + ' open, ' + waiting.length + ' waiting for a reply, ' +
                 unassigned.length + ' with nobody assigned');

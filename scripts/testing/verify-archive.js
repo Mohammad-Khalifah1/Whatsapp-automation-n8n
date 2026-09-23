@@ -32,6 +32,8 @@ const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
 
+const { toCode, toLabel } = require('../lib/labels');
+
 const ROOT = path.join(__dirname, '..', '..');
 
 function readEnvFile(file) {
@@ -54,6 +56,10 @@ const HOST = ENV.VERIFY_HOST || '72-61-181-1.sslip.io';
 const WEBHOOK_PATH = ENV.VERIFY_WEBHOOK_PATH || '/webhook/whatsapp/webhook';
 const SHEET = ENV.GOOGLE_SHEET_ID;
 const SA_FILE = ENV.GOOGLE_SERVICE_ACCOUNT_FILE || path.join(ROOT, 'SHEETKEYS.TXT');
+
+// The language this sheet is kept in: a status is written in its own words,
+// so the column's validation accepts what this script types into it.
+const LANG = String(ENV.SHEET_LANGUAGE || 'en').trim().toLowerCase();
 
 const RUN = Date.now().toString().slice(-9);
 const PHONES = ['96279' + RUN.slice(0, 7), '96278' + RUN.slice(0, 7), '96277' + RUN.slice(0, 7)];
@@ -234,7 +240,7 @@ async function main() {
   // --- 2: archive TWO of them, in the same sweep ----------------------------
   console.log('\nMarking two of the three ARCHIVED');
   for (let i = 0; i < 2; i += 1) {
-    await setCell('Conversations', before[i]._row, conv.header, 'status', 'ARCHIVED');
+    await setCell('Conversations', before[i]._row, conv.header, 'status', toLabel('status', 'ARCHIVED', LANG));
   }
 
   const moved = await waitFor(180, async () => {
@@ -312,7 +318,7 @@ async function main() {
   const last = leftover.rows.find((r) => r.customer_phone === PHONES[2]);
   if (last) {
     await setCell('Conversations', last._row, leftover.header, 'closed_at', longAgo);
-    await setCell('Conversations', last._row, leftover.header, 'status', 'CLOSED');
+    await setCell('Conversations', last._row, leftover.header, 'status', toLabel('status', 'CLOSED', LANG));
 
     const swept = await waitFor(180, async () => {
       const conversations = await readTab('Conversations');

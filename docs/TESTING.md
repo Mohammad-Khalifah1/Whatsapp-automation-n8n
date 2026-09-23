@@ -7,11 +7,11 @@ run and observed.
 
 | Level | Needs credentials? | Status |
 |---|---|---|
-| 1 — Unit tests (business logic) | No | **544 passing** |
+| 1 — Unit tests (business logic) | No | **556 passing** |
 | 2 — Workflow validation | No | **1282 checks passing** |
 | 3 — Live webhook (local HTTP) | No | **Passing** — verified against the running n8n |
 | 3b — Schema consistency | No | **9 checks passing** |
-| 4 — **End-to-end against the live deployment** | Yes (both) | **26 checks passing** |
+| 4 — **End-to-end against the live deployment** | Yes (both) | **26 checks passing** (27 once the case code is verified live) |
 | 5 — **Archiving** | Yes (both) | **17 checks passing** |
 
 Level 4 is the one that matters, and it is the reason nothing on this page is
@@ -58,7 +58,7 @@ node tests/run-tests.js assignment    # one area
 No npm install, no credentials, ~15 ms.
 
 ```
-544 passed, 0 failed, 544 total
+556 passed, 0 failed, 556 total
 ```
 
 | Suite | Tests | Covers |
@@ -77,6 +77,7 @@ No npm install, no credentials, ~15 ms.
 | `conversations/reply-path.test.js` | 5 | How a customer was answered (app, sheet, paid template, API), and a first-reply time set once and never moved |
 | `labels/labels.test.js` | 16 | Codes inside, labels at the boundary: every status labelled, every code round-trips in every language, no repeated label, unknown values refused instead of guessed, and a whole row converted both ways |
 | `spikes/spike-v2.test.js` | 21 | The spike tool verdicts, against recorded API responses: where an append landed, whether a filter re-hid an edited row, whether a filter view sort moved the real rows, and the refusal to run on the live sheet |
+| `labels/live-scripts.test.js` | 12 | The live scripts read the sheet as codes and write a status in the sheet's own words — a rule checked in the source, because running them needs the deployment |
 | `labels/sheet-tools.test.js` | 13 | The dropdowns, colours and dashboard formulas in both languages: every value the system writes is offered, every value has a colour whichever language it is in, and a count adds every spelling |
 | `labels/sheet-language.test.js` | 22 | The same decisions on an Arabic sheet as on an English one: the generated nodes of workflows 2, 3, 5, 7 and 8 run twice, on the same rows written in each language |
 | `window/window.test.js` | 10 | Meta's 24-hour customer service window: boundaries, rounding, offsets, a missing or unreadable timestamp counted as closed |

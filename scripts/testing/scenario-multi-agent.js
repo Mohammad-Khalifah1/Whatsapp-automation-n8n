@@ -28,6 +28,8 @@ const path = require('path');
 const https = require('https');
 const crypto = require('crypto');
 
+const { toCode } = require('../lib/labels');
+
 const ROOT = path.join(__dirname, '..', '..');
 const BASE = process.env.WEBHOOK_BASE || 'https://72-61-181-1.sslip.io';
 const SECRET_FILE = process.env.APP_SECRET_FILE || path.join(ROOT, 'meta');
@@ -156,7 +158,8 @@ function check(label, ok, detail) {
         'got ' + mine.length);
   check('every conversation has an agent', mine.every((c) => c.assigned_agent_id),
         mine.filter((c) => !c.assigned_agent_id).map((c) => c.customer_phone).join(', '));
-  check('every conversation starts UNANSWERED', mine.every((c) => c.status === 'UNANSWERED'),
+  check('every conversation starts UNANSWERED',
+        mine.every((c) => toCode('status', c.status) === 'UNANSWERED'),
         mine.map((c) => c.status).join(', '));
 
   const agents = new Set(mine.map((c) => c.assigned_agent_id).filter(Boolean));
@@ -195,7 +198,7 @@ function check(label, ok, detail) {
   }
   check('conversation stays with the SAME agent across messages', stuck);
   check('status returns to UNANSWERED on a new customer message',
-        after.every((c) => c.status === 'UNANSWERED'),
+        after.every((c) => toCode('status', c.status) === 'UNANSWERED'),
         after.map((c) => c.customer_name + '=' + c.status).join(', '));
 
   // last_message should be the most recent text sent by that customer
